@@ -40,7 +40,7 @@
   let liveGen = 0;                    // токен отмены всех показов: сброс всех/выключение перевода во время await
   let hoverEl = null;
   let dwellTimer = null;
-  let modTimer = null;                // отложенная реакция на нажатие клавиши-триггера
+  let modPress = null;                // { key, el }: клавиша-триггер нажата, ждём её отпускания
   let modWheelUntil = 0;              // до этого времени модификатор занят жестом прокрутки/зума
   let lastToastAt = 0;
   let detector = null;
@@ -61,7 +61,9 @@
   // DeepL её нужно перевести заново. В DEFAULTS этих полей нет, поэтому обрабатываем отдельно.
   const KEY_KEYS = ["apiKey", "llmApiKey"];
 
-  chrome.storage.local.get(DEFAULTS, (s) => { settings = s; });
+  // Перечисления (язык, движок, тон, способ показа, клавиша) сверяем с таблицами shared.js при
+  // каждом чтении: неизвестное значение становится значением по умолчанию.
+  chrome.storage.local.get(DEFAULTS, (s) => { settings = HT_validAll(s); });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     let dispChanged = false, txChanged = false, enabledOff = false;
@@ -72,8 +74,10 @@
         continue;
       }
       if (!(k in DEFAULTS)) continue;       // игнорируем чужие ключи (записи кэша, статистика, служебные popup)
-      settings[k] = ch.newValue;
-      if (ch.oldValue === ch.newValue) continue; // значение не поменялось (popup пишет все ключи разом)
+      settings[k] = HT_valid(k, ch.newValue);
+      // Значение не поменялось (popup пишет все ключи разом). Сравниваем уже сверенные значения:
+      // замена неизвестного значения на значение по умолчанию ничего не меняет.
+      if (HT_valid(k, ch.oldValue) === settings[k]) continue;
       if (DISP_KEYS.includes(k)) dispChanged = true;
       else if (TX_KEYS.includes(k)) txChanged = true;
       if (k === "targetLang" && hud) syncHud();
@@ -146,6 +150,25 @@
   // mouseover, то есть десятки тысяч раз за один перевод страницы.
   function isOurUi(el) { return !!el && el.nodeType === 1 && el.hasAttribute("data-ht-ui"); }
 
+  // Автор страницы просит не переводить элемент и всё внутри него: translate="no" (стандарт HTML)
+  // или класс notranslate (соглашение Google Переводчика) — код, имена, тексты для изучения языка.
+  function authorNoTranslate(el) {
+    if (el.classList && el.classList.contains("notranslate")) return true;
+    const t = el.getAttribute("translate");
+    return t !== null && t.toLowerCase() === "no";
+  }
+
+  // Запрет на элементе или его предках. Запрет на <html>/<body> не учитываем: так SPA защищаются
+  // от Google Переводчика, который перестраивает DOM и ломает каркас, — мы меняем только текст
+  // узлов, а запрет на весь документ молча выключал бы расширение на таких сайтах целиком.
+  function insideNoTranslate(el) {
+    const root = document.documentElement, body = document.body;
+    for (let e = el; e && e !== body && e !== root; e = e.parentElement) {
+      if (authorNoTranslate(e)) return true;
+    }
+    return false;
+  }
+
   function isTextTarget(el) {
     if (!el || el.nodeType !== 1) return false;
     // SVG/MathML и прочий foreign-content переводить не беремся (графика/формулы).
@@ -153,6 +176,7 @@
     if (el.isContentEditable) return false;
     if (SKIP_TAGS.has(el.tagName)) return false;
     if (isOurUi(el)) return false;
+    if (insideNoTranslate(el)) return false;
     const text = (el.textContent || "").trim();
     if (text.length < 2 || text.length > 2000) return false;
     if (!/\p{L}/u.test(text)) return false;
@@ -170,6 +194,7 @@
     for (let el = p; el; el = el.parentElement) {     // вверх до owner: пропускаем code/pre/svg и т.п.
       if (el.namespaceURI && el.namespaceURI !== XHTML_NS) return false;
       if (SKIP_TAGS.has(el.tagName)) return false;
+      if (authorNoTranslate(el)) return false;         // предков owner-а уже проверил isTextTarget
       if (el === owner) break;
     }
     return true;
@@ -204,6 +229,22 @@
     if (settings.trigger === "alt") return e.key === "Alt";
     if (settings.trigger === "ctrl") return e.key === "Control" || e.key === "Meta";
     return false;
+  }
+
+  // Нажат ровно один модификатор — сама клавиша-триггер (её флаг в событии уже стоит).
+  // Alt+Shift (смена раскладки), Ctrl+Shift+… — это сочетания, а не наш жест.
+  function soloMod(e) { return e.shiftKey + e.ctrlKey + e.altKey + e.metaKey === 1; }
+
+  // Фокус в поле ввода: нажатый модификатор там — набор текста (заглавная буква, Ctrl+C/V),
+  // а не просьба перевести абзац под курсором. Заходим и в открытые shadow root веб-компонентов.
+  // Флажки и кнопки-<input> текст не принимают — после клика по ним режим клавиши не глушим.
+  const NO_TYPING_INPUTS = /^(button|checkbox|radio|submit|reset|range|color|file|image)$/;
+  function typingFocus() {
+    let el = document.activeElement;
+    while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+    if (!el || el.nodeType !== 1) return false;
+    if (el.tagName === "INPUT") return !NO_TYPING_INPUTS.test(el.type);
+    return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
   }
 
   // Запустить/снять перевод owner-а под курсором (по клавише-триггеру).
@@ -488,6 +529,11 @@
     * { box-sizing: border-box; }
   `;
 
+  // Shadow root закрытый: в открытый сайт может зайти через host.shadowRoot и выбрать в списке
+  // мини-панели любое значение, а оно пишется в настройки и действует на всех сайтах.
+  // host.shadowRoot у закрытого — null, поэтому ссылку на root держим сами.
+  const uiRoots = new WeakMap();      // host -> его закрытый shadow root
+
   function makeUiHost(css, zIndex) {
     const host = document.createElement("div");
     host.setAttribute("data-ht-ui", "1");
@@ -500,7 +546,8 @@
     s.setProperty("width", "max-content", "important");
     s.setProperty("visibility", "visible", "important");
     s.setProperty("opacity", "1", "important");
-    const root = host.attachShadow({ mode: "open" });
+    const root = host.attachShadow({ mode: "closed" });
+    uiRoots.set(host, root);
     const style = document.createElement("style");
     style.textContent = UI_BASE_CSS + css;
     root.appendChild(style);
@@ -609,6 +656,7 @@
     // Мерцание, от которого раньше спасал pointer-events:none, закрыто проверками relatedTarget
     // здесь и в обработчике mouseout.
     host.addEventListener("mouseleave", (ev) => {
+      if (!ev.isTrusted) return;                          // хост лежит в DOM страницы — события сайта не слушаем
       if (settings.trigger !== "dwell") return;          // в режиме клавиши держим до повторного нажатия
       const to = ev.relatedTarget;
       if (to && (el === to || el.contains(to))) return;  // вернулись на сам элемент — карточку держим
@@ -624,7 +672,7 @@
 
   // Содержимое карточки. Только textContent: ответ движка недоверенный, в innerHTML не пишем.
   function fillPopover(host, content, badge, stateClass) {
-    const card = host.shadowRoot.querySelector(".card");
+    const card = uiRoots.get(host).querySelector(".card");
     card.className = "card" + (stateClass ? " " + stateClass : "");
     card.textContent = "";
     if (badge) {
@@ -840,8 +888,20 @@
     requestAnimationFrame(() => { restylePending = false; restyleAll(); });
   }
 
+  // Смена настроек будит content-скрипт во всех фреймах всех вкладок, и каждый заново оплатил бы
+  // всё, что в нём показано, — хотя видна одна вкладка. Скрытая вкладка перепереводит при первом
+  // показе (iframe видим вместе со своей вкладкой).
+  let retranslateOnShow = false;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && retranslateOnShow) {
+      retranslateOnShow = false;
+      scheduleRetranslate();
+    }
+  });
+
   function scheduleRetranslate() {
     clearTimeout(retranslateTimer);
+    if (document.visibilityState !== "visible") { retranslateOnShow = true; return; }
     retranslateTimer = setTimeout(retranslateAll, 350); // коалесинг (ввод в «не переводить» и т.п.)
   }
 
@@ -850,6 +910,8 @@
   const LINE_BATCH = 20;
   async function retranslateAll() {
     if (!settings.enabled) return;
+    // Вкладку могли скрыть за время задержки — тогда тоже ждём её показа.
+    if (document.visibilityState !== "visible") { retranslateOnShow = true; return; }
     const list = [];
     for (const line of lines) {
       if (!line.owner.isConnected || inFlight.has(line.owner)) continue;
@@ -1030,10 +1092,20 @@
   }
 
   // ---- события ----
+  // Везде проверяем e.isTrusted: страница может сама разослать mouseover/keydown/wheel через
+  // dispatchEvent и так запускать платные переводы за счёт ключа пользователя.
   document.addEventListener("mouseover", (e) => {
+    if (!e.isTrusted) return;
     if (!settings.enabled) return;
     const target = pickTarget(e.target);
     hoverEl = (target && isTextTarget(target)) ? target : null;
+    // Клавишу держат и ведут курсор дальше — это жест «держу и навожу», а не одиночное нажатие:
+    // переводим и элемент, над которым клавишу нажали, как все, над которыми проводят.
+    if (modPress && modPress.el !== hoverEl && modHeld(e) && !modBusy()) {
+      const start = modPress.el;
+      modPress = null;
+      if (start.isConnected && !isBusy(start)) startHover(start);
+    }
     if (!hoverEl) return;
 
     if (settings.trigger === "dwell") {
@@ -1048,14 +1120,19 @@
   // Жест колеса с зажатым модификатором: запоминаем, что клавишу держат не для нас. Слушатель
   // пассивный и только читает флаги события — прокрутку страницы он не задерживает.
   addEventListener("wheel", (e) => {
+    if (!e.isTrusted) return;
     if (settings.trigger !== "dwell" && modHeld(e)) {
       modWheelUntil = Date.now() + MOD_WHEEL_GRACE;
-      clearTimeout(modTimer);         // и отменяем реакцию на само нажатие клавиши
+      modPress = null;                // и отменяем реакцию на само нажатие клавиши
     }
   }, { capture: true, passive: true });
 
   document.addEventListener("mouseout", (e) => {
+    if (!e.isTrusted) return;
     clearTimeout(dwellTimer);
+    // Курсор ушёл из окна (или из этого фрейма): элемента под курсором больше нет. Иначе нажатие
+    // клавиши-триггера потом переводило бы абзац, с которого курсор давно ушёл.
+    if (!e.relatedTarget) hoverEl = null;
     if (settings.trigger !== "dwell") return; // в режиме клавиши перевод остаётся
     const owner = pickTarget(e.target);
     if (!owner) return;
@@ -1074,20 +1151,37 @@
     if (line && !line.persistent) restoreLine(line); // закреплённые (страница) не откатываем мышью
   }, true);
 
-  // Нажатие клавиши-триггера отрабатываем с небольшой задержкой: в момент нажатия ещё неизвестно,
-  // зажали её для перевода или чтобы сейчас прокрутить колесом. Если колесо придёт — реакция
-  // отменяется (см. слушатель wheel). Задержка заметно меньше дефолтной задержки наведения.
-  const MOD_DELAY = 160;
+  // Клавиша-триггер срабатывает на «чистое» нажатие: модификатор нажали и отпустили, и за это время
+  // не было ни другой клавиши (заглавная буква, Ctrl+C/V/F), ни кнопки мыши (Shift+клик —
+  // выделение, Ctrl+клик — ссылка в новой вкладке), ни колеса (Shift+колесо — прокрутка вбок,
+  // Ctrl+колесо — масштаб). В момент нажатия этого ещё не знать, поэтому решаем при отпускании:
+  // таймер после нажатия не спасает от сочетания, набранного чуть медленнее таймера.
   document.addEventListener("keydown", (e) => {
+    if (!e.isTrusted) return;
+    if (e.repeat) return;                 // автоповтор зажатой клавиши — не новое нажатие
+    modPress = null;                      // любая клавиша обрывает ожидаемое нажатие…
     if (!settings.enabled || settings.trigger === "dwell") return;
-    if (e.repeat) return;
-    if (!isTriggerKey(e) || !hoverEl || modBusy()) return;
-    const el = hoverEl;
-    clearTimeout(modTimer);
-    // hoverEl === el заодно отсекает случай, когда за время задержки под курсор проехал другой
-    // элемент: при прокрутке mouseover приходит на новые элементы и hoverEl меняется.
-    modTimer = setTimeout(() => { if (!modBusy() && hoverEl === el) toggle(el); }, MOD_DELAY);
+    if (!isTriggerKey(e) || !soloMod(e)) return;
+    if (!hoverEl || modBusy() || typingFocus()) return;
+    modPress = { key: e.key, el: hoverEl }; // …а одиночный модификатор над текстом начинает новое
   }, true);
+
+  document.addEventListener("keyup", (e) => {
+    if (!e.isTrusted) return;
+    const p = modPress;
+    if (!p || e.key !== p.key) return;
+    modPress = null;
+    // hoverEl === p.el отсекает случай, когда за время нажатия курсор ушёл с элемента (в том числе
+    // из окна) или под него при прокрутке приехал другой.
+    if (!settings.enabled || settings.trigger === "dwell" || modBusy() || hoverEl !== p.el) return;
+    toggle(p.el);
+  }, true);
+
+  addEventListener("mousedown", (e) => { if (e.isTrusted) modPress = null; }, true);
+
+  // Окно потеряло фокус (Alt+Tab, клик в адресную строку): отпускание клавиши придёт уже не нам,
+  // а элемент под курсором неизвестен до следующего движения мыши.
+  addEventListener("blur", () => { hoverEl = null; modPress = null; });
 
   // Команды из popup. Обязательно отвечаем (sendResponse), иначе на стороне popup
   // взводится lastError «порт закрыт» и страница ошибочно считается недоступной.
@@ -1169,7 +1263,12 @@
       sel.appendChild(o);
     }
     sel.value = settings.targetLang;
-    sel.addEventListener("change", () => { chrome.storage.local.set({ targetLang: sel.value }); });
+    // Панель живёт на странице, а запись действует на всех сайтах — пишем только настоящий выбор
+    // пользователя и только значение из таблицы языков.
+    sel.addEventListener("change", (e) => {
+      if (!e.isTrusted || HT_valid("targetLang", sel.value) !== sel.value) return;
+      chrome.storage.local.set({ targetLang: sel.value });
+    });
 
     bar.append(
       grip, sel,
@@ -1187,7 +1286,7 @@
     b.type = "button";
     b.textContent = text;
     b.title = title;
-    b.addEventListener("click", onClick);
+    b.addEventListener("click", (e) => { if (e.isTrusted) onClick(); });
     return b;
   }
 
@@ -1195,11 +1294,13 @@
   // за ручку. Позицию помним на время жизни страницы.
   function bindHudDrag(host, grip) {
     grip.addEventListener("pointerdown", (e) => {
+      if (!e.isTrusted) return;
       e.preventDefault();
       const r = host.getBoundingClientRect();
       const dx = e.clientX - r.left, dy = e.clientY - r.top;
-      const move = (ev) => placeHud(host, ev.clientX - dx, ev.clientY - dy);
-      const up = () => {
+      const move = (ev) => { if (ev.isTrusted) placeHud(host, ev.clientX - dx, ev.clientY - dy); };
+      const up = (ev) => {
+        if (!ev.isTrusted) return;
         removeEventListener("pointermove", move);
         removeEventListener("pointerup", up);
         removeEventListener("pointercancel", up);

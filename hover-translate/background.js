@@ -53,12 +53,20 @@ function ensureCache() {
 const stats = { chars: 0, hits: 0, saved: 0 }; // символов отправлено в API / попаданий кэша / символов из кэша
 let statsTimer = null;
 let statsLoaded = false;              // сохранённые значения уже учтены (или намеренно сброшены)
+// Суточный счётчик лимита по инициативе страницы (см. PAGE_DAY_MAX): загружается в startupReady,
+// пишется вместе со статистикой в persistStats.
+let pageDay = { day: "", chars: 0 };
 
 function persistStats() {
   if (statsTimer) return;             // троттлинг записи (раз в ~1.5 с)
   statsTimer = setTimeout(() => {
     statsTimer = null;
-    chrome.storage.local.set({ statChars: stats.chars, statHits: stats.hits, statSaved: stats.saved }).catch(() => {});
+    const rec = { statChars: stats.chars, statHits: stats.hits, statSaved: stats.saved };
+    // Суточный счётчик лимита (см. PAGE_DAY_MAX) пишем той же записью, а не отдельной: каждая
+    // запись в storage.local будит onChanged во всех фреймах всех вкладок. Пустой day — счётчик
+    // ещё не загружен и не трогался, затирать сохранённый нельзя.
+    if (pageDay.day) rec.htPageDay = pageDay;
+    chrome.storage.local.set(rec).catch(() => {});
   }, 1500);
 }
 function countHit(text) { stats.hits++; stats.saved += (text || "").length; persistStats(); }
@@ -175,8 +183,12 @@ function pruneLcache() {
 // Единственное чтение storage.local при старте воркера: статистика, объём L3 и отметка о
 // последней чистке — тремя отдельными get это было три IPC на каждое пробуждение.
 const startupReady = chrome.storage.local
-  .get({ statChars: 0, statHits: 0, statSaved: 0, htPrunedAt: 0, htLcacheBytes: -1 })
+  .get({ statChars: 0, statHits: 0, statSaved: 0, htPrunedAt: 0, htLcacheBytes: -1, htPageDay: null })
   .then((s) => {
+    // Суточный счётчик лимита: translateMany ждёт startupReady до budgetTake, поэтому к этому
+    // моменту в памяти он ещё не менялся и его можно просто подставить.
+    const pd = s.htPageDay;
+    if (pd && typeof pd.day === "string" && typeof pd.chars === "number" && !pageDay.day) pageDay = { day: pd.day, chars: pd.chars };
     // Прибавляем, а не присваиваем: счётчики, набежавшие до загрузки, иначе затирались бы
     // (а сброс статистики — наоборот, откатывался бы к прежним значениям).
     if (!statsLoaded) {
@@ -243,16 +255,37 @@ function retryAfterMs(header, fallback) {
   return Number.isNaN(date) ? fallback : Math.max(0, date - Date.now());
 }
 
+// Тайм-ауты запросов. Без них подвисшее соединение навсегда оставило бы «загрузку» на странице и
+// остановило перевод страницы на полпути. Предел — меньше 30 с: Chrome завершает service
+// worker, если ответ на fetch идёт дольше. DeepL отвечает за секунды; ИИ генерирует ответ целиком
+// (без потока), поэтому ему больше времени и меньше кусок текста (см. LLM_CHUNK_CHARS).
+const DEEPL_TIMEOUT_MS = 15000;
+const LLM_TIMEOUT_MS = 25000;
+
+// Сигнал, который сам обрывает запрос через ms. Действует и на чтение тела (res.json()), не только
+// на заголовки. Таймер после успешного ответа не снимаем: обрыв уже завершённого запроса ничего
+// не делает. AbortSignal.timeout() не берём — его нет в Chrome 102 (minimum_chrome_version).
+function timeoutSignal(ms) {
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(new DOMException(`нет ответа за ${ms / 1000} с`, "TimeoutError")), ms);
+  return ctrl.signal;
+}
+// Кроме тайм-аута запросы никто не обрывает, поэтому AbortError (старые версии Chrome отдают его
+// вместо причины обрыва) — тоже тайм-аут.
+function isTimeout(e) { return !!e && (e.name === "TimeoutError" || e.name === "AbortError"); }
+
 // fetch с ретраями на 429/5xx и на брошенных сетевых ошибках (transient): учитываем Retry-After
 // (секунды или HTTP-дата), иначе экспоненциальный backoff. Общий для DeepL и LLM — LLM-ветка
 // раньше ходила голым fetch и падала на первом же 429.
-async function fetchRetry(url, options, maxRetries = 2) {
+// Тайм-аут не повторяем: запрос мог дойти до провайдера и быть оплачен, а повтор удвоил бы и
+// плату, и ожидание. Пользователь видит ошибку и может навести ещё раз.
+async function fetchRetry(url, options, timeoutMs, maxRetries = 2) {
   for (let attempt = 0; ; attempt++) {
     let res;
     try {
-      res = await fetch(url, options);
+      res = await fetch(url, Object.assign({}, options, { signal: timeoutSignal(timeoutMs) }));
     } catch (e) {
-      if (attempt >= maxRetries) throw e; // сеть так и не поднялась — пусть обработает вызывающий
+      if (isTimeout(e) || attempt >= maxRetries) throw e; // пусть обработает вызывающий
       await new Promise((r) => setTimeout(r, 600 * Math.pow(2, attempt)));
       continue;
     }
@@ -268,32 +301,58 @@ const ENGINE_SETTINGS = {
   apiKey: "", llmApiKey: "",
   llmProvider: HT_DEFAULTS.llmProvider, llmModel: HT_DEFAULTS.llmModel,
 };
-function getSettings() { return chrome.storage.local.get(ENGINE_SETTINGS); }
+// Провайдер ИИ сверяем с таблицей (shared.js): хранилище могли записать не из popup.
+function getSettings() { return chrome.storage.local.get(ENGINE_SETTINGS).then(HT_validAll); }
 
 // ---- бюджет расхода: страница не должна уметь бесконечно тратить ключ пользователя ----
 // Ось — КТО инициировал перевод (см. HT_BY_PAGE / HT_BY_USER в shared.js), а не «наведение или
 // страница»: смена языка перетранслирует и hover-строки, но инициировал её пользователь.
 // Считаем только фактические промахи кэша, то есть реально оплачиваемые символы.
+// Лимит по инициативе страницы: 10 000 знаков в минуту на вкладку — это 5 абзацев предельной
+// длины (2000 знаков) или ~25 обычных (~400) в минуту, в несколько раз быстрее чтения даже
+// бегло; повторное наведение берётся из кэша и лимит не тратит. Враждебная страница при этом
+// выедает не больше 10 000 знаков в минуту, а суточный потолок ограничивает итог.
 const BUDGETS = {
-  [HT_BY_PAGE]: { windowMs: 60000, maxChars: 60000, maxReqs: 60 },
+  [HT_BY_PAGE]: { windowMs: 60000, maxChars: 10000, maxReqs: 60 },
   [HT_BY_USER]: { windowMs: 60000, maxChars: 800000, maxReqs: 300 },
 };
-const budgets = new Map(); // "origin|кто" -> { start, chars, reqs }
+// Суточный потолок для переводов по инициативе страницы — общий на все вкладки: 100 000 знаков
+// ≈ час чтения с переводом каждого абзаца и 1/5 месячной бесплатной квоты DeepL. Минутный лимит
+// живёт в памяти и обнуляется вместе с воркером, суточный хранится в storage.local (htPageDay).
+const PAGE_DAY_MAX = 100000;
+const budgets = new Map(); // "вкладка|кто" -> { start, chars, reqs }
 
-function budgetTake(origin, by, chars) {
-  // Поле пришло сообщением, поэтому проверяем его, а не доверяем: неизвестное значение —
-  // по строгому лимиту.
-  const kind = BUDGETS[by] ? by : HT_BY_PAGE;
+// Лимит считаем на вкладку, а не на фрейм: у каждого iframe свой origin, и страница с фреймами с
+// разных поддоменов иначе получала бы по лимиту на каждый. Адрес верхней страницы (sender.tab.url) без
+// разрешения "tabs" приходит только при правах на этот адрес — их нет, если пользователь
+// ограничил доступ расширения к сайтам; номер вкладки приходит всегда, когда сообщение из вкладки.
+function budgetKeyOf(sender) {
+  return sender && sender.tab && sender.tab.id != null ? "tab:" + sender.tab.id : "origin:" + originOf(sender);
+}
+
+function budgetTake(key, by, chars) {
+  // Поле пришло сообщением, поэтому проверяем его, а не доверяем: всё, кроме явного «по действию
+  // пользователя», — по строгому лимиту.
+  const kind = by === HT_BY_USER ? HT_BY_USER : HT_BY_PAGE;
   const cfg = BUDGETS[kind];
   const now = Date.now();
-  if (budgets.size > 200) {            // не даём карте расти бесконечно по числу посещённых сайтов
-    for (const [key, b] of budgets) if (now - b.start > 3600000) budgets.delete(key);
+  if (budgets.size > 200) {            // не даём карте расти бесконечно по числу вкладок
+    for (const [k, b] of budgets) if (now - b.start > 3600000) budgets.delete(k);
   }
-  const k = (origin || "-") + "|" + kind;
+  const k = (key || "-") + "|" + kind;
   let b = budgets.get(k);
   if (!b || now - b.start > cfg.windowMs) { b = { start: now, chars: 0, reqs: 0 }; budgets.set(k, b); }
   if (b.reqs >= cfg.maxReqs || b.chars + chars > cfg.maxChars) {
-    return "Лимит перевода для этого сайта исчерпан — подождите минуту (защита от перерасхода ключа).";
+    return "Лимит перевода для этой вкладки исчерпан — подождите минуту (защита от перерасхода ключа).";
+  }
+  if (kind === HT_BY_PAGE) {
+    const day = new Date(now).toDateString();   // местные сутки: «до завтра» понятнее скользящих 24 ч
+    if (pageDay.day !== day) pageDay = { day, chars: 0 };
+    if (pageDay.chars + chars > PAGE_DAY_MAX) {
+      return "Исчерпан дневной лимит перевода под курсором (100 000 знаков) — защита от перерасхода ключа. «Перевести страницу» по-прежнему работает.";
+    }
+    pageDay.chars += chars;
+    persistStats();
   }
   b.reqs++; b.chars += chars;
   return null;
@@ -419,6 +478,7 @@ function deeplErr(status) {
     status === 429 ? " (слишком много запросов)" : "";
   return `DeepL ${status}${hint}`;
 }
+const DEEPL_TIMEOUT_ERR = `DeepL не ответил за ${DEEPL_TIMEOUT_MS / 1000} с — попробуйте ещё раз.`;
 
 // DeepL принимает не более 50 параметров text И не более 128 KiB тела запроса. Узловой перевод
 // даёт батчи крупнее, а для кириллицы/CJK символ занимает 2–3 байта, поэтому режем и по
@@ -440,13 +500,15 @@ async function deeplTranslateMany(texts, o, apiKey) {
       method: "POST",
       headers: Object.assign(deeplAuth(apiKey), { "Content-Type": "application/json" }),
       body: JSON.stringify(deeplBody(wrapped, o)),
-    });
+    }, DEEPL_TIMEOUT_MS);
   } catch (e) {
-    return { ok: false, error: `Сеть: ${e.message}` };
+    return { ok: false, error: isTimeout(e) ? DEEPL_TIMEOUT_ERR : `Сеть: ${e.message}` };
   }
   if (!res.ok) return { ok: false, error: deeplErr(res.status) };
   let data;
-  try { data = await res.json(); } catch (e) { return { ok: false, error: "Не удалось разобрать ответ DeepL." }; }
+  try { data = await res.json(); } catch (e) {
+    return { ok: false, error: isTimeout(e) ? DEEPL_TIMEOUT_ERR : "Не удалось разобрать ответ DeepL." };
+  }
   // Длину проверяем обязательно: короткий ответ сдвинул бы все последующие чанки и записал в L3
   // на 14 дней пары «исходник A ↔ перевод B». В LLM-ветке от этого защищает coerceArr.
   if (!data || !Array.isArray(data.translations) || data.translations.length !== texts.length) {
@@ -463,11 +525,31 @@ async function deeplTranslateMany(texts, o, apiKey) {
 }
 
 // ---- LLM (OpenAI / Anthropic) ----
-function langName(code) { return HT_LANG_NAMES[code] || code; }
+// В инструкцию для ИИ попадает только имя из таблицы, никогда не сам код: код пришёл сообщением,
+// и произвольная строка на его месте стала бы prompt-инъекцией во все переводы на всех сайтах.
+// Коды сверяются с таблицами ещё в translateMany, сюда неизвестный попасть не должен.
+function langName(code) {
+  return Object.prototype.hasOwnProperty.call(HT_LANG_NAMES, code)
+    ? HT_LANG_NAMES[code] : HT_LANG_NAMES[HT_DEFAULTS.targetLang];
+}
 
 const LLM_DEFAULT_MODEL = { openai: "gpt-4o-mini", anthropic: "claude-haiku-4-5-20251001" };
 function llmModelOf(provider, model) { return model || LLM_DEFAULT_MODEL[provider] || LLM_DEFAULT_MODEL.openai; }
-function llmErr(status) { return `LLM ${status}${status === 401 ? " (ключ?)" : ""}`; }
+const LLM_TIMEOUT_ERR = `LLM не ответил за ${LLM_TIMEOUT_MS / 1000} с — попробуйте ещё раз или выберите модель быстрее.`;
+
+// Ошибка с текстом из тела ответа: по одному коду не понять, что не так (нет такой модели,
+// неподдерживаемый параметр, кончились деньги на счёте). Оба провайдера кладут его в
+// error.message. Текст показывается и на странице (уведомление, title элемента), поэтому всё,
+// похожее на ключ, вырезаем: OpenAI в ответе на 401 повторяет начало и конец ключа.
+async function llmErr(res) {
+  let msg = "";
+  try {
+    const d = await res.json();
+    if (d && d.error && typeof d.error.message === "string") msg = d.error.message;
+  } catch (e) { /* тело не JSON или не дочиталось — хватит кода */ }
+  msg = msg.replace(/\bsk-[\w*.-]+/g, "sk-…").replace(/\s+/g, " ").trim().slice(0, 200);
+  return `LLM ${res.status}${res.status === 401 ? " (ключ?)" : ""}${msg ? ": " + msg : ""}`;
+}
 // Anthropic требует версию API и явное разрешение прямого доступа из браузерного контекста.
 function llmHeaders(provider, key) {
   return provider === "anthropic"
@@ -534,10 +616,19 @@ function parseLlmJson(content, expected) {
   return null;
 }
 
-// Ответ примерно той же длины, что и вход, а max_tokens ограничен (raw fetch без стриминга —
-// большие значения рискуют таймаутом), поэтому батч режем по суммарной длине в символах.
-const LLM_CHUNK_CHARS = 12000;
+// Ответ примерно той же длины, что и вход, а приходит он целиком (без потока) и обязан успеть за
+// LLM_TIMEOUT_MS, поэтому батч режем по суммарной длине в символах. 2500 знаков перевода — это
+// ~1000–1500 токенов ответа, 10–20 с у быстрых моделей; абзац при наведении (до 2000 знаков)
+// уходит одним запросом, перевод страницы — несколькими последовательными.
+const LLM_CHUNK_CHARS = 2500;
 const LLM_MAX_TOKENS = 16000;
+// У моделей OpenAI с рассуждением (o-серия, GPT-5 и новее) max_completion_tokens включает и
+// скрытые токены рассуждения: с тем же потолком, что у Anthropic, модель могла бы потратить его
+// на рассуждение и вернуть пустой ответ. Им даём запас сверху. Больше не нужно: столько токенов
+// модель всё равно не успеет выдать до тайм-аута. Без рассуждения — только семейства gpt-3.5/gpt-4
+// (gpt-4o, gpt-4.1…); неизвестную модель считаем рассуждающей — лишний запас безопаснее пустого ответа.
+const LLM_REASONING_TOKENS = 4096;
+function openaiReasons(model) { return !/^(gpt-3\.5|gpt-4|chatgpt-4o)/i.test(model); }
 const llmSize = (t) => (t || "").length;
 
 function llmTranslateMany(texts, o, key, provider, model) {
@@ -556,10 +647,13 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
   }
   const anthropic = provider === "anthropic";
   const model_ = llmModelOf(provider, model);
+  // temperature не передаём: модели с рассуждением (GPT-5, o-серия) отвечают 400 на любое
+  // значение, кроме значения по умолчанию.
   const body = anthropic
     ? { model: model_, max_tokens: want, system: sys, messages: [{ role: "user", content: user }] }
     : {
-        model: model_, temperature: 0,
+        model: model_,
+        max_completion_tokens: want + (openaiReasons(model_) ? LLM_REASONING_TOKENS : 0),
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: sys }, { role: "user", content: user }],
       };
@@ -569,25 +663,34 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
       method: "POST",
       headers: llmHeaders(provider, key),
       body: JSON.stringify(body),
-    });
-    if (!res.ok) return { ok: false, error: llmErr(res.status) };
+    }, LLM_TIMEOUT_MS);
+    if (!res.ok) return { ok: false, error: await llmErr(res) };
     d = await res.json();
   } catch (e) {
-    return { ok: false, error: `Сеть LLM: ${e.message}` };
+    return { ok: false, error: isTimeout(e) ? LLM_TIMEOUT_ERR : `Сеть LLM: ${e.message}` };
   }
+  const choice = !anthropic && d && d.choices && d.choices[0];
   const content = anthropic
     ? (d && d.content && d.content[0] ? d.content[0].text : "")
-    : (d && d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : "");
+    : (choice && choice.message ? choice.message.content : "");
   let arr = parseLlmJson(content || "", texts.length);
-  if (!arr) return { ok: false, error: "LLM вернул неожиданный формат." };
+  if (!arr) {
+    // Упёрлись в потолок длины — говорим об этом прямо: у моделей с рассуждением это значит, что
+    // рассуждение съело лимит, и «неожиданный формат» только запутал бы.
+    const cut = anthropic ? d && d.stop_reason === "max_tokens" : choice && choice.finish_reason === "length";
+    return { ok: false, error: cut ? "Ответ LLM оборвался на лимите длины — переводите частями или выберите другую модель." : "LLM вернул неожиданный формат." };
+  }
   // Снимаем обёртку <x> только если сами её ставили (есть термины).
   if (o.terms && o.terms.length) arr = arr.map(stripNoTranslate);
   return { ok: true, texts: arr, srcLangs: texts.map(() => null) };
 }
 
 // ---- унифицированный батч-перевод с кэшем ----
-async function translateMany(items, o, origin) {
+async function translateMany(items, o, origin, budgetKey) {
   await ensureCache();
+  // Движок, языки и тон пришли сообщением — сверяем с таблицами (shared.js) до любого
+  // использования: в ключ кэша, в запрос и в инструкцию для ИИ попадает только известное значение.
+  HT_validAll(o);
   o.terms = parseTerms(o.noTranslate);
   o.origin = origin || "";
   const e = HT_engine(o.engine);
@@ -638,10 +741,13 @@ async function translateMany(items, o, origin) {
   }
 
   if (missTexts.length) {
-    const denied = budgetTake(o.origin, o.by, missTexts.reduce((n, t) => n + t.length, 0));
-    if (denied) return { ok: false, error: denied };
+    // Ключ проверяем ДО лимита: без ключа ничего не оплачивается, а наведения на первом запуске
+    // (ключ ещё не вставлен) иначе съедали бы суточный лимит, который понадобится потом.
     if (!s) s = await getSettings();
     if (e.keyField && !s[e.keyField]) return { ok: false, error: HT_KEY_HINTS[e.keyField] };
+    await startupReady;                 // суточный счётчик лимита должен быть уже загружен
+    const denied = budgetTake(budgetKey, o.by, missTexts.reduce((n, t) => n + t.length, 0));
+    if (denied) return { ok: false, error: denied };
     const r = e.via === "llm"
       ? await llmTranslateMany(missTexts, o, s.llmApiKey, s.llmProvider, s.llmModel)
       : await deeplTranslateChunked(missTexts, o, s.apiKey);
@@ -701,7 +807,7 @@ async function checkUsage() {
   const { apiKey } = await getSettings();
   if (!apiKey) return { ok: false, error: "Нет ключа." };
   try {
-    const res = await fetch(`${deeplBase(apiKey)}/v2/usage`, { headers: deeplAuth(apiKey) });
+    const res = await fetch(`${deeplBase(apiKey)}/v2/usage`, { headers: deeplAuth(apiKey), signal: timeoutSignal(DEEPL_TIMEOUT_MS) });
     if (!res.ok) {
       const hint = res.status === 403 ? " — проверьте ключ" : "";
       return { ok: false, error: `DeepL ${res.status}${hint}` };
@@ -709,26 +815,19 @@ async function checkUsage() {
     const d = await res.json();
     return { ok: true, used: d.character_count, limit: d.character_limit };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: isTimeout(e) ? DEEPL_TIMEOUT_ERR : e.message };
   }
 }
 
-// Лёгкая проверка LLM-ключа (OpenAI — список моделей; Anthropic — короткий ответ).
+// Проверка LLM-ключа настоящим переводом одного слова выбранной моделью — тем же запросом, что и
+// при работе. Список моделей (GET /v1/models) подтвердил бы только ключ: модель с опечаткой или
+// не принимающая параметры запроса прошла бы проверку, а каждый перевод потом падал бы с 400.
+// Стоимость — пара сотен токенов инструкции.
 async function checkLlm() {
   const { llmApiKey, llmProvider, llmModel } = await getSettings();
   if (!llmApiKey) return { ok: false, error: "Нет ключа LLM." };
-  try {
-    const res = llmProvider === "anthropic"
-      ? await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: llmHeaders(llmProvider, llmApiKey),
-          body: JSON.stringify({ model: llmModelOf(llmProvider, llmModel), max_tokens: 1, messages: [{ role: "user", content: "hi" }] }),
-        })
-      : await fetch("https://api.openai.com/v1/models", { headers: llmHeaders(llmProvider, llmApiKey) });
-    return res.ok ? { ok: true } : { ok: false, error: llmErr(res.status) };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  const r = await llmTranslateChunk(["Hello"], { targetLang: HT_DEFAULTS.targetLang, terms: [] }, llmApiKey, llmProvider, llmModel);
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 // Порт держим открытым (return true), поэтому ЛЮБОЙ реджект обязан дойти до sendResponse:
@@ -751,7 +850,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Одиночного пути нет намеренно: перевод одного элемента — это батч из одного элемента,
   // иначе вся политика движков (выбор, фолбэк, обработка ошибок) жила бы в двух копиях.
   if (msg.type === "translateBatch") {
-    return reply(translateMany(msg.items || [], msg, originOf(sender)), sendResponse);
+    return reply(translateMany(msg.items || [], msg, originOf(sender), budgetKeyOf(sender)), sendResponse);
   }
   if (msg.type === "checkUsage") return reply(checkUsage(), sendResponse);
   if (msg.type === "checkLlm") return reply(checkLlm(), sendResponse);

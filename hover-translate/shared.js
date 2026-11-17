@@ -102,8 +102,11 @@ for (var i = 0; i < HT_ENGINES.length; i++) {
   HT_ENGINE[HT_ENGINES[i][0]] = Object.assign({ code: HT_ENGINES[i][0], label: HT_ENGINES[i][1] }, HT_ENGINES[i][2]);
 }
 
-// Неизвестное значение настройки трактуем как движок по умолчанию.
-function HT_engine(code) { return HT_ENGINE[code] || HT_ENGINE.deepl; }
+// Неизвестное значение настройки трактуем как движок по умолчанию. Только собственные ключи
+// таблицы: HT_ENGINE["constructor"] иначе вернул бы функцию Object вместо описания движка.
+function HT_engine(code) {
+  return Object.prototype.hasOwnProperty.call(HT_ENGINE, code) ? HT_ENGINE[code] : HT_ENGINE.deepl;
+}
 
 // ---- кто инициировал перевод ----
 // От этого зависит бюджет расхода в background: страница может инициировать перевод САМА, просто
@@ -127,11 +130,38 @@ var HT_DEFAULTS = {
   dispBorder: false, dispBorderColor: "#0078d7", dispBorderStyle: "solid",
 };
 
+// Допустимые значения настроек-перечислений. Хранилище общее для всех сайтов, а писать в него
+// может не только popup (мини-панель живёт на странице), поэтому значение сверяется со списком
+// при каждом чтении: неизвестное становится значением по умолчанию и не попадает ни в запрос
+// к движку, ни в инструкцию для ИИ. Списки formality/llmProvider/displayMode/trigger обязаны
+// совпадать с <option> в popup.html.
+var HT_CHOICES = {
+  targetLang: HT_TARGET_LANGS.map((r) => r[0]),
+  sourceLang: HT_SOURCE_LANGS.map((r) => r[0]),
+  engine: HT_ENGINES.map((r) => r[0]),
+  formality: ["default", "more", "less"],
+  llmProvider: ["openai", "anthropic"],
+  displayMode: ["replace", "popover"],
+  trigger: ["dwell", "shift", "alt", "ctrl"],
+};
+// Значение настройки k, сверенное со списком; у настроек без списка — как есть.
+function HT_valid(k, v) {
+  if (!Object.prototype.hasOwnProperty.call(HT_CHOICES, k)) return v;
+  return HT_CHOICES[k].includes(v) ? v : HT_DEFAULTS[k];
+}
+// То же для всех перечислений, которые есть в объекте настроек (меняет и возвращает его).
+function HT_validAll(s) {
+  for (const k in HT_CHOICES) if (k in s) s[k] = HT_valid(k, s[k]);
+  return s;
+}
+
 // Задержка наведения. Клэмп общий: popup пишет уже нормализованное значение, а content
 // перепроверяет прочитанное — раньше две проверки расходились (в content не было верхней границы).
 var HT_DWELL_MAX = 2000;
 function HT_clampDwell(v) {
-  const n = Number(v); // не `|| 250` — иначе валидный 0 стал бы 250
+  // Пустое поле — это «не задано», а не 0: Number("") === 0, и стёртое поле «Задержка» иначе молча
+  // включило бы перевод без задержки. Не `|| 250` — иначе валидный 0 стал бы 250.
+  const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() ? Number(v) : NaN);
   return Number.isFinite(n) ? Math.max(0, Math.min(HT_DWELL_MAX, n)) : HT_DEFAULTS.dwellMs;
 }
 

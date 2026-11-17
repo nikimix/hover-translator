@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "Cursor Translate",
   "version": "1.0.0",
-  "description": "Переводит текст элемента под курсором (по наведению или по клавише) и заменяет его на месте. Движок — DeepL.",
+  "description": "Переводит абзац под курсором — на месте или в карточке. Встроенный переводчик Chrome либо DeepL и ИИ (OpenAI, Anthropic) с ключом.",
   "minimum_chrome_version": "102",
-  "permissions": ["storage", "activeTab", "alarms"],
+  "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://api-free.deepl.com/*",
     "https://api.deepl.com/*",

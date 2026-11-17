@@ -228,6 +228,9 @@ const queryTab = (type) => askTab(type, (resp, failed) => (failed ? null : resp)
 
 // ---- загрузка ----
 chrome.storage.local.get(DEFAULTS, (s) => {
+  // Неизвестное значение <select> не выберет (value станет ""), и первое же сохранение записало
+  // бы пустую строку — сверяем с таблицами shared.js заранее.
+  HT_validAll(s);
   setEnabledUI(s.enabled);
   els.apiKey.value = s.apiKey;
   els.targetLang.value = s.targetLang;
