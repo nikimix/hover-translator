@@ -2,6 +2,7 @@
 // Делает запросы к движкам перевода (ключи не видны странице, нет проблем с CORS):
 //   • DeepL (HTML с сохранением тегов, formality, source_lang),
 //   • LLM (OpenAI/Anthropic) — контекстный перевод HTML по промпту.
+// Текст отправляет только с согласия человека на этот сервис (storage.local.consent, см. shared.js).
 // Кэширует переводы: L1 (память) + L2 (storage.session) + L3 (storage.local, TTL).
 // Считает статистику расхода, ограничивает расход ключа и отвечает content-скрипту и popup.
 // Показывает на значке, что перевод выключен или не может работать; при установке открывает
@@ -251,8 +252,9 @@ function scopeOf(o) {
 // Неудача для вызывающего: error — что сказать человеку простыми словами; code — вид сбоя (по нему
 // content решает, перевести ли встроенным переводчиком и какую кнопку предложить в уведомлении);
 // detail — код ответа и текст сервиса, их показываем мелко под сообщением.
-// Коды: no-key, bad-key, quota (месячный лимит DeepL), money (на счёте ИИ нет денег), rate (429),
-// server (5xx), network, timeout, too-big, model, denied, cut, bad-response, limit (наш лимит), other.
+// Коды: no-key, no-consent (человек не разрешил отправлять текст этому сервису), bad-key, quota
+// (месячный лимит DeepL), money (на счёте ИИ нет денег), rate (429), server (5xx), network, timeout,
+// too-big, model, denied, cut, bad-response, limit (наш лимит), other.
 function failure(code, error, detail) { return { ok: false, code, error, detail: detail || "" }; }
 
 // Retry-After: число секунд или HTTP-дата. Возвращает мс ожидания или fallback.
@@ -305,13 +307,17 @@ async function fetchRetry(url, options, timeoutMs, maxRetries = 2) {
   }
 }
 
-// Настройки, нужные только service worker: ключи API и параметры LLM. Дефолты — из общей таблицы.
+// Настройки, нужные только service worker: ключи API, параметры LLM и согласие на отправку текста.
+// Дефолты — из общей таблицы.
 const ENGINE_SETTINGS = {
   apiKey: "", llmApiKey: "",
   llmProvider: HT_DEFAULTS.llmProvider, llmModel: HT_DEFAULTS.llmModel,
+  consent: {},
 };
-// Провайдер ИИ сверяем с таблицей (shared.js): хранилище могли записать не из popup.
-function getSettings() { return chrome.storage.local.get(ENGINE_SETTINGS).then(HT_validAll); }
+// Провайдер ИИ и согласие сверяем с таблицами (shared.js): хранилище могли записать не из окна.
+function getSettings() {
+  return chrome.storage.local.get(ENGINE_SETTINGS).then((s) => { HT_validAll(s); s.consent = HT_consent(s.consent); return s; });
+}
 
 // ---- бюджет расхода: страница не должна уметь бесконечно тратить ключ пользователя ----
 // Ось — КТО инициировал перевод (см. HT_BY_PAGE / HT_BY_USER в shared.js), а не «наведение или
@@ -550,8 +556,8 @@ function langName(code) {
     ? HT_LANG_NAMES[code] : HT_LANG_NAMES[HT_DEFAULTS.targetLang];
 }
 
-const LLM_DEFAULT_MODEL = { openai: "gpt-4o-mini", anthropic: "claude-haiku-4-5-20251001" };
-function llmModelOf(provider, model) { return model || LLM_DEFAULT_MODEL[provider] || LLM_DEFAULT_MODEL.openai; }
+// Пустая модель — модель по умолчанию из списка в shared.js (общего с окном расширения).
+function llmModelOf(provider, model) { return model || HT_llmDefault(provider); }
 const LLM_NAMES = { openai: "OpenAI", anthropic: "Anthropic" };
 function llmName(provider) { return LLM_NAMES[provider] || LLM_NAMES.openai; }
 
@@ -665,20 +671,36 @@ const LLM_MAX_TOKENS = 16000;
 // ведёт себя не так, как просили (текст на странице может содержать инструкцию «напиши 10 000
 // слов»): на каждом коротком наведении она могла выдать до потолка. 512 токенов хватает с запасом на
 // обёртку JSON и перевод короткого текста даже с иероглифов на русский (там перевод в 2–3 раза
-// длиннее), а дальше потолок растёт вместе с текстом. Рассуждению моделей OpenAI эта граница не
-// мешает: им запас LLM_REASONING_TOKENS добавляется сверху.
+// длиннее), а дальше потолок растёт вместе с текстом. Рассуждению моделей эта граница не мешает:
+// им запас LLM_REASONING_TOKENS добавляется сверху.
 const LLM_MIN_TOKENS = 512;
-// У моделей OpenAI с рассуждением (o-серия, GPT-5 и новее) max_completion_tokens включает и
-// скрытые токены рассуждения: с тем же потолком, что у Anthropic, модель могла бы потратить его
-// на рассуждение и вернуть пустой ответ. Им даём запас сверху. Больше не нужно: столько токенов
-// модель всё равно не успеет выдать до тайм-аута. Без рассуждения — только семейства gpt-3.5/gpt-4
-// (gpt-4o, gpt-4.1…); неизвестную модель считаем рассуждающей — лишний запас безопаснее пустого ответа.
+// Скрытое рассуждение модели (o-серия и GPT-5 и новее у OpenAI, Claude 5 и новее у Anthropic — там
+// оно включено по умолчанию) входит в тот же потолок ответа: с потолком «по длине текста» модель могла
+// бы потратить его на рассуждение и вернуть пустой ответ. Модели из списка в окне (HT_LLM_MODELS)
+// получают в запросе «не рассуждать» и запас не нужен; вписанной вручную модели даём запас сверху.
+// Больше не нужно: столько токенов модель всё равно не успеет выдать до тайм-аута. Без рассуждения —
+// только семейства gpt-3.5/gpt-4 (gpt-4o, gpt-4.1…); неизвестную модель считаем рассуждающей — лишний
+// запас безопаснее пустого ответа (платят только за выданное).
 const LLM_REASONING_TOKENS = 4096;
-function openaiReasons(model) { return !/^(gpt-3\.5|gpt-4|chatgpt-4o)/i.test(model); }
+function mayReason(provider, model) {
+  return provider === "anthropic" || !/^(gpt-3\.5|gpt-4|chatgpt-4o)/i.test(model);
+}
 const llmSize = (t) => (t || "").length;
 
 function llmTranslateMany(texts, o, key, provider, model) {
   return runChunks(texts, Infinity, LLM_CHUNK_CHARS, llmSize, (g) => llmTranslateChunk(g, o, key, provider, model));
+}
+
+// Текст ответа. У Anthropic с рассуждением первым идёт блок thinking (его содержимое — в поле
+// thinking, а не text, и по умолчанию пустое), поэтому ищем первый блок с текстом, а не берём первый.
+function llmContent(d, anthropic) {
+  if (anthropic) {
+    const blocks = d && Array.isArray(d.content) ? d.content : [];
+    const b = blocks.find((x) => x && typeof x.text === "string");
+    return b ? b.text : "";
+  }
+  const choice = d && d.choices && d.choices[0];
+  return choice && choice.message ? choice.message.content : "";
 }
 
 async function llmTranslateChunk(texts, o, key, provider, model) {
@@ -693,16 +715,20 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
   }
   const anthropic = provider === "anthropic";
   const model_ = llmModelOf(provider, model);
+  const known = HT_llmModelRow(provider, model_);
+  const cap = want + (!known && mayReason(provider, model_) ? LLM_REASONING_TOKENS : 0);
   // temperature не передаём: модели с рассуждением (GPT-5, o-серия) отвечают 400 на любое
-  // значение, кроме значения по умолчанию.
-  const body = anthropic
-    ? { model: model_, max_tokens: want, system: sys, messages: [{ role: "user", content: user }] }
+  // значение, кроме значения по умолчанию, а Anthropic с версии API 2026-10-21 не принимает его вовсе.
+  // Добавки из списка моделей (выключить рассуждение) — только известным моделям: вписанная вручную
+  // может их не понимать и ответить 400.
+  const body = Object.assign(anthropic
+    ? { model: model_, max_tokens: cap, system: sys, messages: [{ role: "user", content: user }] }
     : {
         model: model_,
-        max_completion_tokens: want + (openaiReasons(model_) ? LLM_REASONING_TOKENS : 0),
+        max_completion_tokens: cap,
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: sys }, { role: "user", content: user }],
-      };
+      }, known ? known[2] : null);
   let d;
   try {
     const res = await fetchRetry(anthropic ? "https://api.anthropic.com/v1/messages" : "https://api.openai.com/v1/chat/completions", {
@@ -715,14 +741,11 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
   } catch (e) {
     return llmThrown(e, provider);
   }
-  const choice = !anthropic && d && d.choices && d.choices[0];
-  const content = anthropic
-    ? (d && d.content && d.content[0] ? d.content[0].text : "")
-    : (choice && choice.message ? choice.message.content : "");
-  let arr = parseLlmJson(content || "", texts.length);
+  let arr = parseLlmJson(llmContent(d, anthropic) || "", texts.length);
   if (!arr) {
     // Упёрлись в потолок длины — говорим об этом прямо: у моделей с рассуждением это значит, что
     // рассуждение съело лимит, и «неожиданный формат» только запутал бы.
+    const choice = !anthropic && d && d.choices && d.choices[0];
     const cut = anthropic ? d && d.stop_reason === "max_tokens" : choice && choice.finish_reason === "length";
     return cut
       ? failure("cut", "Ответ ИИ оборвался на пределе длины — переводите частями или выберите другую модель.")
@@ -793,6 +816,13 @@ async function translateMany(items, o, origin, budgetKey) {
     // (ключ ещё не вставлен) иначе съедали бы суточный лимит, который понадобится потом.
     if (!s) s = await getSettings();
     if (e.keyField && !s[e.keyField]) return failure("no-key", HT_KEY_HINTS[e.keyField]);
+    // Главная защита согласия: content тоже не шлёт текст без него, но проверка здесь — последняя
+    // перед сетью и не зависит от того, что прислала страница. Сохранённые переводы (выше) отдаём и
+    // без согласия: они уже на компьютере и никуда не уходят.
+    const provider = HT_provider(e.code, s.llmProvider);
+    if (!HT_agreed(s.consent, provider)) {
+      return failure("no-consent", `Вы ещё не разрешили отправлять текст в ${HT_PROVIDER_NAMES[provider]} — нажмите на значок расширения.`);
+    }
     await startupReady;                 // суточный счётчик лимита должен быть уже загружен
     const denied = budgetTake(budgetKey, o.by, missTexts.reduce((n, t) => n + t.length, 0));
     if (denied) return denied;
@@ -850,7 +880,9 @@ async function clearCache() {
   return { ok: true, cleared };
 }
 
-// Проверка ключа и остаток квоты символов через /v2/usage.
+// Проверка ключа и остаток квоты символов через /v2/usage. Согласия на отправку текста не требует:
+// уходит только сам ключ — тому сервису, который его выдал, — и только по действию человека (вставил
+// ключ или нажал «Проверить»). Текста страниц в этом запросе нет.
 async function checkUsage() {
   const { apiKey } = await getSettings();
   if (!apiKey) return failure("no-key", "Ключ не вставлен.");
@@ -867,7 +899,8 @@ async function checkUsage() {
 // Проверка LLM-ключа настоящим переводом одного слова выбранной моделью — тем же запросом, что и
 // при работе. Список моделей (GET /v1/models) подтвердил бы только ключ: модель с опечаткой или
 // не принимающая параметры запроса прошла бы проверку, а каждый перевод потом падал бы с 400.
-// Стоимость — пара сотен токенов инструкции.
+// Стоимость — пара сотен токенов инструкции. Согласия не требует, как и проверка ключа DeepL:
+// переводится слово «Hello» из самого расширения, а не текст страниц.
 async function checkLlm() {
   const { llmApiKey, llmProvider, llmModel } = await getSettings();
   if (!llmApiKey) return failure("no-key", "Ключ не вставлен.");
@@ -891,23 +924,25 @@ function originOf(sender) {
 }
 
 // ---- значок расширения ----
-// «!» — выбранный переводчик не может работать (нет ключа, нет встроенного в браузере): content на
-// страницах тогда ничего не делает, а объяснение — в подсказке значка и в окне расширения.
-// «off» — перевод выключен (⏻). Состояние значка браузер не сохраняет между запусками, поэтому
-// пересчитываем при каждом старте воркера, а дальше — по изменениям в хранилище.
-const BADGE_KEYS = ["enabled", "engine", "apiKey", "llmApiKey", "htBuiltinApi"];
+// «!» — выбранный переводчик не может работать (нет ключа или согласия на отправку текста, нет
+// встроенного в браузере): content на страницах тогда ничего не делает, а объяснение — в подсказке
+// значка и в окне расширения. «off» — перевод выключен. Состояние значка браузер не сохраняет между
+// запусками, поэтому пересчитываем при каждом старте воркера, а дальше — по изменениям в хранилище.
+const BADGE_KEYS = ["enabled", "engine", "apiKey", "llmApiKey", "llmProvider", "consent", "htBuiltinApi"];
 const BADGE_OFF_COLOR = "#6b7280";
 const BADGE_PROBLEM_COLOR = "#d93025";
 
 function problemNow() {
   return chrome.storage.local.get({
-    enabled: HT_DEFAULTS.enabled, engine: HT_DEFAULTS.engine, apiKey: "", llmApiKey: "", htBuiltinApi: null,
+    enabled: HT_DEFAULTS.enabled, engine: HT_DEFAULTS.engine, apiKey: "", llmApiKey: "",
+    llmProvider: HT_DEFAULTS.llmProvider, consent: {}, htBuiltinApi: null,
   }).then((s) => {
     // Встроенный переводчик есть в service worker не во всех версиях Chrome, поэтому «нет» берём
     // только из записи окна (htBuiltinApi пишут popup, страница приветствия и content), а «есть» —
     // и отсюда. Пока никто не проверял — считаем, что есть: иначе «!» горел бы ни за что.
     const builtin = "Translator" in self || s.htBuiltinApi !== false;
-    const problem = HT_engineProblem(HT_valid("engine", s.engine), { apiKey: !!s.apiKey, llmApiKey: !!s.llmApiKey }, builtin);
+    const problem = HT_engineProblem(HT_valid("engine", s.engine),
+      { apiKey: !!s.apiKey, llmApiKey: !!s.llmApiKey, llmProvider: s.llmProvider, consent: s.consent }, builtin);
     return { off: s.enabled === false, problem };
   });
 }

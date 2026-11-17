@@ -5,7 +5,7 @@
 const $ = (id) => document.getElementById(id);
 const sel = $("targetLang");
 const radios = Array.from(document.querySelectorAll('input[name="trigger"]'));
-const KEY_NAMES = { shift: "Shift", alt: "Alt", ctrl: "Ctrl" };
+const MAC = HT_isMac();
 
 let trigger = HT_DEFAULTS.trigger;
 let engine = HT_DEFAULTS.engine;
@@ -13,6 +13,7 @@ let builtinState = "";
 let builtinUi = null;
 
 HT_fillSelect(sel, HT_TARGET_LANGS);
+$("shiftName").textContent = "Клавишей " + HT_triggerKey("shift", MAC);
 
 // Абзац для пробы — на английском, а если переводим на английский — на русском. Подсказка под ним
 // говорит, что сделать сейчас: подготовить переводчик или навести курсор выбранным способом.
@@ -22,9 +23,15 @@ function renderTrainer() {
   $("trainerRu").hidden = !toEnglish;
   for (const r of radios) r.checked = r.value === trigger;
 
+  const key = HT_triggerKey(trigger, MAC);
   const how = trigger === "dwell"
     ? "Задержите курсор на абзаце выше. Уберёте курсор — вернётся оригинал."
-    : `Наведите курсор на абзац выше, нажмите и отпустите ${KEY_NAMES[trigger]}. Нажмёте ещё раз — вернётся оригинал.`;
+    : `Наведите курсор на абзац выше, нажмите и отпустите ${key}. Нажмёте ещё раз — вернётся оригинал.`;
+  // Подзаголовок — тем способом, который сейчас выбран (его могли сменить и в окне расширения).
+  $("heroText").textContent = (trigger === "dwell"
+    ? "Задержите курсор на абзаце — он переведётся прямо на странице."
+    : `Наведите курсор на абзац и нажмите ${key} — он переведётся прямо на странице.`) +
+    " Работает сразу: без ключей и регистрации.";
   // Состояние встроенного переводчика важно, только если перевод идёт через него.
   const usesBuiltin = HT_engine(engine).note;
   let before = "";

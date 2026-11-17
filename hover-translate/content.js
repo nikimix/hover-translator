@@ -78,6 +78,11 @@
   // Есть ли ключи — только как факт (сами значения не держим): без ключа DeepL или ИИ наведение не
   // должно ничего делать на странице (см. blocked).
   const keyPresent = { apiKey: false, llmApiKey: false };
+  // Согласие на отправку текста сервисам (deepl/openai/anthropic) — пишет только окно расширения.
+  // Без согласия выбранный DeepL или ИИ — то же, что без ключа: текст никуда не уходит.
+  let consent = HT_consent(null);
+  // Состояние для HT_engineProblem/HT_canSend (shared.js): ключи как факт, провайдер ИИ, согласие.
+  function netState() { return Object.assign({ llmProvider: settings.llmProvider, consent }, keyPresent); }
 
   // Встроенный переводчик в этом окне: "none" — его нет в браузере (Chrome < 138, другие браузеры на
   // Chromium, телефон); "frame" — есть, но встроенному окну (iframe с другого адреса) его не
@@ -132,9 +137,10 @@
   // Перечисления (язык, движок, тон, способ показа, клавиша) сверяем с таблицами shared.js при
   // каждом чтении: неизвестное значение становится значением по умолчанию. Список выключенных сайтов
   // и положение мини-панели тоже сверяем (shared.js): их пишет и мини-панель на странице.
-  const EXTRA = { apiKey: "", llmApiKey: "", htBuiltinApi: null, disabledSites: [], hudShown: false, hudPos: null };
+  const EXTRA = { apiKey: "", llmApiKey: "", consent: {}, htBuiltinApi: null, disabledSites: [], hudShown: false, hudPos: null };
   chrome.storage.local.get(Object.assign({}, EXTRA, DEFAULTS), (s) => {
     for (const k of KEY_KEYS) keyPresent[k] = !!s[k];
+    consent = HT_consent(s.consent);
     syncBuiltinFlag(s.htBuiltinApi);
     siteOff = siteListed(s.disabledSites);
     hudWanted = s.hudShown === true;
@@ -153,6 +159,13 @@
       if (KEY_KEYS.includes(k)) {           // значение не запоминаем — нужен только факт смены
         keyPresent[k] = !!ch.newValue;
         if (ch.oldValue !== ch.newValue) txChanged = true;
+        continue;
+      }
+      // Согласие дали — с «авто» страница могла быть переведена встроенным, переводим заново (как при
+      // появлении ключа); отозвали — следующие переводы не уйдут в сеть.
+      if (k === "consent") {
+        const next = HT_consent(ch.newValue);
+        if (JSON.stringify(next) !== JSON.stringify(consent)) { consent = next; txChanged = true; }
         continue;
       }
       if (k === "disabledSites") {
@@ -240,18 +253,18 @@
   }
 
   // ---- может ли перевод работать ----
-  // Выбранный переводчик не может работать (нет ключа, нет встроенного) — наведение ничего не
+  // Выбранный переводчик не может работать (нет ключа или согласия, нет встроенного) — наведение ничего не
   // делает: ни красной подсветки, ни ошибки на каждом абзаце. Объяснение — «!» на значке и в окне
   // расширения, а на странице — одно спокойное уведомление за сессию браузера (решает background).
   // Явное действие («Перевести страницу») объясняем всегда.
   let problemAsked = false;
-  function problem() { return HT_engineProblem(settings.engine, keyPresent, BUILTIN === "ok"); }
+  function problem() { return HT_engineProblem(settings.engine, netState(), BUILTIN === "ok"); }
   function blocked(byUser) {
     const p = problem();
     if (!p) return false;
     // Во встроенном окне чужого сайта встроенный переводчик запрещён политикой этого сайта — это
     // не поломка, о которой стоит рассказывать.
-    if (BUILTIN === "frame" && !HT_engineProblem(settings.engine, keyPresent, true)) return true;
+    if (BUILTIN === "frame" && !HT_engineProblem(settings.engine, netState(), true)) return true;
     if (byUser) { problemNotice(p); return true; }
     if (!problemAsked) {
       problemAsked = true;
@@ -261,7 +274,7 @@
     }
     return true;
   }
-  // Объяснение с кнопками: без ключа — включить встроенный (если он есть) или открыть настройки.
+  // Объяснение с кнопками: без ключа или согласия — включить встроенный (если он есть) или открыть настройки.
   function problemNotice(p) {
     const actions = p === "no-builtin" ? [ACT.settings] : (BUILTIN === "ok" ? [ACT.builtin, ACT.settings] : [ACT.settings]);
     notice(HT_PROBLEMS[p].page, 12000, { actions, closable: true });
@@ -282,6 +295,7 @@
   // Какие кнопки предложить к ошибке перевода (коды ошибок — в background.js, failure()).
   function actionsFor(code) {
     if (code === "bad-key" || code === "no-key" || code === "model" || code === "lang") return [ACT.settings];
+    if (code === "no-consent") return BUILTIN === "ok" ? [ACT.builtin, ACT.settings] : [ACT.settings];
     if (code === "quota" || code === "money" || code === "denied") return [BUILTIN === "ok" ? ACT.builtin : ACT.settings];
     return [];
   }
@@ -691,15 +705,16 @@
   // Встроенный движок для всего списка. Если не перевелось НИЧЕГО — отдаём error: все вызывающие
   // определяют сбой по этому полю, и без него встроенный движок падал абсолютно молча
   // (неподдерживаемая пара языков, Chrome < 138 — пользователь наводит, и не происходит ничего).
-  // primary — неудача DeepL, из-за которой перевод пошёл сюда: она информативнее («не задан ключ»).
-  // Исключение — нескачанная модель: это не сбой, а шаг настройки, и подсказка, что сделать,
-  // полезнее ошибки DeepL.
+  // primary — неудача DeepL, из-за которой перевод пошёл сюда: она информативнее («ключ не подошёл»,
+  // «лимит закончился»). Исключения: нескачанная модель — это не сбой, а шаг настройки, и подсказка,
+  // что сделать, полезнее ошибки DeepL; «нет ключа» и «нет согласия» в режиме «авто» — не сбой, а
+  // обычная работа встроенным, и настоящая причина — в ответе встроенного переводчика.
   async function localResults(texts, primary) {
     const results = await Promise.all(texts.map((t) => chromeTranslate(t, settings.targetLang)));
     if (results.some((r) => r && r.ok)) return { results };
     const dl = results.find((r) => r && r.kind === "download");
     if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key };
-    if (primary) return Object.assign({ results: null }, primary);
+    if (primary && primary.code !== "no-key" && primary.code !== "no-consent") return Object.assign({ results: null }, primary);
     return Object.assign({ results: null }, failOf(results.find((r) => r && r.error)));
   }
 
@@ -733,6 +748,14 @@
   async function translateItems(texts, by) {
     const e = HT_engine(settings.engine);
     if (e.via === "local") return localResults(texts);
+    // Нет ключа или согласия — текст в сеть не уходит вовсе: «авто» сразу переводит встроенным, а
+    // DeepL и ИИ сюда обычно не доходят (их останавливает blocked) — это страховка на гонку с
+    // хранилищем. Background проверяет то же самое ещё раз перед запросом.
+    if (!HT_canSend(e.code, netState())) {
+      if (e.fallback === "local") return localResults(texts);
+      const p = problem();
+      return { results: null, error: p ? HT_PROBLEMS[p].page : TX_FAIL, code: p === "no-consent" ? "no-consent" : "no-key", detail: "" };
+    }
     let resp;
     try {
       resp = await send(Object.assign({ type: "translateBatch", items: texts.map(escapeHtml), by }, txOpts()));
@@ -1796,6 +1819,7 @@
       transition: background .12s, border-color .12s;
     }
     button:hover { background: #39435a; border-color: rgba(255, 255, 255, .35); }
+    select:focus-visible, button:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; }
   `;
 
   function buildHud() {
@@ -1809,7 +1833,8 @@
     grip.title = "Перетащить панель";
 
     const sel = document.createElement("select");
-    sel.title = "Целевой язык";
+    sel.title = "Язык перевода";
+    sel.setAttribute("aria-label", "Язык перевода");
     for (const [code, label] of LANGS) {
       const o = document.createElement("option");
       o.value = code; o.textContent = label;
@@ -1825,21 +1850,43 @@
 
     bar.append(
       grip, sel,
-      hudButton("🌐", "Перевести страницу", () => translatePage("popup")),
-      hudButton("↺", "Вернуть оригинал (Esc)", () => restoreAll()),
+      hudButton("page", "Перевести страницу", () => translatePage("popup")),
+      hudButton("undo", "Вернуть оригинал (Esc)", () => restoreAll()),
     );
-    if (SITE) bar.append(hudButton("⊘", "Выключить перевод на этом сайте", () => disableSiteFromHud()));
-    bar.append(hudButton("✕", "Скрыть панель", () => setHudWanted(false)));
+    if (SITE) bar.append(hudButton("ban", "Выключить перевод на этом сайте", () => disableSiteFromHud()));
+    bar.append(hudButton("close", "Скрыть панель", () => setHudWanted(false)));
     root.appendChild(bar);
     bindHudDrag(host, grip);
     return { host, sel };
   }
 
-  function hudButton(text, title, onClick) {
+  // Иконки панели — те же, что на кнопках окна расширения: контуры 24×24 цветом текста. Строим через
+  // DOM, а не разметкой: в нашем окне на странице не должно быть ни одной строки HTML.
+  const HUD_ICONS = {
+    page: ["m5 8 6 6", "m4 14 6-6 2-3", "M2 5h12", "M7 2h1", "m22 22-5-10-5 10", "M14 18h6"],
+    undo: ["M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"],
+    ban: ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0", "m4.9 4.9 14.2 14.2"],
+    close: ["M18 6 6 18", "m6 6 12 12"],
+  };
+  function hudIcon(name) {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    const attrs = { viewBox: "0 0 24 24", width: "16", height: "16", fill: "none", stroke: "currentColor",
+      "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" };
+    for (const k in attrs) svg.setAttribute(k, attrs[k]);
+    for (const d of HUD_ICONS[name]) {
+      const path = document.createElementNS(NS, "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    }
+    return svg;
+  }
+  function hudButton(icon, title, onClick) {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = text;
+    b.appendChild(hudIcon(icon));
     b.title = title;
+    b.setAttribute("aria-label", title);
     b.addEventListener("click", (e) => { if (e.isTrusted) onClick(); });
     return b;
   }

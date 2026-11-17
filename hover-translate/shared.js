@@ -100,22 +100,25 @@ function HT_prepPair(targetLang) {
 
 // ---- движки ----
 // Поведение движка описано данными, а не if-ами по имени. Поля:
-//   via        — куда уходит запрос: "deepl" | "llm" (через background) либо "local" (on-device);
-//   keyField   — ключ настроек с API-ключом (нет — движку ключ не нужен);
+//   via        — куда уходит запрос: "deepl" | "llm" (через background) либо "local" (на компьютере);
+//   keyField   — ключ настроек с ключом сервиса (нет — движку ключ не нужен);
 //   cacheAs    — под каким именем движка кэшировать (alias: auto даёт тот же результат, что deepl);
-//   scopeFields— какие ещё поля запроса входят в ключ кэша (для LLM — провайдер/модель/origin);
+//   scopeFields— какие ещё поля запроса входят в ключ кэша (для ИИ — провайдер/модель/origin);
 //   fallback   — на что переключиться, если основной путь не смог;
-//   formality  — поддерживает ли параметр «тон»;
-//   note       — показывать ли в popup состояние встроенного переводчика (он участвует в переводе).
+//   formality  — поддерживает ли параметр «обращение»;
+//   note       — показывать ли в окне состояние встроенного переводчика (он участвует в переводе);
+//   hint       — пояснение под названием в окне расширения.
+// Порядок строк — порядок в окне: встроенный первым, он по умолчанию.
 var HT_ENGINES = [
+  ["chrome", "Встроенный в Chrome",
+    { via: "local", note: true, hint: "бесплатно, текст не уходит в интернет" }],
   ["deepl", "DeepL",
-    { via: "deepl", keyField: "apiKey", formality: true }],
-  ["auto", "DeepL → встроенный (фолбэк)",
-    { via: "deepl", keyField: "apiKey", formality: true, cacheAs: "deepl", fallback: "local", note: true }],
-  ["chrome", "Встроенный Chrome (on-device, приватно)",
-    { via: "local", note: true }],
-  ["llm", "LLM (OpenAI / Anthropic) — контекстный",
-    { via: "llm", keyField: "llmApiKey", scopeFields: ["llmProvider", "llmModel", "origin"] }],
+    { via: "deepl", keyField: "apiKey", formality: true, hint: "точнее; по своему ключу, бесплатно 500\u00a0000 знаков в месяц" }],
+  ["auto", "DeepL, а если не вышло — встроенный",
+    { via: "deepl", keyField: "apiKey", formality: true, cacheAs: "deepl", fallback: "local", note: true,
+      hint: "перевод не прервётся, когда кончится лимит DeepL или пропадёт связь" }],
+  ["llm", "ИИ (ChatGPT / Claude)",
+    { via: "llm", keyField: "llmApiKey", scopeFields: ["llmProvider", "llmModel", "origin"], hint: "по своему ключу, платно" }],
 ];
 
 // Что показать, если ключа нет. Ключуем ПОЛЕМ настроек, а не движком: deepl и auto делят один
@@ -136,18 +139,51 @@ function HT_engine(code) {
   return Object.prototype.hasOwnProperty.call(HT_ENGINE, code) ? HT_ENGINE[code] : HT_ENGINE[HT_DEFAULTS.engine];
 }
 
-// ---- может ли выбранный переводчик работать ----
-// Код причины, по которой выбранный переводчик сейчас не может работать, или null. keys — есть ли
-// ключи ({ apiKey, llmApiKey }, только как факт), builtin — есть ли встроенный переводчик в
-// браузере. Одна функция на три контекста: по ней background ставит «!» на значке, content не
-// трогает страницу, а окно расширения объясняет, что сделать.
-// «Авто» без ключа DeepL работает встроенным переводчиком, поэтому проблемой не считается.
-function HT_engineProblem(engine, keys, builtin) {
+// ---- куда уходит текст и согласие на это ----
+// Сервис, которому выбранный переводчик отправляет текст абзацев: "deepl" | "openai" | "anthropic",
+// или "" — встроенный, он ничего не отправляет. Для ИИ — выбранный провайдер (сверенный с таблицей).
+var HT_PROVIDER_NAMES = { deepl: "DeepL", openai: "OpenAI (ChatGPT)", anthropic: "Anthropic (Claude)" };
+function HT_provider(engine, llmProvider) {
   const e = HT_engine(engine);
-  const hasKey = !e.keyField || !!(keys && keys[e.keyField]);
-  if (!hasKey && e.fallback !== "local") return e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key";
-  const needLocal = e.via === "local" || !hasKey;
-  if (needLocal && !builtin) return e.via === "local" ? "no-builtin" : "no-deepl-key";
+  if (e.via === "deepl") return "deepl";
+  if (e.via === "llm") return HT_valid("llmProvider", llmProvider);
+  return "";
+}
+
+// Согласие на отправку текста — по сервису: storage.local.consent = { deepl, openai, anthropic }
+// (true — человек нажал «Согласен» в окне расширения). Магазин Chrome требует заметного раскрытия и
+// явного согласия ДО первой отправки содержимого страниц. Пишет согласие только окно расширения;
+// читают все три контекста, поэтому значение сверяем: в счёт идёт только true у известного сервиса.
+function HT_consent(v) {
+  const out = { deepl: false, openai: false, anthropic: false };
+  if (v && typeof v === "object") for (const k in out) out[k] = v[k] === true;
+  return out;
+}
+function HT_agreed(consent, provider) { return !provider || HT_consent(consent)[provider] === true; }
+
+// Можно ли выбранному переводчику отправлять текст в сеть: есть ключ и согласие на его сервис.
+// st — { apiKey, llmApiKey (есть ли ключ — только факт), llmProvider, consent }.
+function HT_canSend(engine, st) {
+  const e = HT_engine(engine);
+  if (e.via === "local") return false;
+  if (e.keyField && !(st && st[e.keyField])) return false;
+  return HT_agreed(st && st.consent, HT_provider(engine, st && st.llmProvider));
+}
+
+// ---- может ли выбранный переводчик работать ----
+// Код причины, по которой выбранный переводчик сейчас не может работать, или null. st — как у
+// HT_canSend; builtin — есть ли встроенный переводчик в браузере. Одна функция на три контекста:
+// по ней background ставит «!» на значке, content не трогает страницу, а окно расширения объясняет,
+// что сделать. Нет согласия — то же, что нет ключа: отправлять нельзя.
+// «Авто» без ключа DeepL или без согласия работает встроенным переводчиком, поэтому проблемой не считается.
+function HT_engineProblem(engine, st, builtin) {
+  const e = HT_engine(engine);
+  const hasKey = !e.keyField || !!(st && st[e.keyField]);
+  const why = !hasKey ? (e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key") : "no-consent";
+  const net = e.via !== "local" && HT_canSend(engine, st);
+  if (e.via !== "local" && !net && e.fallback !== "local") return why;
+  const needLocal = e.via === "local" || !net;
+  if (needLocal && !builtin) return e.via === "local" ? "no-builtin" : why;
   return null;
 }
 
@@ -161,11 +197,39 @@ var HT_PROBLEMS = {
     short: "не задан ключ ИИ",
     page: "Перевод не работает: не задан ключ ИИ. Нажмите на значок расширения, чтобы вставить ключ или включить встроенный переводчик.",
   },
+  "no-consent": {
+    short: "нужно ваше согласие на отправку текста",
+    page: "Перевод не работает: нужно ваше согласие на отправку текста выбранному переводчику. Нажмите на значок расширения, чтобы согласиться или включить встроенный переводчик.",
+  },
   "no-builtin": {
     short: "встроенный переводчик недоступен в этом браузере",
     page: "Перевод не работает: встроенный переводчик недоступен в этом браузере (нужен Chrome 138 или новее на компьютере). Нажмите на значок расширения, чтобы подключить DeepL.",
   },
 };
+
+// ---- модели ИИ ----
+// Недорогие быстрые модели для списка в окне (по документации провайдеров на ноябрь 2026). Первая —
+// по умолчанию: пустое llmModel в настройках значит «модель по умолчанию», поэтому при смене списка
+// в новой версии такие пользователи переходят на новую модель сами. req — что добавить к запросу:
+// перевод абзаца не требует скрытого рассуждения, а с ним ответ медленнее, дороже и может не
+// уложиться в потолок длины. У Claude Haiku 5.5 рассуждение выключается, у Sonnet 5.5 — нет
+// (ответ 400), там «between_tools» убирает рассуждение перед ответом.
+var HT_LLM_MODELS = {
+  openai: [
+    ["gpt-6-luna", "GPT-6 Luna — быстрая и дешёвая", { reasoning_effort: "none" }],
+    ["gpt-6.1-terra", "GPT-6.1 Terra — точнее, примерно в 10 раз дороже", { reasoning_effort: "none" }],
+  ],
+  anthropic: [
+    ["claude-haiku-5-5", "Claude Haiku 5.5 — быстрая и дешёвая", { thinking: { type: "disabled" } }],
+    ["claude-sonnet-5-5", "Claude Sonnet 5.5 — точнее, примерно в 20 раз дороже", { thinking: { type: "between_tools" } }],
+  ],
+};
+function HT_llmModels(provider) { return HT_LLM_MODELS[HT_valid("llmProvider", provider)]; }
+function HT_llmDefault(provider) { return HT_llmModels(provider)[0][0]; }
+// Строка модели из списка или null (модель, вписанная вручную).
+function HT_llmModelRow(provider, model) {
+  return HT_llmModels(provider).find((r) => r[0] === model) || null;
+}
 
 // ---- кто инициировал перевод ----
 // От этого зависит бюджет расхода в background: страница может инициировать перевод САМА, просто
@@ -190,6 +254,7 @@ var HT_DEFAULTS = {
   displayMode: "replace", showLangBadge: true, formality: "default", noTranslate: "",
   // llmProvider/llmModel сам content не использует (их читает background), но держит в DEFAULTS,
   // чтобы их смена тоже триггерила живое перетранслирование уже показанных переводов.
+  // Пустая модель — «по умолчанию» (первая в HT_LLM_MODELS для провайдера).
   llmProvider: "openai", llmModel: "",
   dispMode: "auto", dispBg: "#0078d7", dispOpacity: 12,
   dispBorder: false, dispBorderColor: "#0078d7", dispBorderStyle: "solid",
@@ -199,7 +264,7 @@ var HT_DEFAULTS = {
 // может не только popup (мини-панель живёт на странице), поэтому значение сверяется со списком
 // при каждом чтении: неизвестное становится значением по умолчанию и не попадает ни в запрос
 // к движку, ни в инструкцию для ИИ. Списки formality/llmProvider/displayMode/trigger обязаны
-// совпадать с <option> в popup.html.
+// совпадать со значениями полей выбора в popup.html (<option> и переключателей).
 var HT_CHOICES = {
   targetLang: HT_TARGET_LANGS.map((r) => r[0]),
   sourceLang: HT_SOURCE_LANGS.map((r) => r[0]),
@@ -259,6 +324,21 @@ function HT_sites(v) {
 function HT_hudPos(v) {
   return v && typeof v === "object" && Number.isFinite(v.left) && Number.isFinite(v.top)
     ? { left: v.left, top: v.top } : null;
+}
+
+// ---- названия клавиш ----
+// Клавиша способа включения — так, как она подписана на клавиатуре: на Mac Alt называется Option, а
+// вместо Ctrl обычно жмут Cmd (content принимает и Ctrl, и Cmd). Для окна и страницы приветствия.
+function HT_isMac() {
+  try {
+    const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    return /mac/i.test(p);
+  } catch (e) { return false; }
+}
+var HT_TRIGGER_KEYS = { shift: ["Shift", "⇧ Shift"], alt: ["Alt", "⌥ Option"], ctrl: ["Ctrl", "⌘ Cmd"] };
+function HT_triggerKey(trigger, mac) {
+  const k = Object.prototype.hasOwnProperty.call(HT_TRIGGER_KEYS, trigger) ? HT_TRIGGER_KEYS[trigger] : null;
+  return k ? k[mac ? 1 : 0] : "";
 }
 
 // ---- DOM ----
