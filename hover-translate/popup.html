@@ -24,13 +24,27 @@
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
     </button>
   </div>
-  <p id="pageMsg" class="status"></p>
+  <div class="page-row">
+    <p id="pageMsg" class="status"></p>
+    <button id="reloadTab" type="button" class="linkbtn" hidden>Обновить вкладку</button>
+  </div>
+
+  <!-- Выбранный переводчик не может работать (нет ключа / нет встроенного): что сделать.
+       Тот же случай отмечен «!» на значке расширения. -->
+  <div class="setup" id="setup" hidden>
+    <p id="setupText" class="status err"></p>
+    <div class="setup-actions">
+      <button id="setupFix" type="button" class="linkbtn"></button>
+      <a id="setupLink" class="linkbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noopener" hidden>Где взять ключ DeepL</a>
+    </div>
+  </div>
 
   <label class="field">
     <span class="lbl">Движок перевода</span>
     <select id="engine"></select>
   </label>
-  <p id="engineNote" class="note">Встроенному движку нужен Chrome 138+ (desktop); модель скачивается при первом использовании.</p>
+  <!-- Встроенный переводчик: скачаны ли модели, кнопка «Подготовить переводчик» (builtin.js). -->
+  <div id="builtinBox" class="bi"></div>
 
   <!-- LLM: провайдер, ключ, модель -->
   <div class="key-block" id="llmBlock">
@@ -201,6 +215,7 @@
   </div>
 
   <script src="shared.js"></script>
+  <script src="builtin.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

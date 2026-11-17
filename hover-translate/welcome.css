@@ -1,0 +1,96 @@
+/* Страница приветствия. Цвета (светлая/тёмная тема), поля и кнопки — из popup.css; здесь только
+   раскладка страницы и крупнее шрифт: это вкладка, а не окошко 300 px. */
+
+body {
+  width: auto;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 36px 20px 64px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.hero { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.hero img { flex: none; border-radius: 10px; }
+.hero h1 { margin: 0; font-size: 22px; font-weight: 650; }
+.hero p { margin: 4px 0 0; color: var(--muted); }
+
+.step {
+  margin: 14px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.step h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 15px; font-weight: 650; }
+.step p { margin: 0 0 8px; }
+.step p:last-child { margin-bottom: 0; }
+.step select { max-width: 300px; font-size: 14px; }
+
+.num {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hint { color: var(--muted); font-size: 13px; }
+.step .hint { margin-top: 8px; }
+
+/* Блок встроенного переводчика крупнее, чем в окне расширения. */
+.step .bi { margin: 0; }
+.step .bi-text { font-size: 13px; }
+.step .btn { padding: 8px 16px; font-size: 13px; }
+
+/* Способ включения */
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.choice:hover { border-color: var(--accent); }
+.choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.choice input { margin: 3px 0 0; accent-color: var(--accent); }
+
+/* Абзац для пробы: заметная рамка «сюда». Фон перевода (подсветку) content.js ставит поверх. */
+.trainer {
+  padding: 14px 16px;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Закрепить значок: схематичная картинка из двух «кнопок» панели Chrome. */
+.pin-row { display: flex; flex-direction: column; gap: 10px; }
+.pin-art { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--fg); }
+.pin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.pin-icon { color: var(--accent); }
+.pin-arrow { color: var(--muted); }
+
+.extra { margin: 26px 4px 0; color: var(--muted); }
+.extra h2 { margin: 0 0 6px; font-size: 14px; font-weight: 650; color: var(--fg); }
+.extra p { margin: 0; }
+
+a { color: var(--accent); }

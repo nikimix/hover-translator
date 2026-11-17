@@ -9,6 +9,10 @@
 // только при наведении; страницу всегда переводим заменой). Опционально — бейдж исходного языка
 // (только в поповере) и мини-HUD смены языка на странице.
 // Движки: DeepL, LLM (OpenAI/Anthropic) — через background; встроенный Chrome — on-device.
+// Если выбранный переводчик не может работать (нет ключа, нет встроенного в браузере), страница не
+// трогается вовсе; если расширение обновили или удалили, скрипт возвращает оригиналы и замолкает.
+// Страница приветствия подключает этот файл напрямую (на страницах chrome-extension:// content
+// scripts не запускаются), чтобы на ней можно было попробовать перевод.
 
 (function () {
   if (!(typeof chrome !== "undefined" && chrome.storage && chrome.storage.local && chrome.runtime)) {
@@ -28,11 +32,10 @@
   // расходились — именно на этом и держалась «осиротевшая карточка» (владельца убрали из Set,
   // а узел и запись состояния остались).
   const popovers = new Map();
-  // owner -> { timer, title }: таймер сброса и его собственный title до показа текста ошибки.
-  // Одна карта, а не две: писались и удалялись они всегда вместе (тот же аргумент, что и для
-  // popovers ниже).
+  // owner -> таймер снятия красной подсветки ошибки. Сам текст ошибки на элемент страницы не
+  // пишем (в title его прочитал бы скрипт сайта) — он только в нашем уведомлении в shadow root.
   const errors = new WeakMap();
-  const translators = new Map();     // "src>tgt" -> Promise<Translator|null> (встроенный движок)
+  const translators = new Map();     // "src>tgt" -> Promise<{ inst } | { kind }> (встроенный движок)
   const pendingObserved = new Set(); // owner, вошедшие в зону видимости и ждущие перевода
   let pageObserver = null;
   let flushTimer = null;
@@ -44,7 +47,7 @@
   let modWheelUntil = 0;              // до этого времени модификатор занят жестом прокрутки/зума
   let lastToastAt = 0;
   let detector = null;
-  let detectorInit = null;
+  let detectorPending = null;         // создание детектора в процессе (неудача не запоминается)
   let restylePending = false;
   let popScrollBound = false;
   let popPending = false;      // репозиция карточек уже запланирована на кадр
@@ -60,16 +63,51 @@
   // с engine=auto страница уже могла быть заполнена встроенным фолбэком, и после ввода ключа
   // DeepL её нужно перевести заново. В DEFAULTS этих полей нет, поэтому обрабатываем отдельно.
   const KEY_KEYS = ["apiKey", "llmApiKey"];
+  // Есть ли ключи — только как факт (сами значения не держим): без ключа DeepL или ИИ наведение не
+  // должно ничего делать на странице (см. blocked).
+  const keyPresent = { apiKey: false, llmApiKey: false };
+
+  // Встроенный переводчик в этом окне: "none" — его нет в браузере (Chrome < 138, другие браузеры на
+  // Chromium, телефон); "frame" — есть, но встроенному окну (iframe с другого адреса) его не
+  // разрешили политикой сайта; "ok" — есть.
+  const BUILTIN = (() => {
+    if (!("Translator" in self)) return "none";
+    try {
+      const fp = document.featurePolicy;
+      if (fp && fp.features().includes("translator") && !fp.allowsFeature("translator")) return "frame";
+    } catch (e) { /* нет API политики — считаем, что можно */ }
+    return "ok";
+  })();
+
+  // Все обработчики на странице вешаем через on(): после обновления или удаления расширения скрипт
+  // остаётся жить на открытых вкладках, и тогда их надо снять разом (см. alive).
+  const unbinders = [];
+  function on(target, type, fn, opts) {
+    target.addEventListener(type, fn, opts);
+    unbinders.push(() => target.removeEventListener(type, fn, opts));
+  }
+
+  // Сообщение в background. После обновления расширения sendMessage бросает синхронно — сводим это
+  // к отклонённому обещанию, чтобы у вызывающих был один путь ошибки.
+  function send(msg) {
+    try { return chrome.runtime.sendMessage(msg); } catch (e) { return Promise.reject(e); }
+  }
 
   // Перечисления (язык, движок, тон, способ показа, клавиша) сверяем с таблицами shared.js при
   // каждом чтении: неизвестное значение становится значением по умолчанию.
-  chrome.storage.local.get(DEFAULTS, (s) => { settings = HT_validAll(s); });
+  chrome.storage.local.get(Object.assign({ apiKey: "", llmApiKey: "", htBuiltinApi: null }, DEFAULTS), (s) => {
+    for (const k of KEY_KEYS) { keyPresent[k] = !!s[k]; delete s[k]; }
+    syncBuiltinFlag(s.htBuiltinApi);
+    delete s.htBuiltinApi;
+    settings = HT_validAll(s);
+  });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     let dispChanged = false, txChanged = false, enabledOff = false;
     for (const k in changes) {
       const ch = changes[k];
       if (KEY_KEYS.includes(k)) {           // значение не запоминаем — нужен только факт смены
+        keyPresent[k] = !!ch.newValue;
         if (ch.oldValue !== ch.newValue) txChanged = true;
         continue;
       }
@@ -94,6 +132,67 @@
     }
     // displayMode/showLangBadge — только вид; влияют на будущие наведения, ничего не перерисовываем.
   });
+
+  // Есть ли встроенный переводчик в браузере, точно знает только окно, а «!» на значке ставит
+  // background. Поэтому верхний фрейм записывает это в хранилище, если записанное расходится с
+  // действительным (обычно — ни разу: значение пишут уже страница приветствия и окно расширения).
+  function syncBuiltinFlag(stored) {
+    if (window !== window.top) return;
+    const has = BUILTIN !== "none";
+    if (stored !== has) chrome.storage.local.set({ htBuiltinApi: has }).catch(() => {});
+  }
+
+  // ---- связь с расширением ----
+  // После обновления, перезагрузки или удаления расширения этот скрипт продолжает жить на уже
+  // открытых вкладках, но chrome.* больше не отвечает (chrome.runtime.id пропадает). Тогда
+  // возвращаем странице оригиналы, снимаем свои обработчики и замолкаем — вместо красной ошибки на
+  // каждом наведении. Новая версия заработает после обновления вкладки (окно расширения подскажет).
+  let dead = false;
+  function alive() {
+    if (dead) return false;
+    let id = null;
+    try { id = chrome.runtime && chrome.runtime.id; } catch (e) { id = null; }
+    if (id) return true;
+    shutdown();
+    return false;
+  }
+
+  function shutdown() {
+    dead = true;
+    restoreAll();
+    hud = null;
+    // Мини-панель и уведомления (они живут по своим таймерам) — тоже убираем: это интерфейс старой версии.
+    for (const host of document.querySelectorAll("[data-ht-ui]")) host.remove();
+    clearTimeout(dwellTimer);
+    clearTimeout(retranslateTimer);
+    clearInterval(sweepTimer);
+    hoverEl = null;
+    modPress = null;
+    for (const off of unbinders.splice(0)) off();
+  }
+
+  // ---- может ли перевод работать ----
+  // Выбранный переводчик не может работать (нет ключа, нет встроенного) — наведение ничего не
+  // делает: ни красной подсветки, ни ошибки на каждом абзаце. Объяснение — «!» на значке и в окне
+  // расширения, а на странице — одно спокойное уведомление за сессию браузера (решает background).
+  // Явное действие («Перевести страницу») объясняем всегда.
+  let problemAsked = false;
+  function problem() { return HT_engineProblem(settings.engine, keyPresent, BUILTIN === "ok"); }
+  function blocked(byUser) {
+    const p = problem();
+    if (!p) return false;
+    // Во встроенном окне чужого сайта встроенный переводчик запрещён политикой этого сайта — это
+    // не поломка, о которой стоит рассказывать.
+    if (BUILTIN === "frame" && !HT_engineProblem(settings.engine, keyPresent, true)) return true;
+    if (byUser) { notice(HT_PROBLEMS[p].page); return true; }
+    if (!problemAsked) {
+      problemAsked = true;
+      send({ type: "noticeOnce", problem: p })
+        .then((r) => { if (r && r.show && !dead) notice(HT_PROBLEMS[p].page); })
+        .catch(() => {});
+    }
+    return true;
+  }
 
   const SKIP_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT", "OPTION", "SCRIPT", "STYLE", "PRE", "CODE", "NOSCRIPT", "SVG", "CANVAS", "IMG", "VIDEO", "AUDIO"]);
   const BLOCK_TAGS = new Set([
@@ -131,6 +230,10 @@
   // Самый крупный «строчный» контейнер вокруг точки: поднимаемся, пока у родителя нет блочных детей.
   function pickTarget(start) {
     if (!start || start.nodeType !== 1) return null;
+    // Курсор на пустом месте под содержимым — это <html>: его дети HEAD и BODY в BLOCK_TAGS нет, и на
+    // короткой странице (до 2000 знаков) переводился бы весь документ вместе с <title>, а строки
+    // вложенных абзацев потом делили бы с ним одни и те же текстовые узлы.
+    if (start === document.documentElement) return null;
     if (hasBlockChild(start)) return null;
     let el = start;
     while (
@@ -251,14 +354,15 @@
   function toggle(owner) {
     if (!owner) return;
     if (settings.displayMode === "popover") {
-      if (popovers.has(owner)) removePopover(owner); else translatePopover(owner);
+      if (popovers.has(owner)) removePopover(owner); else if (!blocked(false)) translatePopover(owner);
     } else {
       const line = lineByOwner.get(owner);
-      if (line) restoreLine(line); else translateLine(owner, false);
+      if (line) restoreLine(line); else if (!blocked(false)) translateLine(owner, false);
     }
   }
 
   function startHover(owner) {
+    if (blocked(false)) return;
     if (settings.displayMode === "popover") translatePopover(owner);
     else translateLine(owner, false);
   }
@@ -273,7 +377,7 @@
   // Параметры перевода для background (движок/языки/формальность/исключения).
   function txOpts() {
     return {
-      engine: settings.engine || "deepl",
+      engine: settings.engine || HT_DEFAULTS.engine,
       targetLang: settings.targetLang,
       sourceLang: settings.sourceLang || "auto",
       formality: settings.formality || "default",
@@ -311,27 +415,83 @@
     return { lead: m[1], core: m[2], trail: m[3] };
   }
 
-  // ---- определение языка (on-device, бесплатно) ----
-  function ensureDetector() {
-    if (detector) return Promise.resolve(detector);
-    if (!("LanguageDetector" in self)) return Promise.resolve(null);
-    if (!detectorInit) {
-      detectorInit = (async () => {
-        try {
-          if ((await LanguageDetector.availability()) === "unavailable") return null;
-          detector = await LanguageDetector.create();
-        } catch (e) { /* без оптимизации */ }
-        return detector || null;
-      })();
+  // ---- встроенный переводчик и определение языка (на компьютере пользователя, бесплатно) ----
+  // Пока модель не скачана (availability = "downloadable"/"downloading"), Chrome создаёт переводчик
+  // и детектор только по действию пользователя — щелчку или нажатию обычной клавиши. Наведение им
+  // не считается, одиночный Shift/Ctrl/Alt — тоже (проверено в Chrome 157). Без такого действия
+  // create() не зовём: честно говорим, что модель не скачана и что сделать, и неудачу НЕ
+  // запоминаем — после щелчка или подготовки в окне расширения следующий перевод сработает.
+  function userActive() { return !!(navigator.userActivation && navigator.userActivation.isActive); }
+
+  // Уведомление с ходом загрузки модели: create() с monitor сообщает долю скачанного. Подсказку
+  // «нужно скачать» оно заменяет — оба стоят на одном месте внизу страницы.
+  let downloadHint = null;
+  function downloadNotice(what) {
+    if (downloadHint) { downloadHint.close(); downloadHint = null; }
+    const t = showToast(`Скачиваю ${what}…`, "info", 0, extName());
+    return {
+      monitor(m) {
+        m.addEventListener("downloadprogress", (e) => {
+          t.set(`Скачиваю ${what}… ${Math.round(100 * (e.total ? e.loaded / e.total : e.loaded))}%`);
+        });
+      },
+      done() { t.close(); },
+    };
+  }
+
+  const CREATE_RETRY_MS = [300, 700, 1000, 1500, 2500];   // ~6 с в сумме
+
+  // Создать экземпляр встроенного API (Translator / LanguageDetector) → { inst } либо
+  // { kind: "unavailable" | "download" | "fail", state, error }. mayDownload=false — только если
+  // модель уже есть (детектор как оптимизация для DeepL/ИИ не должен тратить щелчок пользователя).
+  async function createModel(api, opts, what, mayDownload) {
+    let state;
+    try { state = await api.availability(opts); } catch (e) { return { kind: "fail", error: e }; }
+    if (state === "unavailable") return { kind: "unavailable" };
+    const ready = state === "available";
+    if (!ready && !(mayDownload && userActive())) return { kind: "download", state };
+    const n = ready ? null : downloadNotice(what);
+    try {
+      return { inst: await api.create(n ? Object.assign({ monitor: n.monitor }, opts) : opts) };
+    } catch (e) {
+      // Сразу после загрузки модели Chrome ещё несколько секунд (замерено на 157: ~3 с) отказывает
+      // в create() с NotSupportedError, хотя availability уже «available» — в том числе когда модель
+      // скачали в окне расширения только что. Повторяем с паузами, без действия пользователя.
+      let err = e;
+      for (const pause of CREATE_RETRY_MS) {
+        if (err && err.name === "NotAllowedError") break;
+        if ((await api.availability(opts).catch(() => "")) !== "available") break;
+        await new Promise((r) => setTimeout(r, pause));
+        try { return { inst: await api.create(opts) }; } catch (e2) { err = e2; }
+      }
+      // NotAllowedError — действие пользователя уже «потрачено» (например, на соседнюю модель).
+      return err && err.name === "NotAllowedError" ? { kind: "download", state } : { kind: "fail", error: err };
+    } finally {
+      if (n) n.done();
     }
-    return detectorInit;
+  }
+
+  function getDetector(mayDownload) {
+    if (detector) return Promise.resolve({ inst: detector });
+    if (!("LanguageDetector" in self)) return Promise.resolve({ kind: "unavailable" });
+    if (!detectorPending) {
+      const p = createModel(LanguageDetector, {}, "модель определения языка", mayDownload)
+        .catch((e) => ({ kind: "fail", error: e }))
+        .then((r) => {
+          if (r.inst) detector = r.inst;
+          if (detectorPending === p) detectorPending = null;   // неудачу не запоминаем
+          return r;
+        });
+      detectorPending = p;
+    }
+    return detectorPending;
   }
 
   async function isAlreadyTarget(text) {
     // Если источник задан вручную и совпадает с целью — переводить нечего.
     if (settings.sourceLang && settings.sourceLang !== "auto" &&
         HT_langBase(settings.sourceLang) === targetBase().toLowerCase()) return true;
-    const det = await ensureDetector();
+    const det = (await getDetector(false)).inst;
     if (!det) return false;
     try {
       const res = await det.detect(text);
@@ -343,47 +503,66 @@
     }
   }
 
-  async function detectLang(text) {
-    if (settings.sourceLang && settings.sourceLang !== "auto") return HT_langBase(settings.sourceLang);
-    const det = await ensureDetector();
-    if (!det) return null;
+  // Язык текста → { lang } либо { kind, state } (детектора нет / модель не скачана), либо {}.
+  async function detectLang(text, mayDownload) {
+    if (settings.sourceLang && settings.sourceLang !== "auto") return { lang: HT_langBase(settings.sourceLang) };
+    const d = await getDetector(mayDownload);
+    if (!d.inst) return { kind: d.kind, state: d.state };
     try {
-      const res = await det.detect(text);
+      const res = await d.inst.detect(text);
       const top = res && res[0];
-      if (top && top.confidence >= 0.4) return top.detectedLanguage.toLowerCase();
-    } catch (e) { /* нет детектора */ }
-    return null;
+      if (top && top.confidence >= 0.4) return { lang: top.detectedLanguage.toLowerCase() };
+    } catch (e) { /* не определили */ }
+    return {};
   }
 
   // ---- движки перевода ----
 
-  // Встроенный Chrome Translator (on-device): инстансы кэшируются по паре языков.
-  async function getTranslator(src, tgt) {
+  // Встроенный Chrome Translator: экземпляры кэшируются по паре языков, неудача — нет.
+  function getTranslator(src, tgt) {
     const key = src + ">" + tgt;
     if (!translators.has(key)) {
-      translators.set(key, (async () => {
-        try {
-          if ((await Translator.availability({ sourceLanguage: src, targetLanguage: tgt })) === "unavailable") return null;
-          return await Translator.create({ sourceLanguage: src, targetLanguage: tgt });
-        } catch (e) { return null; }
-      })());
+      const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt },
+        `языковую модель (${HT_langLabel(src)} → ${HT_langLabel(tgt)})`, true)
+        .catch((e) => ({ kind: "fail", error: e }))
+        .then((r) => {
+          if (!r.inst && translators.get(key) === p) translators.delete(key);
+          return r;
+        });
+      translators.set(key, p);
     }
-    const inst = await translators.get(key);
-    if (!inst) translators.delete(key); // не закрепляем неудачу — дадим шанс пересоздать
-    return inst;
+    return translators.get(key);
+  }
+
+  // Модель не скачана: что сказать. key — что именно ждёт загрузки (одно уведомление на страницу).
+  function needDownload(state, src, tgt) {
+    const what = src ? `языковую модель (${HT_langLabel(src)} → ${HT_langLabel(tgt)})` : "модель определения языка";
+    // Детектор и пару «английский → язык перевода» готовит кнопка в окне расширения.
+    const prep = !src || src === HT_prepPair(settings.targetLang).src
+      ? " Или нажмите на значок расширения → «Подготовить переводчик»." : "";
+    const error = state === "downloading"
+      ? `Встроенный переводчик скачивает ${what}. Подождите немного и наведите на текст ещё раз.`
+      : `Встроенному переводчику нужно один раз скачать ${what}. Щёлкните мышью по странице и наведите на текст ещё раз — загрузка начнётся.${prep}`;
+    return { ok: false, kind: "download", key: src ? src + ">" + tgt : "detector", error };
   }
 
   // Перевод по тексту (без HTML) встроенным движком. Возвращает src для бейджа.
   async function chromeTranslate(text, targetLang) {
-    if (!("Translator" in self)) return { ok: false, error: "Встроенный переводчик недоступен (Chrome 138+, desktop)." };
+    if (!("Translator" in self)) return { ok: false, error: HT_PROBLEMS["no-builtin"].page };
     const tgt = HT_langBase(targetLang);
-    const src = await detectLang(text);
-    if (!src) return { ok: false, error: "Не удалось определить язык (встроенный переводчик)." };
+    const d = await detectLang(text, true);
+    if (d.kind === "download") return needDownload(d.state);
+    const src = d.lang;
+    if (!src) return { ok: false, error: "Не удалось определить язык текста (встроенный переводчик)." };
     if (src === tgt) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
+    const t = await getTranslator(src, tgt);
+    if (t.kind === "download") return needDownload(t.state, src, tgt);
+    if (t.kind === "unavailable") {
+      return { ok: false, error: `Встроенный переводчик не умеет переводить эту пару языков: ${HT_langLabel(src)} → ${HT_langLabel(tgt)}.` };
+    }
     try {
-      const tr = await getTranslator(src, tgt);
-      if (!tr) return { ok: false, error: `Пара ${src}→${tgt} недоступна для встроенного переводчика.` };
-      return { ok: true, value: await tr.translate(text), src };
+      if (!t.inst) throw t.error;
+      return { ok: true, value: await t.inst.translate(text), src };
     } catch (e) {
       return { ok: false, error: "Встроенный переводчик: " + (e && e.message ? e.message : e) };
     }
@@ -393,14 +572,18 @@
   // определяют сбой по этому полю, и без него встроенный движок падал абсолютно молча
   // (неподдерживаемая пара языков, Chrome < 138 — пользователь наводит, и не происходит ничего).
   // primaryError — ошибка основного движка в режиме auto: она информативнее («не задан ключ»).
+  // Исключение — нескачанная модель: это не сбой, а шаг настройки, и подсказка, что сделать,
+  // полезнее ошибки DeepL.
   async function localResults(texts, primaryError) {
     const results = await Promise.all(texts.map((t) => chromeTranslate(t, settings.targetLang)));
     if (results.some((r) => r && r.ok)) return { results };
+    const dl = results.find((r) => r && r.kind === "download");
+    if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key };
     const own = (results.find((r) => r && r.error) || {}).error;
     return { results: null, error: primaryError || own || TX_FAIL };
   }
 
-  // ЕДИНСТВЕННЫЙ путь к движку → { results:[{ok,value,src}] } либо { results:null, error }.
+  // ЕДИНСТВЕННЫЙ путь к движку → { results:[{ok,value,src}] } либо { results:null, error[, kind] }.
   // Перевод одного элемента — это батч из одного элемента: пока для него был отдельный путь,
   // политика движков (выбор, фолбэк, обработка ошибок) жила в двух копиях и они уже разошлись —
   // правило «не перевелось ничего → error» было только в одной.
@@ -413,12 +596,13 @@
     if (e.via === "local") return localResults(texts);
     let resp;
     try {
-      resp = await chrome.runtime.sendMessage(Object.assign(
-        { type: "translateBatch", items: texts.map(escapeHtml), by }, txOpts()));
+      resp = await send(Object.assign({ type: "translateBatch", items: texts.map(escapeHtml), by }, txOpts()));
     } catch (err) {
-      // Реджект здесь означает только одно: контекст расширения инвалидирован (его перезагрузили
-      // или обновили). Сообщение движка тут ни при чём.
-      resp = { ok: false, error: "Расширение перезагружено — обновите страницу." };
+      // Почти всегда — пропавший контекст расширения (его обновили или удалили): тогда alive()
+      // откатывает страницу и снимает обработчики, а все вызывающие видят отмену по liveGen/pageGen
+      // раньше, чем пустую ошибку. Сообщение движка тут ни при чём.
+      if (!alive()) return { results: null, error: "" };
+      resp = { ok: false, error: TX_FAIL };
     }
     if (resp && resp.ok && Array.isArray(resp.texts)) {
       return {
@@ -432,6 +616,21 @@
     const err = errOf(resp);
     if (e.fallback === "local") return localResults(texts, err); // основной движок не смог
     return { results: null, error: err };
+  }
+
+  // Показать сбой перевода. Нескачанная модель — не ошибка: абзац не краснеет, а подсказка, что
+  // сделать, — одна на страницу для каждой модели; следующий щелчок по странице повторяет перевод
+  // элемента под курсором (у щелчка есть «действие пользователя», и загрузка начнётся).
+  const downloadTold = new Set();
+  let retryOnClick = false;
+  function showFail(owner, out) {
+    if (out.kind === "download") {
+      retryOnClick = true;
+      if (!downloadTold.has(out.key)) { downloadTold.add(out.key); downloadHint = notice(out.error, 12000); }
+      return;
+    }
+    if (owner) failOwner(owner);
+    toast(out.error || TX_FAIL, true);
   }
 
   // ---- подсветка ----
@@ -630,8 +829,8 @@
   function ensurePopScroll() {
     if (popScrollBound) return;
     popScrollBound = true;
-    addEventListener("scroll", schedulePopReposition, true);
-    addEventListener("resize", schedulePopReposition);
+    on(window, "scroll", schedulePopReposition, true);
+    on(window, "resize", schedulePopReposition);
   }
 
   function positionPopover(node, el) {
@@ -718,7 +917,7 @@
       const res = out.results && out.results[0];
       if (res && res.ok && res.value && res.value.trim()) {
         let src = res.src || null;
-        if (!src && settings.showLangBadge) src = await detectLang(text);
+        if (!src && settings.showLangBadge) src = (await detectLang(text, false)).lang || null;
         if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== state) { removePopover(owner, node); return; }
         const badge = (settings.showLangBadge && src && src.toLowerCase() !== targetBase().toLowerCase()) ? badgeText(src) : null;
         updatePopover(node, owner, res.value, badge, "");
@@ -726,7 +925,7 @@
         removePopover(owner, node); // переводить нечего
       } else {
         removePopover(owner, node);
-        toast(out.error || TX_FAIL, true);
+        showFail(null, out);
       }
     } finally {
       inFlight.delete(owner);
@@ -756,12 +955,12 @@
       lineByOwner.set(owner, line);          // маркер «занят» — закрывает гонку и ловит mouseout во время await
       owner.classList.add("ht-loading");
 
-      const { results, error } = await translateItems(recs.map((r) => r.core), HT_BY_PAGE);
+      const out = await translateItems(recs.map((r) => r.core), HT_BY_PAGE);
 
       // отменён (сброс/выключение) или сброшен мышью/заменён за время ожидания
       if (gen !== liveGen || !owner.isConnected || lineByOwner.get(owner) !== line) return;
-      if (error) { failOwner(owner, error); toast(error, true); return; }
-      if (!writeLine(recs, results, line)) return;
+      if (out.error) { showFail(owner, out); return; }
+      if (!writeLine(recs, out.results, line)) return;
       lines.add(line);
       applyHLLine(line);
       committed = true;
@@ -824,7 +1023,7 @@
     if (lineByOwner.get(owner) === line) lineByOwner.delete(owner);
     lines.delete(line);
     clearHLLine(line);                 // и при keep-alive: иначе наш inline-style остался бы навсегда
-    if (revert) clearError(owner);     // таймер, класс ошибки и исходный title
+    if (revert) clearError(owner);     // таймер и класс ошибки
     owner.classList.remove("ht-loading"); // ht-translated нигде не ставится — снимать нечего
   }
 
@@ -840,30 +1039,21 @@
     return false;
   }
 
-  // Ошибка движка при наведении (замена): подсветить owner и сбросить через таймер.
-  // Исходный title держим в WeakMap, а НЕ в замыкании таймера: повторное наведение таймер
-  // отменяло, и текст ошибки оставался в title навсегда — а при повторном сбое failOwner
-  // перечитывал title и сохранял уже саму ошибку как «оригинал», уничтожая тултип ссылки.
-  // Снимок берём только первый раз, пока состояние ошибки не снято.
-  function failOwner(owner, err) {
-    const st = errors.get(owner);
-    if (st) clearTimeout(st.timer);
-    const title = st ? st.title : owner.getAttribute("title"); // снимок берём только первый раз
+  // Ошибка движка при наведении (замена): подсветить owner и сбросить через таймер. Текст ошибки на
+  // элемент страницы не пишем — в title его прочитал бы скрипт сайта; он только в нашем уведомлении.
+  function failOwner(owner) {
+    clearTimeout(errors.get(owner));
     owner.classList.remove("ht-loading");
     owner.classList.add("ht-error");
-    owner.setAttribute("title", err);
-    errors.set(owner, { title, timer: setTimeout(() => clearError(owner), 1800) });
+    errors.set(owner, setTimeout(() => clearError(owner), 1800));
   }
 
-  // Снять состояние ошибки и вернуть элементу его собственный title. Единственная точка выхода
-  // из состояния ошибки: и по таймеру, и по повторному наведению, и при откате строки.
+  // Снять состояние ошибки. Единственная точка выхода из него: и по таймеру, и по повторному
+  // наведению, и при откате строки.
   function clearError(owner) {
     owner.classList.remove("ht-error");
-    const st = errors.get(owner);
-    if (!st) return;
-    clearTimeout(st.timer);
+    clearTimeout(errors.get(owner));
     errors.delete(owner);
-    if (st.title == null) owner.removeAttribute("title"); else owner.setAttribute("title", st.title);
   }
 
   function restoreAll() {
@@ -892,7 +1082,7 @@
   // всё, что в нём показано, — хотя видна одна вкладка. Скрытая вкладка перепереводит при первом
   // показе (iframe видим вместе со своей вкладкой).
   let retranslateOnShow = false;
-  document.addEventListener("visibilitychange", () => {
+  on(document, "visibilitychange", () => {
     if (document.visibilityState === "visible" && retranslateOnShow) {
       retranslateOnShow = false;
       scheduleRetranslate();
@@ -909,7 +1099,7 @@
   // оригинала и заменяем только при успехе: при сбое движка прежние переводы остаются на месте.
   const LINE_BATCH = 20;
   async function retranslateAll() {
-    if (!settings.enabled) return;
+    if (!settings.enabled || problem()) return;    // переводчик не может работать — прежнее остаётся
     // Вкладку могли скрыть за время задержки — тогда тоже ждём её показа.
     if (document.visibilityState !== "visible") { retranslateOnShow = true; return; }
     const list = [];
@@ -941,15 +1131,16 @@
       }
     }
     if (!entries.length) return;
-    const { results, error } = await translateItems(entries.map((e) => e.core), HT_BY_USER);
-    if (error) { toast(error, true); return; } // ошибка движка — прежние переводы остаются
+    const out = await translateItems(entries.map((e) => e.core), HT_BY_USER);
+    if (out.error) { showFail(null, out); return; } // ошибка движка — прежние переводы остаются
     if (gen !== liveGen) return;
+    const results = out.results;
     // Ожидаемое значение узла здесь — текущий ПЕРЕВОД (а не оригинал): меняем свой текст на новый.
     for (let i = 0; i < entries.length; i++) writeEntry(entries[i], results[i], entries[i].rec.translated);
   }
 
   // Периодически убираем мёртвые узлы (SPA) — против утечки памяти.
-  setInterval(() => {
+  const sweepTimer = setInterval(() => {
     for (const line of Array.from(lines)) if (!line.owner.isConnected) dropLine(line);
     for (const owner of Array.from(popovers.keys())) if (!owner.isConnected) removePopover(owner);
   }, 30000);
@@ -994,7 +1185,7 @@
   }
 
   async function translatePage() {
-    if (!settings.enabled) return;
+    if (!settings.enabled || blocked(true)) return;
     stopPageObserver();          // сбрасывает прошлый прогон и инкрементит pageGen
     const gen = pageGen;
     const fresh = collectCandidates();
@@ -1058,22 +1249,22 @@
     }
     if (!lineObjs.length) return;
 
-    let results = null, error = null;
+    let out;
     try {
-      const out = await translateItems(entries.map((e) => e.core), HT_BY_USER);
-      results = out.results; error = out.error;
+      out = await translateItems(entries.map((e) => e.core), HT_BY_USER);
     } catch (e) {
       // Исключение раньше уходило наружу мимо уборки: owner-ы чанка навсегда оставались
       // в inFlight/lineByOwner, а перевод страницы вставал и не создавал IntersectionObserver.
-      error = (e && e.message) || TX_FAIL;
+      out = { results: null, error: (e && e.message) || TX_FAIL };
     } finally {
       for (const line of lineObjs) line.owner.classList.remove("ht-loading");
     }
+    const results = out.results;
 
     const cancelled = gen !== pageGen;
-    if (cancelled || error || !results) {
+    if (cancelled || out.error || !results) {
       for (const line of lineObjs) { inFlight.delete(line.owner); dropLine(line); }
-      if (error && !cancelled) toast(error, true);
+      if (out.error && !cancelled) showFail(null, out);
       return;
     }
 
@@ -1094,9 +1285,11 @@
   // ---- события ----
   // Везде проверяем e.isTrusted: страница может сама разослать mouseover/keydown/wheel через
   // dispatchEvent и так запускать платные переводы за счёт ключа пользователя.
-  document.addEventListener("mouseover", (e) => {
+  // alive() — в обработчиках, с которых начинается перевод: первое же наведение после обновления
+  // расширения снимает всё и возвращает оригиналы.
+  on(document, "mouseover", (e) => {
     if (!e.isTrusted) return;
-    if (!settings.enabled) return;
+    if (!settings.enabled || !alive()) return;
     const target = pickTarget(e.target);
     hoverEl = (target && isTextTarget(target)) ? target : null;
     // Клавишу держат и ведут курсор дальше — это жест «держу и навожу», а не одиночное нажатие:
@@ -1119,7 +1312,7 @@
 
   // Жест колеса с зажатым модификатором: запоминаем, что клавишу держат не для нас. Слушатель
   // пассивный и только читает флаги события — прокрутку страницы он не задерживает.
-  addEventListener("wheel", (e) => {
+  on(window, "wheel", (e) => {
     if (!e.isTrusted) return;
     if (settings.trigger !== "dwell" && modHeld(e)) {
       modWheelUntil = Date.now() + MOD_WHEEL_GRACE;
@@ -1127,7 +1320,7 @@
     }
   }, { capture: true, passive: true });
 
-  document.addEventListener("mouseout", (e) => {
+  on(document, "mouseout", (e) => {
     if (!e.isTrusted) return;
     clearTimeout(dwellTimer);
     // Курсор ушёл из окна (или из этого фрейма): элемента под курсором больше нет. Иначе нажатие
@@ -1156,17 +1349,17 @@
   // выделение, Ctrl+клик — ссылка в новой вкладке), ни колеса (Shift+колесо — прокрутка вбок,
   // Ctrl+колесо — масштаб). В момент нажатия этого ещё не знать, поэтому решаем при отпускании:
   // таймер после нажатия не спасает от сочетания, набранного чуть медленнее таймера.
-  document.addEventListener("keydown", (e) => {
+  on(document, "keydown", (e) => {
     if (!e.isTrusted) return;
     if (e.repeat) return;                 // автоповтор зажатой клавиши — не новое нажатие
     modPress = null;                      // любая клавиша обрывает ожидаемое нажатие…
-    if (!settings.enabled || settings.trigger === "dwell") return;
+    if (!settings.enabled || settings.trigger === "dwell" || !alive()) return;
     if (!isTriggerKey(e) || !soloMod(e)) return;
     if (!hoverEl || modBusy() || typingFocus()) return;
     modPress = { key: e.key, el: hoverEl }; // …а одиночный модификатор над текстом начинает новое
   }, true);
 
-  document.addEventListener("keyup", (e) => {
+  on(document, "keyup", (e) => {
     if (!e.isTrusted) return;
     const p = modPress;
     if (!p || e.key !== p.key) return;
@@ -1177,22 +1370,35 @@
     toggle(p.el);
   }, true);
 
-  addEventListener("mousedown", (e) => { if (e.isTrusted) modPress = null; }, true);
+  on(window, "mousedown", (e) => { if (e.isTrusted) modPress = null; }, true);
+
+  // Модель встроенного переводчика ждёт загрузки (см. showFail): у щелчка есть «действие
+  // пользователя», которого Chrome требует для загрузки, поэтому сразу повторяем перевод элемента
+  // под курсором — щелчок по самому абзацу и начинает загрузку.
+  on(window, "click", (e) => {
+    if (!e.isTrusted || !retryOnClick || !settings.enabled || !alive()) return;
+    retryOnClick = false;
+    if (hoverEl && hoverEl.isConnected && !isBusy(hoverEl)) startHover(hoverEl);
+  }, true);
 
   // Окно потеряло фокус (Alt+Tab, клик в адресную строку): отпускание клавиши придёт уже не нам,
   // а элемент под курсором неизвестен до следующего движения мыши.
-  addEventListener("blur", () => { hoverEl = null; modPress = null; });
+  on(window, "blur", () => { hoverEl = null; modPress = null; });
 
   // Команды из popup. Обязательно отвечаем (sendResponse), иначе на стороне popup
   // взводится lastError «порт закрыт» и страница ошибочно считается недоступной.
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (!msg || !msg.type) return;
-    if (msg.type === "restoreAll") { restoreAll(); sendResponse(true); }
-    else if (msg.type === "translatePage") { translatePage(); sendResponse(true); }
-    else if (msg.type === "toggleHud") { toggleHud(); sendResponse({ ok: true, hud: !!hud }); }
-    else if (msg.type === "getHudState") { sendResponse({ ok: true, hud: !!hud }); }
-    else sendResponse(true); // подтверждаем получение
-  });
+  // На своей странице расширения (приветствие) не слушаем: туда долетают все runtime.sendMessage
+  // окна настроек, и наш ответ «true» мог бы опередить ответ background.
+  if (location.origin !== new URL(chrome.runtime.getURL("")).origin) {
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (!msg || !msg.type) return;
+      if (msg.type === "restoreAll") { restoreAll(); sendResponse(true); }
+      else if (msg.type === "translatePage") { translatePage(); sendResponse(true); }
+      else if (msg.type === "toggleHud") { toggleHud(); sendResponse({ ok: true, hud: !!hud }); }
+      else if (msg.type === "getHudState") { sendResponse({ ok: true, hud: !!hud }); }
+      else sendResponse(true); // подтверждаем получение
+    });
+  }
 
   // ---- мини-HUD: смена целевого языка и действия прямо на странице ----
   const HUD_MARGIN = 16;
@@ -1323,7 +1529,7 @@
     s.removeProperty("bottom");
   }
 
-  addEventListener("resize", () => { if (hud && hudPos) placeHud(hud.host, hudPos.left, hudPos.top); });
+  on(window, "resize", () => { if (hud && hudPos) placeHud(hud.host, hudPos.left, hudPos.top); });
 
   function syncHud() { if (hud) hud.sel.value = settings.targetLang; }
 
@@ -1341,9 +1547,11 @@
   // ---- уведомление ----
   // Тоже через makeUiHost: это третье наше окно, и раньше единственное, оставшееся под правилами
   // страницы (инлайновый стиль перебивается её !important).
+  // Три вида: успех (зелёный), ошибка (красный) и подсказка (тёмная, как карточка) — для шагов
+  // настройки, которые ошибкой не являются: скачать модель, вставить ключ.
   const TOAST_CSS = `
     .toast {
-      max-width: 80vw;
+      max-width: min(560px, 90vw);
       padding: 8px 12px;
       border-radius: 8px;
       font: 13px/1.4 var(--ht-font-family);
@@ -1354,13 +1562,14 @@
       transition: opacity .15s;
     }
     .toast.err { background: #c62828; }
+    .toast.info { color: var(--ht-fg); background: var(--ht-bg); }
+    .title { margin-bottom: 2px; font-weight: 600; }
     .toast.show { opacity: 1; }
   `;
 
-  function toast(message, isError) {
-    const now = Date.now();
-    if (now - lastToastAt < 3000) return;
-    lastToastAt = now;
+  // Показать уведомление на ms мс (0 — пока не закроют). Возвращает { set(текст), close() }.
+  // title — строка-заголовок над текстом (для подсказок: на чужом сайте видно, чьё это окно).
+  function showToast(message, kind, ms, title) {
     const { host, root } = makeUiHost(TOAST_CSS, Z_TOAST);
     const s = host.style;
     s.setProperty("left", "50%", "important");
@@ -1368,13 +1577,43 @@
     s.setProperty("transform", "translateX(-50%)", "important");
     s.setProperty("pointer-events", "none", "important");
     const card = document.createElement("div");
-    card.className = "toast" + (isError ? " err" : "");
-    card.textContent = message;
+    card.className = "toast" + (kind ? " " + kind : "");
+    if (title) {
+      const t = document.createElement("div");
+      t.className = "title";
+      t.textContent = title;
+      card.appendChild(t);
+    }
+    const body = document.createElement("div");
+    body.textContent = message;
+    card.appendChild(body);
     root.appendChild(card);
     mountUi(host);
     // Прозрачность анимируем на карточке, а не на хосте: у хоста opacity выставлен с !important,
     // чтобы правила страницы не могли нас спрятать.
     requestAnimationFrame(() => card.classList.add("show"));
-    setTimeout(() => { card.classList.remove("show"); setTimeout(() => host.remove(), 250); }, 2200);
+    let timer = 0;
+    const close = () => {
+      clearTimeout(timer);
+      card.classList.remove("show");
+      setTimeout(() => host.remove(), 250);
+    };
+    if (ms) timer = setTimeout(close, ms);
+    return { set: (text) => { body.textContent = text; }, close };
+  }
+
+  // Результат действия или ошибка — не чаще раза в 3 с, чтобы серия сбоев не завалила страницу.
+  function toast(message, isError) {
+    const now = Date.now();
+    if (now - lastToastAt < 3000) return;
+    lastToastAt = now;
+    showToast(message, isError ? "err" : "", 2200);
+  }
+
+  // Подсказка о настройке. Частоту ограничивают вызывающие (раз на страницу или на сессию), поэтому
+  // общий интервал её не глушит: иначе единственная подсказка терялась бы за ошибкой секундой раньше.
+  function notice(message, ms) { return showToast(message, "info", ms || 9000, extName()); }
+  function extName() {
+    try { return chrome.runtime.getManifest().name; } catch (e) { return ""; }
   }
 })();

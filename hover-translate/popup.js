@@ -19,11 +19,12 @@ const els = {
   resetPage: $("resetPage"),
   keyBlock: $("keyBlock"), keyHeader: $("keyHeader"), keyState: $("keyState"),
   apiKey: $("apiKey"), toggleKey: $("toggleKey"), check: $("check"), status: $("status"), quota: $("quota"),
-  pageMsg: $("pageMsg"), clearCache: $("clearCache"), cacheMsg: $("cacheMsg"),
+  pageMsg: $("pageMsg"), reloadTab: $("reloadTab"), clearCache: $("clearCache"), cacheMsg: $("cacheMsg"),
+  setup: $("setup"), setupText: $("setupText"), setupFix: $("setupFix"), setupLink: $("setupLink"),
   statsRow: $("statsRow"), stats: $("stats"),
   targetLang: $("targetLang"), recentLangs: $("recentLangs"), sourceLang: $("sourceLang"),
   formalityField: $("formalityField"), formality: $("formality"), formalityNote: $("formalityNote"),
-  engine: $("engine"), engineNote: $("engineNote"), cacheRow: $("cacheRow"),
+  engine: $("engine"), builtinBox: $("builtinBox"), cacheRow: $("cacheRow"),
   llmBlock: $("llmBlock"), llmHeader: $("llmHeader"), llmState: $("llmState"),
   llmProvider: $("llmProvider"), llmApiKey: $("llmApiKey"), toggleLlmKey: $("toggleLlmKey"),
   llmCheck: $("llmCheck"), llmModel: $("llmModel"), llmStatus: $("llmStatus"),
@@ -39,9 +40,10 @@ const els = {
 
 const nf = new Intl.NumberFormat("ru-RU");
 const CHECK_FAIL = "Не удалось проверить ключ";
-const NO_PAGE = "Эта страница недоступна";
+const NO_PAGE = "На этой странице расширения не работают — это служебная страница Chrome или магазин расширений.";
 let recent = [];
 let enabledOn = true;
+let builtinUi = null;                 // блок встроенного переводчика (builtin.js)
 
 // Списки языков и движков строим из общих таблиц shared.js, а не держим третьей копией в
 // разметке — раньше они разъезжались (у исходного «PT» не было английского имени для промпта
@@ -152,8 +154,43 @@ function updateEngineVisibility() {
   els.formalityNote.style.display = isDeepl ? "" : "none";
   els.cacheRow.style.display = isChrome ? "none" : "";   // кэш есть у deepl/auto/llm
   els.statsRow.style.display = isChrome ? "none" : "";
-  els.engineNote.style.display = e.note ? "" : "none";
+  els.builtinBox.style.display = e.note ? "" : "none";   // встроенный участвует в переводе
+  updateSetup();
 }
+
+// ---- выбранный переводчик не может работать ----
+// Та же проверка, по которой background ставит «!» на значке (shared.js), но по значениям в окне:
+// подсказка меняется сразу, как вставили ключ или сменили переводчик.
+const SETUP = {
+  "no-deepl-key": "Перевод не работает: не задан ключ DeepL. Вставьте его ниже",
+  "no-llm-key": "Перевод не работает: не задан ключ ИИ. Вставьте его ниже",
+  "no-builtin": "Встроенный переводчик недоступен в этом браузере (нужен Chrome 138 или новее на компьютере). " +
+    "Подключите DeepL по своему ключу — бесплатно 500 000 знаков в месяц.",
+};
+let setupFix = null;
+function updateSetup() {
+  const builtin = HT_builtin.hasApi();
+  const p = HT_engineProblem(els.engine.value,
+    { apiKey: !!els.apiKey.value.trim(), llmApiKey: !!els.llmApiKey.value.trim() }, builtin);
+  els.setup.hidden = !p;
+  if (!p) return;
+  const keyMissing = p !== "no-builtin";
+  els.setupText.textContent = SETUP[p] + (keyMissing ? (builtin
+    ? " или включите встроенный переводчик — он бесплатный и работает без ключа."
+    : ".") : "");
+  // Что предложить одной кнопкой: без ключа — встроенный (если он есть), без встроенного — DeepL.
+  setupFix = keyMissing ? (builtin ? "chrome" : null) : "deepl";
+  els.setupFix.hidden = !setupFix;
+  els.setupFix.textContent = setupFix === "chrome" ? "Включить встроенный переводчик" : "Выбрать DeepL";
+  els.setupLink.hidden = p === "no-llm-key";
+}
+
+els.setupFix.addEventListener("click", () => {
+  if (!setupFix) return;
+  els.engine.value = setupFix;
+  els.engine.dispatchEvent(new Event("change"));     // сохранение и видимость полей — как при выборе
+  if (setupFix === "deepl") { collapse(els.keyBlock, false); els.apiKey.focus(); }
+});
 
 function updateDispVisibility() {
   els.dispCustom.style.display = els.dispMode.value === "custom" ? "" : "none";
@@ -176,6 +213,7 @@ function renderRecent() {
       pushRecent(code);
       save();
       renderRecent();
+      if (builtinUi) builtinUi.refresh();   // пара «английский → язык» сменилась
     });
     els.recentLangs.appendChild(b);
   }
@@ -212,14 +250,73 @@ const TOP_FRAME = { frameId: 0 };
 
 // Отправить команду верхнему фрейму активной вкладки. map получает ответ и признак недоступности
 // страницы (служебная страница, нет content-скрипта) и решает, что вернуть вызывающему.
+let activeTab = null;                 // вкладка последней команды — для подсказки «обновите вкладку»
 function askTab(type, map) {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      activeTab = tab || null;
       if (!tab || tab.id == null) return resolve(map(null, true));
       chrome.tabs.sendMessage(tab.id, { type }, TOP_FRAME, (resp) => resolve(map(resp, !!chrome.runtime.lastError)));
     });
   });
 }
+
+// ---- вкладка не отвечает ----
+// Content-скрипта на вкладке нет в двух случаях: страница, куда Chrome расширения не пускает
+// (chrome://, магазин расширений), или сайт, открытый до установки или обновления расширения, —
+// туда новая версия попадает только после обновления вкладки. Адрес вкладки окну расширения виден
+// лишь с разрешением "tabs" или "activeTab" (их нет), поэтому без адреса различаем по факту:
+// предлагаем обновить вкладку и проверяем снова. Если адрес известен — сразу говорим как есть.
+const WEBSTORE = /^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)(\/|$)/i;
+function tabKind(tab) {
+  const url = tab && (tab.url || tab.pendingUrl);
+  if (!url) return "unknown";
+  if (url.startsWith(chrome.runtime.getURL(""))) return "own";   // своя страница (приветствие)
+  return /^https?:/i.test(url) && !WEBSTORE.test(url) ? "web" : "closed";
+}
+
+// quiet — при открытии окна: без адреса это может быть и служебная страница, поэтому не красным.
+function tabNotResponding(quiet) {
+  const kind = tabKind(activeTab);
+  els.reloadTab.hidden = kind === "own" || kind === "closed";
+  if (kind === "own") { setPageMsg("", ""); return; }
+  if (kind === "closed") { setPageMsg(NO_PAGE, "err"); return; }
+  setPageMsg(kind === "web"
+    ? "Обновите вкладку, чтобы перевод заработал."
+    : "Перевод на этой вкладке пока не работает. Если это обычный сайт — обновите вкладку.", quiet ? "" : "err");
+}
+
+const pingTab = (tabId) => new Promise((resolve) => {
+  chrome.tabs.sendMessage(tabId, { type: "getHudState" }, TOP_FRAME, (r) => resolve(!chrome.runtime.lastError && !!r));
+});
+
+// Обновить вкладку и дождаться content-скрипта: статус загрузки виден без разрешений, а скрипт
+// запускается чуть позже (document_idle) — после «complete» даём ему до 2 с.
+async function reloadAndPing(tabId) {
+  try { await chrome.tabs.reload(tabId); } catch (e) { return false; }
+  let completeAt = 0;
+  for (let i = 0; i < 80; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    let t;
+    try { t = await chrome.tabs.get(tabId); } catch (e) { return false; }
+    if (t.status !== "complete") { completeAt = 0; continue; }
+    if (await pingTab(tabId)) return true;
+    if (!completeAt) completeAt = Date.now();
+    else if (Date.now() - completeAt > 2000) return false;
+  }
+  return false;
+}
+
+els.reloadTab.addEventListener("click", async () => {
+  if (!activeTab || activeTab.id == null) return;
+  els.reloadTab.disabled = true;
+  setPageMsg("Обновляю вкладку…", "");
+  const ok = await reloadAndPing(activeTab.id);
+  els.reloadTab.disabled = false;
+  els.reloadTab.hidden = true;
+  if (ok) { setPageMsg("Готово — перевод на этой вкладке работает.", "ok"); setHudUI(false); }
+  else setPageMsg(NO_PAGE, "err");
+});
 
 // true, если content-скрипт получил команду.
 const sendToTab = (type) => askTab(type, (resp, failed) => !failed);
@@ -262,12 +359,14 @@ chrome.storage.local.get(DEFAULTS, (s) => {
   updateDispVisibility();
   updateEngineVisibility();
   renderRecent();
+  builtinUi = HT_builtin.mount(els.builtinBox, () => els.targetLang.value);
   if (usesDeepl(s.engine) && s.apiKey) fetchQuota(); // квота DeepL — только для DeepL/auto
   if (HT_engine(s.engine).via !== "local") fetchStats();
 });
 
-// Подсветка кнопки HUD по фактическому состоянию панели на активной вкладке.
-queryTab("getHudState").then((r) => setHudUI(r && r.hud));
+// Подсветка кнопки HUD по фактическому состоянию панели на активной вкладке. Заодно узнаём, есть
+// ли на вкладке content-скрипт: нет — сразу подсказываем обновить вкладку.
+queryTab("getHudState").then((r) => { setHudUI(r && r.hud); if (!r) tabNotResponding(true); });
 
 // ---- автосохранение ----
 // 'change' — сразу; 'input' (непрерывные: ползунок прозрачности, color-picker, textarea) — с
@@ -299,6 +398,7 @@ els.targetLang.addEventListener("change", () => {
   pushRecent(els.targetLang.value);
   save();
   renderRecent();
+  if (builtinUi) builtinUi.refresh();     // пара «английский → язык» сменилась
 });
 
 // ---- ключ DeepL ----
@@ -306,6 +406,7 @@ els.apiKey.addEventListener("input", () => {
   saveSoon(); // дебаунс полного объекта; флаги пишем сразу (2 ключа)
   setVerified(false);
   setStatus("", "");
+  updateSetup();
   renderQuota(null);
   collapse(els.keyBlock, false);
   chrome.storage.local.set({ keyVerified: false, keyCollapsed: false });
@@ -334,6 +435,7 @@ els.llmApiKey.addEventListener("input", () => {
   saveSoon(); // дебаунс полного объекта; флаг пишем сразу
   setLlmVerified(false);
   setLlmStatus("", "");
+  updateSetup();
   chrome.storage.local.set({ llmVerified: false });
 });
 
@@ -384,18 +486,18 @@ els.translatePage.addEventListener("click", async () => {
   if (!(await save())) return;      // настройки не записались — сообщение уже показано, не закрываемся
   const ok = await sendToTab("translatePage");
   if (ok) window.close(); // закрываем popup, чтобы видеть страницу
-  else setPageMsg(NO_PAGE + " для перевода", "err");
+  else tabNotResponding(false);
 });
 els.resetPage.addEventListener("click", async () => {
   const ok = await sendToTab("restoreAll");
-  setPageMsg(ok ? "" : NO_PAGE, ok ? "" : "err");
+  if (ok) setPageMsg("", ""); else tabNotResponding(false);
 });
 els.hudBtn.addEventListener("click", async () => {
   setPageMsg("", "");
   if (!(await save())) return;
   const r = await queryTab("toggleHud");
   if (r && r.ok) { setHudUI(r.hud); setPageMsg("", ""); } // подсвечиваем кнопку, popup не закрываем
-  else setPageMsg(NO_PAGE, "err");
+  else tabNotResponding(false);
 });
 
 // ---- очистка кэша переводов (заодно обнуляет статистику расхода) ----

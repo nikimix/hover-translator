@@ -249,3 +249,58 @@ textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow:
 .stats-row { margin: 8px 2px 0; }
 .muted-stats { color: var(--muted); font-size: 11px; }
 .muted-stats:empty { display: none; }
+
+/* Атрибут hidden сильнее правил с display (у .setup, .bi-bar и т.п.). */
+[hidden] { display: none !important; }
+
+/* ===== Сообщение о вкладке + «Обновить вкладку» ===== */
+.page-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.page-row .status:empty { display: none; }
+
+/* ===== Переводчик не может работать: что сделать ===== */
+.setup {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.setup .status { margin: 0; }
+.setup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.setup-actions .linkbtn { text-decoration: none; }
+
+/* ===== Основная кнопка (подготовка переводчика) ===== */
+.btn {
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: 600 12px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: 0.55; cursor: default; filter: none; }
+
+/* ===== Встроенный переводчик: состояние моделей и загрузка (builtin.js) ===== */
+.bi { margin: 4px 2px 0; }
+.bi-text { margin: 0; font-size: 11px; color: var(--muted); }
+.bi-text.ok { color: var(--ok); }
+.bi-text.warn { color: var(--warn); }
+.bi-text.err { color: var(--err); }
+.bi-bar {
+  height: 4px;
+  margin: 6px 0 0;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+.bi-fill { width: 0; height: 100%; background: var(--accent); transition: width 0.2s; }
+/* Сколько осталось, неизвестно (Chrome не прислал долю) — бегущая полоска. */
+.bi-bar.indeterminate .bi-fill { width: 35%; animation: bi-run 1.2s ease-in-out infinite; }
+@keyframes bi-run { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.bi-btn { margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .bi-bar.indeterminate .bi-fill { width: 100%; opacity: 0.5; animation: none; }
+}

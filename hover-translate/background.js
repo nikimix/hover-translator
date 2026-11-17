@@ -4,6 +4,8 @@
 //   • LLM (OpenAI/Anthropic) — контекстный перевод HTML по промпту.
 // Кэширует переводы: L1 (память) + L2 (storage.session) + L3 (storage.local, TTL).
 // Считает статистику расхода, ограничивает расход ключа и отвечает content-скрипту и popup.
+// Показывает на значке, что перевод выключен или не может работать; при установке открывает
+// страницу приветствия.
 
 importScripts("shared.js"); // общие таблицы языков, движков и настроек (HT_*)
 
@@ -539,8 +541,8 @@ const LLM_TIMEOUT_ERR = `LLM не ответил за ${LLM_TIMEOUT_MS / 1000} �
 
 // Ошибка с текстом из тела ответа: по одному коду не понять, что не так (нет такой модели,
 // неподдерживаемый параметр, кончились деньги на счёте). Оба провайдера кладут его в
-// error.message. Текст показывается и на странице (уведомление, title элемента), поэтому всё,
-// похожее на ключ, вырезаем: OpenAI в ответе на 401 повторяет начало и конец ключа.
+// error.message. Текст показывается и на странице (в уведомлении), поэтому всё, похожее на ключ,
+// вырезаем: OpenAI в ответе на 401 повторяет начало и конец ключа.
 async function llmErr(res) {
   let msg = "";
   try {
@@ -845,6 +847,82 @@ function originOf(sender) {
   try { return sender && sender.url ? new URL(sender.url).origin : ""; } catch (e) { return ""; }
 }
 
+// ---- значок расширения ----
+// «!» — выбранный переводчик не может работать (нет ключа, нет встроенного в браузере): content на
+// страницах тогда ничего не делает, а объяснение — в подсказке значка и в окне расширения.
+// «off» — перевод выключен (⏻). Состояние значка браузер не сохраняет между запусками, поэтому
+// пересчитываем при каждом старте воркера, а дальше — по изменениям в хранилище.
+const BADGE_KEYS = ["enabled", "engine", "apiKey", "llmApiKey", "htBuiltinApi"];
+const BADGE_OFF_COLOR = "#6b7280";
+const BADGE_PROBLEM_COLOR = "#d93025";
+
+function problemNow() {
+  return chrome.storage.local.get({
+    enabled: HT_DEFAULTS.enabled, engine: HT_DEFAULTS.engine, apiKey: "", llmApiKey: "", htBuiltinApi: null,
+  }).then((s) => {
+    // Встроенный переводчик есть в service worker не во всех версиях Chrome, поэтому «нет» берём
+    // только из записи окна (htBuiltinApi пишут popup, страница приветствия и content), а «есть» —
+    // и отсюда. Пока никто не проверял — считаем, что есть: иначе «!» горел бы ни за что.
+    const builtin = "Translator" in self || s.htBuiltinApi !== false;
+    const problem = HT_engineProblem(HT_valid("engine", s.engine), { apiKey: !!s.apiKey, llmApiKey: !!s.llmApiKey }, builtin);
+    return { off: s.enabled === false, problem };
+  });
+}
+
+async function updateBadge() {
+  const a = chrome.action;
+  if (!a || !a.setBadgeText) return;
+  try {
+    const { off, problem } = await problemNow();
+    const name = chrome.runtime.getManifest().name;
+    const text = off ? "off" : problem ? "!" : "";
+    if (text) await a.setBadgeBackgroundColor({ color: off ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
+    await a.setBadgeText({ text });
+    await a.setTitle({ title: off ? `${name} — перевод выключен` : problem ? `${name} — ${HT_PROBLEMS[problem].short}` : name });
+    // Проблему решили — следующая (если появится) снова заслуживает уведомления на странице.
+    if (!problem && sessionArea) sessionArea.remove(Object.keys(HT_PROBLEMS).map(noticeKey)).catch(() => {});
+  } catch (e) { /* значок — не повод ронять воркер */ }
+}
+
+updateBadge();
+chrome.runtime.onStartup?.addListener?.(updateBadge);
+chrome.storage.onChanged?.addListener?.((changes, area) => {
+  if (area === "local" && BADGE_KEYS.some((k) => k in changes)) updateBadge();
+});
+
+// Уведомление на странице о неработающем переводчике — одно за сессию браузера, а не по одному на
+// каждой вкладке: дальше о проблеме напоминает «!» на значке.
+const noticed = new Set();
+function noticeKey(problem) { return "htNoticed:" + problem; }
+async function noticeOnce(problem) {
+  if (!Object.prototype.hasOwnProperty.call(HT_PROBLEMS, problem)) return { show: false };
+  const k = noticeKey(problem);
+  if (noticed.has(k)) return { show: false };
+  noticed.add(k);
+  if (sessionArea) {
+    const got = await sessionArea.get(k).catch(() => ({}));
+    if (got[k]) return { show: false };
+    sessionArea.set({ [k]: true }).catch(() => {});
+  }
+  return { show: true };
+}
+
+// ---- установка ----
+// Первая установка: язык перевода — по языку браузера (если он есть в таблице, иначе английский) и
+// страница приветствия, где готовится встроенный переводчик. При обновлении ничего не открываем.
+chrome.runtime.onInstalled?.addListener?.(async (details) => {
+  updateBadge();
+  if (!details || details.reason !== "install") return;
+  try {
+    const s = await chrome.storage.local.get("targetLang");
+    if (!s.targetLang) {
+      const ui = chrome.i18n && chrome.i18n.getUILanguage ? chrome.i18n.getUILanguage() : "";
+      await chrome.storage.local.set({ targetLang: HT_targetFromLocale(ui) });
+    }
+  } catch (e) { /* останется язык по умолчанию */ }
+  chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
   // Одиночного пути нет намеренно: перевод одного элемента — это батч из одного элемента,
@@ -852,6 +930,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "translateBatch") {
     return reply(translateMany(msg.items || [], msg, originOf(sender), budgetKeyOf(sender)), sendResponse);
   }
+  if (msg.type === "noticeOnce") return reply(noticeOnce(String(msg.problem)), sendResponse);
   if (msg.type === "checkUsage") return reply(checkUsage(), sendResponse);
   if (msg.type === "checkLlm") return reply(checkLlm(), sendResponse);
   if (msg.type === "clearCache") return reply(clearCache(), sendResponse);
