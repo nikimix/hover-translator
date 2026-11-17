@@ -23,6 +23,16 @@
       "all_frames": true
     }
   ],
+  "commands": {
+    "toggle-enabled": {
+      "suggested_key": { "default": "Alt+Shift+O", "mac": "MacCtrl+Shift+O" },
+      "description": "Включить или выключить перевод"
+    },
+    "translate-page": {
+      "suggested_key": { "default": "Alt+Shift+G", "mac": "MacCtrl+Shift+G" },
+      "description": "Перевести страницу"
+    }
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Cursor Translate",

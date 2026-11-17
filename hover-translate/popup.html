@@ -24,6 +24,12 @@
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
     </button>
   </div>
+  <!-- Выключить перевод на сайте активной вкладки. Адрес вкладки окну не виден (нет разрешений
+       tabs/activeTab) — имя сайта сообщает content-скрипт её верхнего фрейма; нет ответа — строки нет. -->
+  <label class="cb site-row" id="siteRow" hidden>
+    <input type="checkbox" id="siteOn" />
+    <span>Переводить на сайте <b id="siteName"></b></span>
+  </label>
   <div class="page-row">
     <p id="pageMsg" class="status"></p>
     <button id="reloadTab" type="button" class="linkbtn" hidden>Обновить вкладку</button>
@@ -141,12 +147,17 @@
   <label class="field">
     <span class="lbl">Активация перевода</span>
     <select id="trigger">
-      <option value="dwell">При наведении (по задержке)</option>
       <option value="shift">Shift + наведение</option>
       <option value="alt">Alt + наведение</option>
       <option value="ctrl">Ctrl + наведение</option>
+      <option value="dwell">При наведении (по задержке)</option>
     </select>
   </label>
+  <!-- Сочетания клавиш (chrome.commands): заполняет popup.js — их могли сменить или не назначить. -->
+  <p class="note keys-note" id="keysNote">
+    <span id="keysText"></span>
+    <button type="button" id="keysEdit" class="linkbtn">Сменить сочетания</button>
+  </p>
 
   <label class="field" id="dwellField">
     <span class="lbl">Задержка наведения, мс</span>
@@ -164,10 +175,10 @@
         <span class="lbl">Способ показа</span>
         <select id="displayMode">
           <option value="replace">Замена на месте</option>
-          <option value="popover">Поповер (только при наведении)</option>
+          <option value="popover">Карточка рядом с текстом (только при наведении)</option>
         </select>
       </label>
-      <label class="cb cb-row"><input type="checkbox" id="showLangBadge" /> Показывать исходный язык (бейдж EN → RU, в режиме поповера)</label>
+      <label class="cb cb-row" id="badgeRow"><input type="checkbox" id="showLangBadge" /> Показывать в карточке исходный язык (EN → RU)</label>
 
       <label class="field">
         <span class="lbl">Подсветка</span>

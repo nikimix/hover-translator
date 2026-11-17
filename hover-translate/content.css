@@ -1,9 +1,29 @@
-/* Здесь остались только классы, которые вешаются на ЭЛЕМЕНТЫ САМОЙ СТРАНИЦЫ: курсор на время
-   загрузки и фон ошибки. Оба свойства с !important — CSS контент-скрипта попадает в author
+/* Здесь остались только классы, которые вешаются на ЭЛЕМЕНТЫ САМОЙ СТРАНИЦЫ: курсор и пульсация на
+   время перевода и фон ошибки. Свойства с !important — CSS контент-скрипта попадает в author
    origin перед таблицами страницы, и без !important её собственные правила их перебивают.
 
    Наш собственный UI (карточка перевода и мини-HUD) стилизуется из content.js внутри shadow
    root — по той же причине: снаружи правила страницы вида «.site select { height:44px }»
    выигрывали по специфичности и ломали панель. */
-.ht-loading { cursor: progress !important; }
+
+/* Пока идёт перевод — лёгкая пульсация подсветки: видно, что запрос ушёл и абзац сейчас сменится.
+   Начинается с задержкой: перевод из сохранённых приходит мгновенно и мигать не должен. Анимация
+   перекрывает собственный фон элемента только на время перевода. Цвет — как у подсветки перевода:
+   на тёмном фоне светлый (класс ht-loading-dark ставит content.js). */
+.ht-loading {
+  cursor: progress !important;
+  animation: ht-pulse 1.2s ease-in-out 0.15s infinite !important;
+}
+.ht-loading-dark { --ht-pulse-bg: rgba(255, 255, 255, 0.2); }
+@keyframes ht-pulse {
+  50% { background-color: var(--ht-pulse-bg, rgba(0, 120, 215, 0.16)); }
+}
+/* Без движения: ровный фон на время перевода вместо пульсации. */
+@media (prefers-reduced-motion: reduce) {
+  .ht-loading { animation: ht-pulse-still 0.01s 0.15s both !important; }
+}
+@keyframes ht-pulse-still {
+  to { background-color: var(--ht-pulse-bg, rgba(0, 120, 215, 0.12)); }
+}
+
 .ht-error { background: rgba(215, 40, 40, 0.14) !important; border-radius: 3px !important; }

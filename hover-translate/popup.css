@@ -304,3 +304,18 @@ textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow:
 @media (prefers-reduced-motion: reduce) {
   .bi-bar.indeterminate .bi-fill { width: 100%; opacity: 0.5; animation: none; }
 }
+
+/* ===== Переводить на этом сайте ===== */
+.site-row { margin: 0 2px 8px; }
+.site-row b { font-weight: 600; overflow-wrap: anywhere; }
+
+/* ===== Сочетания клавиш ===== */
+.keys-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: -4px; }
+.keys-note kbd {
+  padding: 0 4px;
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  font: 600 10px/1.5 system-ui, -apple-system, sans-serif;
+  color: var(--fg);
+  background: var(--surface);
+}

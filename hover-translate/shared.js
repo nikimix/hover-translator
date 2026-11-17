@@ -121,8 +121,8 @@ var HT_ENGINES = [
 // Что показать, если ключа нет. Ключуем ПОЛЕМ настроек, а не движком: deepl и auto делят один
 // ключ, и одинаковая подсказка иначе лежала бы в таблице дважды.
 var HT_KEY_HINTS = {
-  apiKey: "Не задан API-ключ DeepL — откройте popup расширения и вставьте ключ.",
-  llmApiKey: "Не задан API-ключ LLM — откройте popup расширения.",
+  apiKey: "Не задан ключ DeepL — нажмите на значок расширения и вставьте ключ.",
+  llmApiKey: "Не задан ключ ИИ — нажмите на значок расширения и вставьте ключ.",
 };
 
 var HT_ENGINE = {};
@@ -182,8 +182,11 @@ var HT_BY_USER = "user-initiated";
 // Переводчик по умолчанию — встроенный: работает сразу, без ключа и регистрации, и это единственный
 // доступный из России (DeepL, OpenAI и Anthropic её не обслуживают). Язык перевода при установке
 // выставляет background по языку браузера; "RU" здесь — запасное значение.
+// Способ включения по умолчанию — Shift: наведение с задержкой переводит и то, над чем курсор
+// просто проезжает (меню, кнопки, абзацы при прокрутке). Задержка для тех, кто выберет наведение, —
+// 600 мс: при 250 мс абзац переводился, пока курсор шёл мимо него к ссылке.
 var HT_DEFAULTS = {
-  enabled: true, targetLang: "RU", sourceLang: "auto", dwellMs: 250, trigger: "dwell", engine: "chrome",
+  enabled: true, targetLang: "RU", sourceLang: "auto", dwellMs: 600, trigger: "shift", engine: "chrome",
   displayMode: "replace", showLangBadge: true, formality: "default", noTranslate: "",
   // llmProvider/llmModel сам content не использует (их читает background), но держит в DEFAULTS,
   // чтобы их смена тоже триггерила живое перетранслирование уже показанных переводов.
@@ -222,9 +225,40 @@ function HT_validAll(s) {
 var HT_DWELL_MAX = 2000;
 function HT_clampDwell(v) {
   // Пустое поле — это «не задано», а не 0: Number("") === 0, и стёртое поле «Задержка» иначе молча
-  // включило бы перевод без задержки. Не `|| 250` — иначе валидный 0 стал бы 250.
+  // включило бы перевод без задержки. Не `|| DEFAULTS` — иначе валидный 0 стал бы значением по умолчанию.
   const n = typeof v === "number" ? v : (typeof v === "string" && v.trim() ? Number(v) : NaN);
   return Number.isFinite(n) ? Math.max(0, Math.min(HT_DWELL_MAX, n)) : HT_DEFAULTS.dwellMs;
+}
+
+// ---- сайты, где перевод выключен ----
+// storage.local.disabledSites — список имён хостов (без «www.», в нижнем регистре). Пишут туда окно
+// расширения и мини-панель на странице, поэтому при каждом чтении сверяем тип и вид записей: в
+// список попадают только строки, похожие на имя хоста. «www.» отбрасываем, чтобы example.com и
+// www.example.com были одним сайтом; поддомены — разные сайты (mail.example.com ≠ example.com).
+var HT_SITES_MAX = 2000;
+function HT_siteKey(host) {
+  const h = String(host || "").toLowerCase().replace(/\.$/, "");
+  return h.startsWith("www.") ? h.slice(4) : h;
+}
+function HT_isSite(s) {
+  return typeof s === "string" && s.length > 0 && s.length <= 253 &&
+    (/^[a-z0-9_.-]+$/.test(s) || /^\[[0-9a-f:.]+\]$/.test(s));
+}
+function HT_sites(v) {
+  const out = [];
+  if (!Array.isArray(v)) return out;
+  for (const s of v) {
+    if (HT_isSite(s) && !out.includes(s)) out.push(s);
+    if (out.length >= HT_SITES_MAX) break;
+  }
+  return out;
+}
+
+// Мини-панель: показана ли она и где стоит — общие для всех сайтов значения (hudShown, hudPos), чтобы
+// панель не пропадала при переходе на другую страницу. Позицию тоже сверяем при чтении.
+function HT_hudPos(v) {
+  return v && typeof v === "object" && Number.isFinite(v.left) && Number.isFinite(v.top)
+    ? { left: v.left, top: v.top } : null;
 }
 
 // ---- DOM ----

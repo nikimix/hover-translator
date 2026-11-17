@@ -34,6 +34,18 @@ function renderTrainer() {
   $("trainerHint").textContent = before + how;
 }
 
+// Горячие клавиши (их можно сменить на chrome://extensions/shortcuts) и Esc.
+function renderKeys(all) {
+  const k = (name) => { const c = (all || []).find((x) => x.name === name); return (c && c.shortcut) || ""; };
+  const parts = ["Esc возвращает оригинал везде на странице."];
+  if (k("toggle-enabled")) parts.push(`${k("toggle-enabled")} — включить или выключить перевод.`);
+  if (k("translate-page")) parts.push(`${k("translate-page")} — перевести страницу целиком.`);
+  parts.push("Сочетания можно сменить на странице chrome://extensions/shortcuts.");
+  $("keysHint").textContent = parts.join(" ");
+}
+renderKeys([]);
+if (chrome.commands && chrome.commands.getAll) chrome.commands.getAll().then(renderKeys).catch(() => {});
+
 chrome.storage.local.get({ targetLang: HT_DEFAULTS.targetLang, trigger: HT_DEFAULTS.trigger, engine: HT_DEFAULTS.engine }, (s) => {
   HT_validAll(s);
   sel.value = s.targetLang;

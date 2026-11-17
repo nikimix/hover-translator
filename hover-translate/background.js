@@ -5,7 +5,7 @@
 // Кэширует переводы: L1 (память) + L2 (storage.session) + L3 (storage.local, TTL).
 // Считает статистику расхода, ограничивает расход ключа и отвечает content-скрипту и popup.
 // Показывает на значке, что перевод выключен или не может работать; при установке открывает
-// страницу приветствия.
+// страницу приветствия. Обрабатывает горячие клавиши (chrome.commands).
 
 importScripts("shared.js"); // общие таблицы языков, движков и настроек (HT_*)
 
@@ -248,6 +248,13 @@ function scopeOf(o) {
   return parts.join("|");
 }
 
+// Неудача для вызывающего: error — что сказать человеку простыми словами; code — вид сбоя (по нему
+// content решает, перевести ли встроенным переводчиком и какую кнопку предложить в уведомлении);
+// detail — код ответа и текст сервиса, их показываем мелко под сообщением.
+// Коды: no-key, bad-key, quota (месячный лимит DeepL), money (на счёте ИИ нет денег), rate (429),
+// server (5xx), network, timeout, too-big, model, denied, cut, bad-response, limit (наш лимит), other.
+function failure(code, error, detail) { return { ok: false, code, error, detail: detail || "" }; }
+
 // Retry-After: число секунд или HTTP-дата. Возвращает мс ожидания или fallback.
 function retryAfterMs(header, fallback) {
   if (!header) return fallback;
@@ -345,13 +352,13 @@ function budgetTake(key, by, chars) {
   let b = budgets.get(k);
   if (!b || now - b.start > cfg.windowMs) { b = { start: now, chars: 0, reqs: 0 }; budgets.set(k, b); }
   if (b.reqs >= cfg.maxReqs || b.chars + chars > cfg.maxChars) {
-    return "Лимит перевода для этой вкладки исчерпан — подождите минуту (защита от перерасхода ключа).";
+    return failure("limit", "На этой вкладке за минуту переведено слишком много — подождите минуту. Так расширение бережёт ваш ключ от перерасхода.");
   }
   if (kind === HT_BY_PAGE) {
     const day = new Date(now).toDateString();   // местные сутки: «до завтра» понятнее скользящих 24 ч
     if (pageDay.day !== day) pageDay = { day, chars: 0 };
     if (pageDay.chars + chars > PAGE_DAY_MAX) {
-      return "Исчерпан дневной лимит перевода под курсором (100 000 знаков) — защита от перерасхода ключа. «Перевести страницу» по-прежнему работает.";
+      return failure("limit", "На сегодня исчерпан лимит перевода под курсором (100 000 знаков) — так расширение бережёт ваш ключ. «Перевести страницу» по-прежнему работает.");
     }
     pageDay.chars += chars;
     persistStats();
@@ -454,7 +461,7 @@ async function runChunks(texts, maxTexts, maxSize, sizeOf, fn) {
   const outTexts = [], outSrc = [];
   for (const g of groups) {
     const r = await fn(g);
-    if (!r.ok) return { ok: false, error: r.error, texts: outTexts, srcLangs: outSrc };
+    if (!r.ok) return Object.assign({}, r, { texts: outTexts, srcLangs: outSrc });
     outTexts.push(...r.texts);
     outSrc.push(...r.srcLangs);
   }
@@ -472,15 +479,23 @@ function deeplBody(texts, o) {
 
 function deeplAuth(key) { return { "Authorization": `DeepL-Auth-Key ${key}` }; }
 
-function deeplErr(status) {
-  const hint =
-    status === 403 ? " (неверный ключ?)" :
-    status === 413 ? " (слишком большой запрос)" :
-    status === 456 ? " (исчерпана квота символов)" :
-    status === 429 ? " (слишком много запросов)" : "";
-  return `DeepL ${status}${hint}`;
+// Ответ DeepL с ошибкой → неудача с понятным текстом (код ответа — мелко, в detail).
+function deeplFail(status) {
+  const d = "код ответа " + status;
+  if (status === 401 || status === 403) return failure("bad-key", "DeepL не принял ключ — проверьте его в окне расширения.", d);
+  if (status === 456) return failure("quota", "Лимит DeepL на этот месяц закончился.", d);
+  if (status === 429) return failure("rate", "Слишком много запросов к DeepL — подождите немного и попробуйте ещё раз.", d);
+  if (status === 413) return failure("too-big", "Слишком большой кусок текста для DeepL.", d);
+  if (status >= 500) return failure("server", "DeepL сейчас недоступен — попробуйте позже.", d);
+  return failure("other", "DeepL не смог перевести текст.", d);
 }
-const DEEPL_TIMEOUT_ERR = `DeepL не ответил за ${DEEPL_TIMEOUT_MS / 1000} с — попробуйте ещё раз.`;
+// Запрос не дошёл или не дождался ответа. fetch бросает TypeError без подробностей («Failed to
+// fetch»): нет сети, сайт сервиса недоступен или запрос заблокирован.
+function deeplThrown(e) {
+  return isTimeout(e)
+    ? failure("timeout", `DeepL не ответил за ${DEEPL_TIMEOUT_MS / 1000} секунд — попробуйте ещё раз.`)
+    : failure("network", "Нет связи с DeepL — проверьте интернет.", e && e.message);
+}
 
 // DeepL принимает не более 50 параметров text И не более 128 KiB тела запроса. Узловой перевод
 // даёт батчи крупнее, а для кириллицы/CJK символ занимает 2–3 байта, поэтому режем и по
@@ -504,17 +519,17 @@ async function deeplTranslateMany(texts, o, apiKey) {
       body: JSON.stringify(deeplBody(wrapped, o)),
     }, DEEPL_TIMEOUT_MS);
   } catch (e) {
-    return { ok: false, error: isTimeout(e) ? DEEPL_TIMEOUT_ERR : `Сеть: ${e.message}` };
+    return deeplThrown(e);
   }
-  if (!res.ok) return { ok: false, error: deeplErr(res.status) };
+  if (!res.ok) return deeplFail(res.status);
   let data;
   try { data = await res.json(); } catch (e) {
-    return { ok: false, error: isTimeout(e) ? DEEPL_TIMEOUT_ERR : "Не удалось разобрать ответ DeepL." };
+    return isTimeout(e) ? deeplThrown(e) : failure("bad-response", "DeepL прислал непонятный ответ — попробуйте ещё раз.");
   }
   // Длину проверяем обязательно: короткий ответ сдвинул бы все последующие чанки и записал в L3
   // на 14 дней пары «исходник A ↔ перевод B». В LLM-ветке от этого защищает coerceArr.
   if (!data || !Array.isArray(data.translations) || data.translations.length !== texts.length) {
-    return { ok: false, error: "Неожиданный ответ DeepL." };
+    return failure("bad-response", "DeepL прислал непонятный ответ — попробуйте ещё раз.");
   }
   // Снимаем обёртку <x> только если сами её ставили (есть термины) — иначе можно стереть
   // легитимные литералы <x>/</x> из исходного текста.
@@ -537,20 +552,42 @@ function langName(code) {
 
 const LLM_DEFAULT_MODEL = { openai: "gpt-4o-mini", anthropic: "claude-haiku-4-5-20251001" };
 function llmModelOf(provider, model) { return model || LLM_DEFAULT_MODEL[provider] || LLM_DEFAULT_MODEL.openai; }
-const LLM_TIMEOUT_ERR = `LLM не ответил за ${LLM_TIMEOUT_MS / 1000} с — попробуйте ещё раз или выберите модель быстрее.`;
+const LLM_NAMES = { openai: "OpenAI", anthropic: "Anthropic" };
+function llmName(provider) { return LLM_NAMES[provider] || LLM_NAMES.openai; }
 
-// Ошибка с текстом из тела ответа: по одному коду не понять, что не так (нет такой модели,
-// неподдерживаемый параметр, кончились деньги на счёте). Оба провайдера кладут его в
-// error.message. Текст показывается и на странице (в уведомлении), поэтому всё, похожее на ключ,
-// вырезаем: OpenAI в ответе на 401 повторяет начало и конец ключа.
-async function llmErr(res) {
-  let msg = "";
+// Ответ ИИ с ошибкой → неудача с понятным текстом. По одному коду не всё понятно (нет такой
+// модели, кончились деньги на счёте, неподдерживаемый параметр), поэтому смотрим и в тело: оба
+// провайдера кладут туда error.message (а OpenAI ещё error.code). Текст сервиса — английский, он
+// идёт мелко в detail. Показывается он и на странице, поэтому всё, похожее на ключ, вырезаем:
+// OpenAI в ответе на 401 повторяет начало и конец ключа.
+async function llmFail(res, provider, model) {
+  let msg = "", kind = "";
   try {
     const d = await res.json();
     if (d && d.error && typeof d.error.message === "string") msg = d.error.message;
+    if (d && d.error) kind = String(d.error.code || d.error.type || "");
   } catch (e) { /* тело не JSON или не дочиталось — хватит кода */ }
   msg = msg.replace(/\bsk-[\w*.-]+/g, "sk-…").replace(/\s+/g, " ").trim().slice(0, 200);
-  return `LLM ${res.status}${res.status === 401 ? " (ключ?)" : ""}${msg ? ": " + msg : ""}`;
+  const who = llmName(provider);
+  const s = res.status;
+  const d = "код ответа " + s + (msg ? ": " + msg : "");
+  if (s === 401) return failure("bad-key", `${who} не принял ключ — проверьте его в окне расширения.`, d);
+  if (/insufficient_quota|billing|credit balance/i.test(kind + " " + msg)) {
+    return failure("money", `На счёте ${who} закончились деньги — пополните его или выберите другой переводчик.`, d);
+  }
+  if (s === 404 || /model_not_found/.test(kind)) {
+    return failure("model", `${who} не знает модель «${String(model).slice(0, 60)}» — проверьте название в окне расширения.`, d);
+  }
+  if (s === 403) return failure("denied", `${who} отказал в доступе — например, сервис не работает в вашей стране.`, d);
+  if (s === 429) return failure("rate", `Слишком много запросов к ${who} — подождите немного и попробуйте ещё раз.`, d);
+  if (s >= 500) return failure("server", `${who} сейчас недоступен или перегружен — попробуйте позже.`, d);
+  return failure("other", `${who} отклонил запрос.`, d);
+}
+function llmThrown(e, provider) {
+  const who = llmName(provider);
+  return isTimeout(e)
+    ? failure("timeout", `${who} не ответил за ${LLM_TIMEOUT_MS / 1000} секунд — попробуйте ещё раз или выберите модель быстрее.`)
+    : failure("network", `Нет связи с ${who} — проверьте интернет.`, e && e.message);
 }
 // Anthropic требует версию API и явное разрешение прямого доступа из браузерного контекста.
 function llmHeaders(provider, key) {
@@ -624,6 +661,13 @@ function parseLlmJson(content, expected) {
 // уходит одним запросом, перевод страницы — несколькими последовательными.
 const LLM_CHUNK_CHARS = 2500;
 const LLM_MAX_TOKENS = 16000;
+// Нижняя граница потолка ответа. Платят за фактически выданные токены, а потолок важен, когда модель
+// ведёт себя не так, как просили (текст на странице может содержать инструкцию «напиши 10 000
+// слов»): на каждом коротком наведении она могла выдать до потолка. 512 токенов хватает с запасом на
+// обёртку JSON и перевод короткого текста даже с иероглифов на русский (там перевод в 2–3 раза
+// длиннее), а дальше потолок растёт вместе с текстом. Рассуждению моделей OpenAI эта граница не
+// мешает: им запас LLM_REASONING_TOKENS добавляется сверху.
+const LLM_MIN_TOKENS = 512;
 // У моделей OpenAI с рассуждением (o-серия, GPT-5 и новее) max_completion_tokens включает и
 // скрытые токены рассуждения: с тем же потолком, что у Anthropic, модель могла бы потратить его
 // на рассуждение и вернуть пустой ответ. Им даём запас сверху. Больше не нужно: столько токенов
@@ -643,9 +687,9 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
   // Даём щедрый запас (≈1 токен на символ ввода — безопасно и для CJK/многословных целевых
   // языков). Если запас не влезает в потолок, ответ гарантированно обрежется и JSON не
   // распарсится: отказываем ДО вызова API, чтобы не платить за заведомо мусорный ответ.
-  const want = Math.max(2048, user.length);
+  const want = Math.max(LLM_MIN_TOKENS, user.length);
   if (want > LLM_MAX_TOKENS) {
-    return { ok: false, error: "Фрагмент слишком велик для LLM — выберите DeepL или переводите частями." };
+    return failure("too-big", "Слишком большой кусок текста для ИИ — выберите DeepL или переводите частями.");
   }
   const anthropic = provider === "anthropic";
   const model_ = llmModelOf(provider, model);
@@ -666,10 +710,10 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
       headers: llmHeaders(provider, key),
       body: JSON.stringify(body),
     }, LLM_TIMEOUT_MS);
-    if (!res.ok) return { ok: false, error: await llmErr(res) };
+    if (!res.ok) return await llmFail(res, provider, model_);
     d = await res.json();
   } catch (e) {
-    return { ok: false, error: isTimeout(e) ? LLM_TIMEOUT_ERR : `Сеть LLM: ${e.message}` };
+    return llmThrown(e, provider);
   }
   const choice = !anthropic && d && d.choices && d.choices[0];
   const content = anthropic
@@ -680,7 +724,9 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
     // Упёрлись в потолок длины — говорим об этом прямо: у моделей с рассуждением это значит, что
     // рассуждение съело лимит, и «неожиданный формат» только запутал бы.
     const cut = anthropic ? d && d.stop_reason === "max_tokens" : choice && choice.finish_reason === "length";
-    return { ok: false, error: cut ? "Ответ LLM оборвался на лимите длины — переводите частями или выберите другую модель." : "LLM вернул неожиданный формат." };
+    return cut
+      ? failure("cut", "Ответ ИИ оборвался на пределе длины — переводите частями или выберите другую модель.")
+      : failure("bad-response", "ИИ ответил не в том виде, который нужен для перевода, — попробуйте ещё раз или выберите другую модель.");
   }
   // Снимаем обёртку <x> только если сами её ставили (есть термины).
   if (o.terms && o.terms.length) arr = arr.map(stripNoTranslate);
@@ -696,7 +742,7 @@ async function translateMany(items, o, origin, budgetKey) {
   o.terms = parseTerms(o.noTranslate);
   o.origin = origin || "";
   const e = HT_engine(o.engine);
-  if (e.via === "local") return { ok: false, error: "Этот движок работает только на странице." };
+  if (e.via === "local") return failure("other", "Встроенный переводчик работает только на странице.");
 
   // Настройки, входящие в ключ кэша (для LLM — провайдер и модель), читаем ДО вычисления scope:
   // иначе смена модели 14 дней отдавала бы перевод прежней и настройка выглядела нерабочей.
@@ -746,10 +792,10 @@ async function translateMany(items, o, origin, budgetKey) {
     // Ключ проверяем ДО лимита: без ключа ничего не оплачивается, а наведения на первом запуске
     // (ключ ещё не вставлен) иначе съедали бы суточный лимит, который понадобится потом.
     if (!s) s = await getSettings();
-    if (e.keyField && !s[e.keyField]) return { ok: false, error: HT_KEY_HINTS[e.keyField] };
+    if (e.keyField && !s[e.keyField]) return failure("no-key", HT_KEY_HINTS[e.keyField]);
     await startupReady;                 // суточный счётчик лимита должен быть уже загружен
     const denied = budgetTake(budgetKey, o.by, missTexts.reduce((n, t) => n + t.length, 0));
-    if (denied) return { ok: false, error: denied };
+    if (denied) return denied;
     const r = e.via === "llm"
       ? await llmTranslateMany(missTexts, o, s.llmApiKey, s.llmProvider, s.llmModel)
       : await deeplTranslateChunked(missTexts, o, s.apiKey);
@@ -757,7 +803,7 @@ async function translateMany(items, o, origin, budgetKey) {
     if (Array.isArray(r.texts) && r.texts.length) {
       store(missTexts.slice(0, r.texts.length), r, keys, need, results, srcOut);
     }
-    if (!r.ok) return { ok: false, error: r.error };
+    if (!r.ok) return failure(r.code, r.error, r.detail);
   }
 
   return { ok: true, texts: results, srcLangs: srcOut };
@@ -807,17 +853,14 @@ async function clearCache() {
 // Проверка ключа и остаток квоты символов через /v2/usage.
 async function checkUsage() {
   const { apiKey } = await getSettings();
-  if (!apiKey) return { ok: false, error: "Нет ключа." };
+  if (!apiKey) return failure("no-key", "Ключ не вставлен.");
   try {
     const res = await fetch(`${deeplBase(apiKey)}/v2/usage`, { headers: deeplAuth(apiKey), signal: timeoutSignal(DEEPL_TIMEOUT_MS) });
-    if (!res.ok) {
-      const hint = res.status === 403 ? " — проверьте ключ" : "";
-      return { ok: false, error: `DeepL ${res.status}${hint}` };
-    }
+    if (!res.ok) return deeplFail(res.status);
     const d = await res.json();
     return { ok: true, used: d.character_count, limit: d.character_limit };
   } catch (e) {
-    return { ok: false, error: isTimeout(e) ? DEEPL_TIMEOUT_ERR : e.message };
+    return deeplThrown(e);
   }
 }
 
@@ -827,9 +870,9 @@ async function checkUsage() {
 // Стоимость — пара сотен токенов инструкции.
 async function checkLlm() {
   const { llmApiKey, llmProvider, llmModel } = await getSettings();
-  if (!llmApiKey) return { ok: false, error: "Нет ключа LLM." };
+  if (!llmApiKey) return failure("no-key", "Ключ не вставлен.");
   const r = await llmTranslateChunk(["Hello"], { targetLang: HT_DEFAULTS.targetLang, terms: [] }, llmApiKey, llmProvider, llmModel);
-  return r.ok ? { ok: true } : { ok: false, error: r.error };
+  return r.ok ? { ok: true } : failure(r.code, r.error, r.detail);
 }
 
 // Порт держим открытым (return true), поэтому ЛЮБОЙ реджект обязан дойти до sendResponse:
@@ -838,7 +881,7 @@ async function checkLlm() {
 function reply(promise, sendResponse) {
   promise
     .then(sendResponse)
-    .catch((e) => sendResponse({ ok: false, error: (e && e.message) || "Внутренняя ошибка расширения" }));
+    .catch((e) => sendResponse(failure("other", "Внутренняя ошибка расширения — попробуйте ещё раз.", e && e.message)));
   return true;
 }
 
@@ -890,12 +933,37 @@ chrome.storage.onChanged?.addListener?.((changes, area) => {
   if (area === "local" && BADGE_KEYS.some((k) => k in changes)) updateBadge();
 });
 
+// Сайт выключен в окне расширения или мини-панели — «off» на значке только этой вкладки. Сообщает
+// верхний фрейм вкладки при загрузке и при смене. Значение для вкладки сильнее общего; null
+// возвращает вкладке общий текст значка. Цвет и подсказку для вкладки так не снять, поэтому при
+// включении сайта ставим их равными общим.
+async function siteBadge(tabId, off) {
+  const a = chrome.action;
+  if (!a || !a.setBadgeText) return;
+  try {
+    const name = chrome.runtime.getManifest().name;
+    if (off) {
+      await a.setBadgeBackgroundColor({ tabId, color: BADGE_OFF_COLOR });
+      await a.setBadgeText({ tabId, text: "off" });
+      await a.setTitle({ tabId, title: `${name} — на этом сайте перевод выключен` });
+      return;
+    }
+    const { off: allOff, problem } = await problemNow();
+    await a.setBadgeText({ tabId, text: null });
+    await a.setBadgeBackgroundColor({ tabId, color: allOff ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
+    await a.setTitle({ tabId, title: allOff ? `${name} — перевод выключен` : problem ? `${name} — ${HT_PROBLEMS[problem].short}` : name });
+  } catch (e) { /* вкладку закрыли — значок не нужен */ }
+}
+
 // Уведомление на странице о неработающем переводчике — одно за сессию браузера, а не по одному на
-// каждой вкладке: дальше о проблеме напоминает «!» на значке.
+// каждой вкладке: дальше о проблеме напоминает «!» на значке. Так же — сообщение «лимит DeepL на
+// месяц закончился, перевожу встроенным»: лимит не вернётся до следующего месяца, и повторять его
+// на каждой странице незачем.
+const ONCE_KEYS = new Set(Object.keys(HT_PROBLEMS).concat(["deepl-quota"]));
 const noticed = new Set();
 function noticeKey(problem) { return "htNoticed:" + problem; }
 async function noticeOnce(problem) {
-  if (!Object.prototype.hasOwnProperty.call(HT_PROBLEMS, problem)) return { show: false };
+  if (!ONCE_KEYS.has(problem)) return { show: false };
   const k = noticeKey(problem);
   if (noticed.has(k)) return { show: false };
   noticed.add(k);
@@ -909,19 +977,80 @@ async function noticeOnce(problem) {
 
 // ---- установка ----
 // Первая установка: язык перевода — по языку браузера (если он есть в таблице, иначе английский) и
-// страница приветствия, где готовится встроенный переводчик. При обновлении ничего не открываем.
+// страница приветствия, где готовится встроенный переводчик. Способ включения записываем сразу:
+// по его наличию в хранилище обновление отличает новых пользователей от прежних (см. ниже).
+// При обновлении ничего не открываем.
 chrome.runtime.onInstalled?.addListener?.(async (details) => {
   updateBadge();
+  if (details && details.reason === "update") { keepOldTrigger(); return; }
   if (!details || details.reason !== "install") return;
   try {
-    const s = await chrome.storage.local.get("targetLang");
+    const s = await chrome.storage.local.get(["targetLang", "trigger"]);
+    const set = {};
     if (!s.targetLang) {
       const ui = chrome.i18n && chrome.i18n.getUILanguage ? chrome.i18n.getUILanguage() : "";
-      await chrome.storage.local.set({ targetLang: HT_targetFromLocale(ui) });
+      set.targetLang = HT_targetFromLocale(ui);
     }
-  } catch (e) { /* останется язык по умолчанию */ }
+    if (!s.trigger) set.trigger = HT_DEFAULTS.trigger;
+    await chrome.storage.local.set(set);
+  } catch (e) { /* останутся значения по умолчанию */ }
   chrome.tabs.create({ url: chrome.runtime.getURL("welcome.html") });
 });
+
+// Раньше по умолчанию перевод включался наведением с задержкой. Кто способ не выбирал (в хранилище
+// его нет), тот привык к наведению: оставляем ему наведение, а не переключаем молча на Shift — иначе
+// после обновления перевод «перестал бы работать». Сохранённый выбор не трогаем. Новым установкам
+// способ записывается при установке, поэтому сюда они не попадают.
+async function keepOldTrigger() {
+  try {
+    const s = await chrome.storage.local.get("trigger");
+    if (!("trigger" in s)) await chrome.storage.local.set({ trigger: "dwell" });
+  } catch (e) { /* не вышло — останется значение по умолчанию */ }
+}
+
+// ---- горячие клавиши (manifest.json → commands) ----
+// Сменить их можно на chrome://extensions/shortcuts; там же видно, если сочетание занято другим
+// расширением (тогда у команды пустой shortcut). Обе команды адресуем верхнему фрейму вкладки — как
+// и окно расширения.
+async function shortcutOf(name) {
+  try {
+    const all = await chrome.commands.getAll();
+    const c = all.find((x) => x.name === name);
+    return (c && c.shortcut) || "";
+  } catch (e) { return ""; }
+}
+function toTab(tabId, msg, frameId) {
+  if (tabId == null) return;
+  // Вкладка без content-скрипта (служебная страница Chrome) — ответить некому, это не ошибка.
+  chrome.tabs.sendMessage(tabId, msg, frameId == null ? {} : { frameId }).catch(() => {});
+}
+
+chrome.commands?.onCommand?.addListener?.(async (command, tab) => {
+  const tabId = tab && tab.id;
+  if (command === "toggle-enabled") {
+    try {
+      const { enabled } = await chrome.storage.local.get({ enabled: HT_DEFAULTS.enabled });
+      const on = enabled === false;
+      await chrome.storage.local.set({ enabled: on });
+      // Значок покажет «off», но взгляд в этот момент на странице — говорим и там.
+      toTab(tabId, { type: "say", what: on ? "enabled" : "disabled", keys: await shortcutOf("toggle-enabled") }, 0);
+    } catch (e) { /* хранилище недоступно — состояние не изменилось */ }
+  } else if (command === "translate-page") {
+    toTab(tabId, { type: "translatePage", via: "command", keys: await shortcutOf("toggle-enabled") }, 0);
+  }
+});
+
+// «Открыть настройки» из уведомления на странице: окно расширения над значком, а если Chrome его не
+// открыл (старее 127-й версии, окно браузера не в фокусе) — те же настройки во вкладке.
+async function openSettings(sender) {
+  try {
+    await chrome.action.openPopup(sender && sender.tab ? { windowId: sender.tab.windowId } : {});
+    return { ok: true, how: "popup" };
+  } catch (e) {
+    await chrome.tabs.create({ url: chrome.runtime.getURL("popup.html") });
+    return { ok: true, how: "tab" };
+  }
+}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
@@ -931,6 +1060,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return reply(translateMany(msg.items || [], msg, originOf(sender), budgetKeyOf(sender)), sendResponse);
   }
   if (msg.type === "noticeOnce") return reply(noticeOnce(String(msg.problem)), sendResponse);
+  if (msg.type === "openSettings") return reply(openSettings(sender), sendResponse);
+  // Esc на странице: вернуть оригинал и во встроенных окнах той же вкладки (у каждого свой скрипт).
+  if (msg.type === "restoreTab") {
+    if (sender && sender.tab) toTab(sender.tab.id, { type: "restoreAll" });
+    return;
+  }
+  if (msg.type === "siteBadge") {
+    if (sender && sender.tab && sender.frameId === 0) siteBadge(sender.tab.id, msg.off === true);
+    return;
+  }
   if (msg.type === "checkUsage") return reply(checkUsage(), sendResponse);
   if (msg.type === "checkLlm") return reply(checkLlm(), sendResponse);
   if (msg.type === "clearCache") return reply(clearCache(), sendResponse);

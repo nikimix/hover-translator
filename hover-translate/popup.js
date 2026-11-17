@@ -36,6 +36,8 @@ const els = {
   dispBorder: $("dispBorder"), dispBorderColor: $("dispBorderColor"), dispBorderStyle: $("dispBorderStyle"),
   borderControls: $("borderControls"),
   noTrBlock: $("noTrBlock"), noTrHeader: $("noTrHeader"), noTranslate: $("noTranslate"),
+  siteRow: $("siteRow"), siteOn: $("siteOn"), siteName: $("siteName"), badgeRow: $("badgeRow"),
+  keysText: $("keysText"), keysEdit: $("keysEdit"),
 };
 
 const nf = new Intl.NumberFormat("ru-RU");
@@ -44,6 +46,8 @@ const NO_PAGE = "На этой странице расширения не раб
 let recent = [];
 let enabledOn = true;
 let builtinUi = null;                 // блок встроенного переводчика (builtin.js)
+let site = null;                      // { name, off } — сайт активной вкладки (от её content-скрипта)
+const keys = { toggle: "", page: "" };  // сочетания клавиш команд (chrome.commands)
 
 // Списки языков и движков строим из общих таблиц shared.js, а не держим третьей копией в
 // разметке — раньше они разъезжались (у исходного «PT» не было английского имени для промпта
@@ -52,11 +56,14 @@ HT_fillSelect(els.targetLang, HT_TARGET_LANGS);
 HT_fillSelect(els.sourceLang, HT_SOURCE_LANGS);
 HT_fillSelect(els.engine, HT_ENGINES);
 
+// Сочетание клавиш в подсказке кнопки: « (Alt+Shift+O)».
+function keyTip(k) { return k ? ` (${k})` : ""; }
+
 // Иконка-переключатель «перевод вкл/выкл».
 function setEnabledUI(on) {
   enabledOn = on;
   els.enabled.classList.toggle("active", on);
-  setTip(els.enabled, on ? "Перевод включён — выключить" : "Перевод выключен — включить");
+  setTip(els.enabled, (on ? "Перевод включён — выключить" : "Перевод выключен — включить") + keyTip(keys.toggle));
 }
 
 // Иконка «языковая панель на странице»: подсвечена, пока панель показана (на активной вкладке).
@@ -193,6 +200,8 @@ els.setupFix.addEventListener("click", () => {
 });
 
 function updateDispVisibility() {
+  // Исходный язык показывается только в карточке — при замене на месте галочка ни на что не влияет.
+  els.badgeRow.hidden = els.displayMode.value !== "popover";
   els.dispCustom.style.display = els.dispMode.value === "custom" ? "" : "none";
   els.borderControls.style.display = els.dispBorder.checked ? "" : "none";
   els.dispOpacityVal.textContent = els.dispOpacity.value + "%";
@@ -226,6 +235,12 @@ function renderQuota(r) {
   els.quota.textContent = `DeepL: осталось ${nf.format(remaining)} из ${nf.format(r.limit)} символов`;
   els.quota.className = "quota" + (remaining < r.limit * 0.1 ? " warn" : "");
 }
+// Ошибка проверки ключа. В самом окне «проверьте его в окне расширения» звучало бы странно.
+function checkError(r) {
+  if (r.code === "bad-key") return "Ключ не подошёл — проверьте, что он скопирован целиком." + (r.detail ? ` (${r.detail})` : "");
+  return (r.error || CHECK_FAIL) + (r.detail ? ` (${r.detail})` : "");
+}
+
 async function fetchQuota() {
   if (!els.apiKey.value.trim()) { renderQuota(null); return; }
   try { renderQuota(await chrome.runtime.sendMessage({ type: "checkUsage" })); } catch (e) { renderQuota(null); }
@@ -250,13 +265,14 @@ const TOP_FRAME = { frameId: 0 };
 
 // Отправить команду верхнему фрейму активной вкладки. map получает ответ и признак недоступности
 // страницы (служебная страница, нет content-скрипта) и решает, что вернуть вызывающему.
+// frames — адресат ({} — все фреймы: «Вернуть оригинал» касается и встроенных окон).
 let activeTab = null;                 // вкладка последней команды — для подсказки «обновите вкладку»
-function askTab(type, map) {
+function askTab(type, map, frames) {
   return new Promise((resolve) => {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       activeTab = tab || null;
       if (!tab || tab.id == null) return resolve(map(null, true));
-      chrome.tabs.sendMessage(tab.id, { type }, TOP_FRAME, (resp) => resolve(map(resp, !!chrome.runtime.lastError)));
+      chrome.tabs.sendMessage(tab.id, { type }, frames || TOP_FRAME, (resp) => resolve(map(resp, !!chrome.runtime.lastError)));
     });
   });
 }
@@ -314,7 +330,7 @@ els.reloadTab.addEventListener("click", async () => {
   const ok = await reloadAndPing(activeTab.id);
   els.reloadTab.disabled = false;
   els.reloadTab.hidden = true;
-  if (ok) { setPageMsg("Готово — перевод на этой вкладке работает.", "ok"); setHudUI(false); }
+  if (ok) { setPageMsg("Готово — перевод на этой вкладке работает.", "ok"); refreshTabState(); }
   else setPageMsg(NO_PAGE, "err");
 });
 
@@ -364,9 +380,66 @@ chrome.storage.local.get(DEFAULTS, (s) => {
   if (HT_engine(s.engine).via !== "local") fetchStats();
 });
 
-// Подсветка кнопки HUD по фактическому состоянию панели на активной вкладке. Заодно узнаём, есть
-// ли на вкладке content-скрипт: нет — сразу подсказываем обновить вкладку.
-queryTab("getHudState").then((r) => { setHudUI(r && r.hud); if (!r) tabNotResponding(true); });
+// ---- вкладка: мини-панель и «Переводить на этом сайте» ----
+// Подсветка кнопки HUD по фактическому состоянию панели на активной вкладке и имя её сайта. Заодно
+// узнаём, есть ли на вкладке content-скрипт: нет — сразу подсказываем обновить вкладку.
+function applyTabState(r) {
+  setHudUI(r && r.hud);
+  site = r && typeof r.site === "string" && HT_isSite(r.site) ? { name: r.site, off: !!r.siteOff } : null;
+  els.siteRow.hidden = !site;            // страница без имени сайта (файл, служебная) — выключать нечего
+  if (site) { els.siteName.textContent = site.name; els.siteOn.checked = !site.off; }
+}
+function refreshTabState() {
+  return queryTab("getHudState").then((r) => { applyTabState(r); if (!r) tabNotResponding(true); });
+}
+refreshTabState();
+
+// Список общий с мини-панелью на страницах — читаем свежий перед записью.
+els.siteOn.addEventListener("change", async () => {
+  if (!site) return;
+  const off = !els.siteOn.checked;
+  let list = [];
+  try { list = HT_sites((await chrome.storage.local.get({ disabledSites: [] })).disabledSites); } catch (e) { /* пустой */ }
+  list = list.filter((x) => x !== site.name);
+  if (off) list.push(site.name);
+  try { await chrome.storage.local.set({ disabledSites: list.slice(-HT_SITES_MAX) }); }
+  catch (e) { els.siteOn.checked = !off; setPageMsg("Не удалось сохранить: хранилище переполнено. Нажмите «Очистить кэш».", "err"); return; }
+  site.off = off;
+  setPageMsg(off ? "На этом сайте перевод выключен: ни наведения, ни клавиши, ни панели." : "", "");
+  if (off) setHudUI(false);
+});
+
+// ---- горячие клавиши ----
+// Их можно сменить или снять на chrome://extensions/shortcuts; если сочетание занято другим
+// расширением, Chrome его не назначает — тогда пишем «не назначено».
+const KEYS_URL = "chrome://extensions/shortcuts";
+function renderKeys() {
+  const part = (k, what) => {
+    const span = document.createElement("span");
+    if (k) { const kbd = document.createElement("kbd"); kbd.textContent = k; span.append(kbd, " — " + what); }
+    else span.textContent = what + ": сочетание не назначено";
+    return span;
+  };
+  els.keysText.textContent = "";
+  const esc = document.createElement("span");
+  const kbd = document.createElement("kbd");
+  kbd.textContent = "Esc";
+  esc.append(kbd, " — вернуть оригинал");
+  els.keysText.append(part(keys.toggle, "включить или выключить перевод"), "; ",
+    part(keys.page, "перевести страницу"), "; ", esc, ".");
+  setEnabledUI(enabledOn);
+  setTip(els.translatePage, "Перевести страницу" + keyTip(keys.page));
+}
+if (chrome.commands && chrome.commands.getAll) {
+  chrome.commands.getAll().then((all) => {
+    for (const c of all) {
+      if (c.name === "toggle-enabled") keys.toggle = c.shortcut || "";
+      if (c.name === "translate-page") keys.page = c.shortcut || "";
+    }
+    renderKeys();
+  }).catch(renderKeys);
+} else renderKeys();
+els.keysEdit.addEventListener("click", () => { chrome.tabs.create({ url: KEYS_URL }).catch(() => {}); });
 
 // ---- автосохранение ----
 // 'change' — сразу; 'input' (непрерывные: ползунок прозрачности, color-picker, textarea) — с
@@ -391,6 +464,7 @@ els.engine.addEventListener("change", () => {
   else { if (els.apiKey.value.trim() && usesDeepl(els.engine.value)) fetchQuota(); fetchStats(); }
 });
 els.dispMode.addEventListener("change", updateDispVisibility);
+els.displayMode.addEventListener("change", updateDispVisibility);
 els.dispOpacity.addEventListener("input", updateDispVisibility);
 els.dispBorder.addEventListener("change", updateDispVisibility);
 
@@ -425,7 +499,7 @@ els.check.addEventListener("click", async () => {
   } else {
     setVerified(false);
     renderQuota(null);
-    setStatus(r.error || CHECK_FAIL, "err");
+    setStatus(checkError(r), "err");
     chrome.storage.local.set({ keyVerified: false });
   }
 });
@@ -450,7 +524,7 @@ els.llmCheck.addEventListener("click", async () => {
     chrome.storage.local.set({ llmVerified: true, llmCollapsed: true });
   } else {
     setLlmVerified(false);
-    setLlmStatus(r.error || CHECK_FAIL, "err");
+    setLlmStatus(checkError(r), "err");
     chrome.storage.local.set({ llmVerified: false });
   }
 });
@@ -482,6 +556,7 @@ bindReveal(els.toggleLlmKey, els.llmApiKey);
 // ---- действия со страницей ----
 els.translatePage.addEventListener("click", async () => {
   if (!enabledOn) { setPageMsg("Перевод выключен — включите ⏻", "err"); return; }
+  if (site && site.off) { setPageMsg("На этом сайте перевод выключен — поставьте галочку «Переводить на сайте».", "err"); return; }
   setPageMsg("", "");
   if (!(await save())) return;      // настройки не записались — сообщение уже показано, не закрываемся
   const ok = await sendToTab("translatePage");
@@ -489,14 +564,15 @@ els.translatePage.addEventListener("click", async () => {
   else tabNotResponding(false);
 });
 els.resetPage.addEventListener("click", async () => {
-  const ok = await sendToTab("restoreAll");
+  const ok = await askTab("restoreAll", (resp, failed) => !failed, {});
   if (ok) setPageMsg("", ""); else tabNotResponding(false);
 });
 els.hudBtn.addEventListener("click", async () => {
   setPageMsg("", "");
+  if (site && site.off) { setPageMsg("На этом сайте перевод выключен — панель не показывается.", "err"); return; }
   if (!(await save())) return;
   const r = await queryTab("toggleHud");
-  if (r && r.ok) { setHudUI(r.hud); setPageMsg("", ""); } // подсвечиваем кнопку, popup не закрываем
+  if (r && r.ok) { applyTabState(r); setPageMsg("", ""); } // подсвечиваем кнопку, popup не закрываем
   else tabNotResponding(false);
 });
 
