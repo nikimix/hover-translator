@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="appbar">
+    <img class="logo" src="icons/48.png" alt="" width="20" height="20" />
+    <h1>Cursor Translate</h1>
+  </header>
+
+  <div class="actions-row">
+    <button id="enabled" type="button" class="icon-btn" title="Перевод включён" aria-label="Перевод включён">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+    </button>
+    <button id="translatePage" type="button" class="icon-btn" title="Перевести страницу" aria-label="Перевести страницу">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    </button>
+    <button id="hudBtn" type="button" class="icon-btn" title="Языковая панель на странице" aria-label="Языковая панель на странице">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 10l5-7 5 7"/></svg>
+    </button>
+    <button id="resetPage" type="button" class="icon-btn" title="Сбросить переводы" aria-label="Сбросить переводы">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+    </button>
+  </div>
+  <p id="pageMsg" class="status"></p>
+
+  <label class="field">
+    <span class="lbl">Движок перевода</span>
+    <select id="engine"></select>
+  </label>
+  <p id="engineNote" class="note">Встроенному движку нужен Chrome 138+ (desktop); модель скачивается при первом использовании.</p>
+
+  <!-- LLM: провайдер, ключ, модель -->
+  <div class="key-block" id="llmBlock">
+    <button type="button" class="block-header" id="llmHeader">
+      <span class="lbl">LLM-движок</span>
+      <span class="key-state" id="llmState"></span>
+      <span class="chevron">▾</span>
+    </button>
+    <div class="block-body">
+      <label class="field">
+        <span class="lbl">Провайдер</span>
+        <select id="llmProvider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic (Claude)</option>
+        </select>
+      </label>
+      <div class="field">
+        <span class="lbl">API-ключ</span>
+        <div class="key-row">
+          <input type="password" id="llmApiKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+          <button type="button" id="toggleLlmKey" class="icon-btn" title="Показать ключ" aria-label="Показать ключ">
+            <svg class="eye" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+          <button type="button" id="llmCheck" class="icon-btn" title="Проверить ключ" aria-label="Проверить ключ">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <label class="field">
+        <span class="lbl">Модель</span>
+        <input type="text" id="llmModel" placeholder="напр. gpt-4o-mini / claude-haiku-4-5-20251001" autocomplete="off" spellcheck="false" />
+      </label>
+      <p id="llmStatus" class="status"></p>
+      <p class="note">Ключ хранится локально и виден только service worker расширения. Перевод LLM сохраняет HTML-теги; идиомы переводятся лучше, но это платно и медленнее DeepL.</p>
+    </div>
+  </div>
+
+  <!-- Ключ DeepL + проверка -->
+  <div class="key-block" id="keyBlock">
+    <button type="button" class="block-header" id="keyHeader">
+      <span class="lbl">API-ключ DeepL</span>
+      <span class="key-state" id="keyState"></span>
+      <span class="chevron">▾</span>
+    </button>
+    <div class="block-body">
+      <div class="key-row">
+        <input type="password" id="apiKey" placeholder="xxxxxxxx-xxxx-...:fx" autocomplete="off" spellcheck="false" />
+        <button type="button" id="toggleKey" class="icon-btn" title="Показать ключ" aria-label="Показать ключ">
+          <svg class="eye" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+        <button type="button" id="check" class="icon-btn" title="Проверить ключ" aria-label="Проверить ключ">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+      </div>
+      <p id="status" class="status"></p>
+    </div>
+  </div>
+
+  <div class="quota" id="quota"></div>
+  <div class="cache-row" id="cacheRow">
+    <button id="clearCache" type="button" class="linkbtn" title="Удалить сохранённые переводы из кэша и обнулить статистику">Очистить кэш</button>
+    <span id="cacheMsg" class="muted"></span>
+  </div>
+  <!-- Статистика расхода (обнуляется кнопкой «Очистить кэш») -->
+  <div class="stats-row" id="statsRow">
+    <span id="stats" class="muted-stats"></span>
+  </div>
+
+  <!-- Списки языков и движков заполняет popup.js из общих таблиц shared.js (одна таблица на
+       всё расширение), поэтому здесь только пустые <select>. -->
+  <label class="field">
+    <span class="lbl">Переводить на</span>
+    <select id="targetLang"></select>
+  </label>
+  <div class="chips" id="recentLangs"></div>
+
+  <label class="field">
+    <span class="lbl">Исходный язык</span>
+    <select id="sourceLang"></select>
+  </label>
+
+  <label class="field" id="formalityField">
+    <span class="lbl">Тон (formality, DeepL)</span>
+    <select id="formality">
+      <option value="default">По умолчанию</option>
+      <option value="more">Более формально</option>
+      <option value="less">Менее формально</option>
+    </select>
+  </label>
+  <p id="formalityNote" class="note">Поддерживается не всеми языками (DE, FR, IT, ES, NL, PL, PT, RU, JA). Для неподдерживаемых — игнорируется.</p>
+
+  <label class="field">
+    <span class="lbl">Активация перевода</span>
+    <select id="trigger">
+      <option value="dwell">При наведении (по задержке)</option>
+      <option value="shift">Shift + наведение</option>
+      <option value="alt">Alt + наведение</option>
+      <option value="ctrl">Ctrl + наведение</option>
+    </select>
+  </label>
+
+  <label class="field" id="dwellField">
+    <span class="lbl">Задержка наведения, мс</span>
+    <input type="number" id="dwellMs" min="0" max="2000" step="50" />
+  </label>
+
+  <!-- Настройки отображения перевода -->
+  <div class="key-block collapsed" id="dispBlock">
+    <button type="button" class="block-header" id="dispHeader">
+      <span class="lbl">Отображение перевода</span>
+      <span class="chevron">▾</span>
+    </button>
+    <div class="block-body">
+      <label class="field">
+        <span class="lbl">Способ показа</span>
+        <select id="displayMode">
+          <option value="replace">Замена на месте</option>
+          <option value="popover">Поповер (только при наведении)</option>
+        </select>
+      </label>
+      <label class="cb cb-row"><input type="checkbox" id="showLangBadge" /> Показывать исходный язык (бейдж EN → RU, в режиме поповера)</label>
+
+      <label class="field">
+        <span class="lbl">Подсветка</span>
+        <select id="dispMode">
+          <option value="auto">Адаптивная (тёмные/светлые)</option>
+          <option value="custom">Своя</option>
+          <option value="none">Без подсветки</option>
+        </select>
+      </label>
+      <div id="dispCustom">
+        <div class="field">
+          <span class="lbl">Фон и прозрачность</span>
+          <div class="control-row">
+            <input type="color" id="dispBg" aria-label="Цвет фона" />
+            <input type="range" id="dispOpacity" min="0" max="100" step="1" />
+            <span class="muted" id="dispOpacityVal"></span>
+          </div>
+        </div>
+        <div class="field">
+          <label class="cb"><input type="checkbox" id="dispBorder" /> Граница</label>
+          <div class="control-row" id="borderControls">
+            <select id="dispBorderStyle">
+              <option value="solid">Сплошная</option>
+              <option value="dashed">Пунктир</option>
+              <option value="dotted">Точки</option>
+              <option value="double">Двойная</option>
+            </select>
+            <input type="color" id="dispBorderColor" aria-label="Цвет границы" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Не переводить -->
+  <div class="key-block collapsed" id="noTrBlock">
+    <button type="button" class="block-header" id="noTrHeader">
+      <span class="lbl">Не переводить (термины, бренды)</span>
+      <span class="chevron">▾</span>
+    </button>
+    <div class="block-body">
+      <textarea id="noTranslate" rows="3" placeholder="Через запятую или с новой строки: GitHub, Vue, nikimix"></textarea>
+      <p class="note">Эти слова движок оставит как есть. Работает для DeepL и LLM; встроенный Chrome-движок исключения не поддерживает.</p>
+    </div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

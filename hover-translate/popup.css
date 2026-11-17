@@ -1,0 +1,251 @@
+/* ===== Тема (минимал, авто светлая/тёмная) ===== */
+:root {
+  --bg: #ffffff;
+  --fg: #1b1d20;
+  --muted: #6b7280;
+  --border: #e6e8eb;
+  --surface: #f6f7f9;
+  --surface-hover: #eef0f3;
+  --field-bg: #ffffff;
+  --field-border: #d3d7dd;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.12);
+  --ok: #15803d;
+  --warn: #b45309;
+  --err: #dc2626;
+  --radius: 8px;
+  --radius-sm: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1f22;
+    --fg: #e6e7e9;
+    --muted: #9aa0a6;
+    --border: #34363a;
+    --surface: #26282c;
+    --surface-hover: #2e3035;
+    --field-bg: #26282c;
+    --field-border: #3a3d42;
+    --accent: #5b8cff;
+    --accent-fg: #0b1220;
+    --accent-soft: rgba(91, 140, 255, 0.20);
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: 300px;
+  margin: 0;
+  padding: 12px;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+/* ===== Шапка ===== */
+.appbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.appbar .logo { border-radius: 5px; display: block; }
+h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.1px; }
+
+/* ===== Поля и подписи ===== */
+.field { display: block; margin: 10px 0; }
+.field > .lbl {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+input[type="password"],
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--field-bg);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+input[type="number"] { width: 78px; }
+select { cursor: pointer; }
+
+input:hover, select:hover { border-color: var(--accent); }
+input:focus-visible, select:focus-visible,
+button:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+input[type="range"], input[type="checkbox"], input[type="color"] { accent-color: var(--accent); }
+
+/* ===== Панель действий (иконки на всю ширину) ===== */
+.actions-row { display: flex; gap: 8px; margin: 10px 0; }
+.actions-row .icon-btn { flex: 1; height: 34px; }
+
+.icon-btn {
+  flex: 0 0 auto;
+  width: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.icon-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+.icon-btn:disabled { opacity: 0.45; cursor: default; }
+.icon-btn:disabled:hover { background: var(--field-bg); border-color: var(--field-border); }
+
+/* Активное состояние (например, «перевод включён») */
+.icon-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.icon-btn.active:hover { filter: brightness(1.05); color: var(--accent-fg); }
+
+/* Кнопка-глаз: «глаз» / «глаз перечёркнут» */
+.icon-btn .eye-off { display: none; }
+.icon-btn.on .eye { display: none; }
+.icon-btn.on .eye-off { display: inline-flex; }
+.icon-btn.on { color: var(--accent); border-color: var(--accent); }
+
+/* ===== Строка ключа ===== */
+.key-row { display: flex; gap: 6px; align-items: stretch; }
+.key-row input { flex: 1; min-width: 0; }
+
+/* ===== Сворачиваемые блоки ===== */
+.key-block {
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg);
+}
+.block-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 0;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  transition: background 0.12s;
+}
+.block-header:hover { background: var(--surface-hover); }
+.block-header .lbl { flex: 1; margin: 0; color: var(--fg); font-weight: 600; font-size: 12px; }
+.key-state { font-size: 12px; font-weight: 700; }
+.key-state.ok { color: var(--ok); }
+.key-state.err { color: var(--err); }
+.chevron { color: var(--muted); font-size: 10px; transition: transform 0.15s; }
+.key-block.collapsed .chevron { transform: rotate(-90deg); }
+.block-body { padding: 10px; }
+.key-block.collapsed .block-body { display: none; }
+
+/* ===== Квота / заметки / кэш / статус ===== */
+.quota { margin: 6px 2px 0; font-size: 11px; color: var(--muted); }
+.quota:empty { display: none; }
+.quota.warn { color: var(--warn); }
+
+.note { margin: 4px 2px 0; font-size: 11px; color: var(--muted); }
+
+.cache-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; }
+.linkbtn {
+  padding: 3px 9px;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  background: var(--field-bg);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.linkbtn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.linkbtn:disabled { opacity: 0.5; cursor: default; }
+
+.status { margin: 6px 0 0; font-size: 11px; }
+.status:empty { margin: 0; }
+.status.err { color: var(--err); }
+.status.ok { color: var(--ok); }
+
+/* ===== Чипы недавних языков ===== */
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 0; }
+.chips:empty { display: none; }
+.chip {
+  padding: 3px 10px;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  background: var(--field-bg);
+  font-size: 11px;
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+
+/* ===== Настройки отображения ===== */
+/* Единый ритм: поля внутри блока расставлены так же, как и снаружи (10px сверху). */
+.block-body .field { margin: 10px 0 0; }
+.block-body > .field:first-child { margin-top: 0; }
+
+.control-row { display: flex; align-items: center; gap: 8px; }
+.control-row select { flex: 1; min-width: 0; }
+
+.cb { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; cursor: pointer; color: var(--fg); }
+.muted { color: var(--muted); font-size: 11px; min-width: 36px; text-align: right; }
+
+input[type="color"] {
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+  cursor: pointer;
+}
+input[type="range"] { flex: 1; min-width: 0; }
+
+/* ===== Textarea «не переводить» ===== */
+textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-sm);
+  font: 13px/1.4 system-ui, -apple-system, sans-serif;
+  color: var(--fg);
+  background: var(--field-bg);
+  resize: vertical;
+  min-height: 48px;
+}
+textarea:hover { border-color: var(--accent); }
+textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ===== Чекбокс-строка (на всю ширину, как самостоятельная настройка) ===== */
+.cb-row { margin: 8px 2px 0; }
+
+/* ===== Статистика расхода ===== */
+.stats-row { margin: 8px 2px 0; }
+.muted-stats { color: var(--muted); font-size: 11px; }
+.muted-stats:empty { display: none; }

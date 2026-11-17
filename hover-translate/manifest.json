@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Cursor Translate",
+  "version": "1.0.0",
+  "description": "Переводит текст элемента под курсором (по наведению или по клавише) и заменяет его на месте. Движок — DeepL.",
+  "minimum_chrome_version": "102",
+  "permissions": ["storage", "activeTab", "alarms"],
+  "host_permissions": [
+    "https://api-free.deepl.com/*",
+    "https://api.deepl.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["shared.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Cursor Translate",
+    "default_icon": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+  },
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+}
