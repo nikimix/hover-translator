@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stub: basic</title>
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; padding: 20px; }
+  p { margin: 0 0 30px; width: 600px; }
+  #inp { display: block; margin-top: 20px; }
+</style>
+<script>
+  // Заглушка chrome.* для content.js. Перевод — "[RU] " + текст, все вызовы — в window.__calls.
+  window.__calls = [];
+  // этап 2а: без ключа DeepL наведение ничего не делает (content читает только факт наличия ключа);
+  // htBuiltinApi совпадает с действительным, иначе content записал бы его при загрузке.
+  window.__store = { enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", dwellMs: 250, apiKey: "test:fx", htBuiltinApi: "Translator" in self,
+    consent: { deepl: true, openai: true, anthropic: true } };  // этап 3: согласие уже дано
+  window.__onChanged = [];
+  window.__onMessage = [];
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) { const out = Object.assign({}, defs, window.__store); setTimeout(() => cb(out), 0); },
+        set(obj) { window.__sets = (window.__sets || []).concat([obj]); setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",          // этап 2а: без id content считает контекст расширения пропавшим
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      sendMessage(msg) {
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  // Смена настройки так, как это делает storage.local.set: onChanged с old/new.
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: obj[k] }; window.__store[k] = obj[k]; }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(type) { let r; for (const fn of window.__onMessage) fn({ type }, {}, (x) => { r = x; }); return r; }
+</script>
+</head>
+<body>
+  <p id="p1">The quick brown fox jumps over the lazy dog near the river bank.</p>
+  <p id="p2">Another paragraph with plain English text for the sweep test.</p>
+  <p id="p3">Our product <span class="notranslate" id="brand">MegaBrand</span> is the best in the world.</p>
+  <p id="p4" translate="no">This paragraph must never be translated by anyone.</p>
+  <div translate="no"><p id="p5">Nested inside a translate no container, keep it.</p></div>
+  <input id="inp" value="search here">
+  <script src="i18n-ru.js"></script><script src="../../hover-translate/shared.js"></script>
+  <script src="../../hover-translate/content.js"></script>
+</body>
+</html>

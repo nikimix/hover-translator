@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stub: everyday</title>
+<link rel="stylesheet" id="css" href="/src/content.css">
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; padding: 20px; }
+  p, .blk { margin: 0 0 24px; width: 600px; }
+  nav ul { margin: 0 0 24px; padding: 0; list-style: none; display: flex; gap: 20px; }
+  #edge { width: 420px; }
+  .filler { height: 90px; margin: 0 0 10px; background: #fafafa; }
+  #darkbox { background: #111; color: #eee; padding: 10px; width: 600px; margin-bottom: 24px; }
+  #darkbox p { margin: 0; }
+  iframe { width: 620px; height: 120px; border: 1px solid #ccc; display: block; margin-bottom: 24px; }
+</style>
+<script>
+  // Заглушка chrome.* для content.js (как в stub-builtin.html) + то, что нужно этапу 2б:
+  // storage.get без колбэка возвращает Promise, сообщения не только translateBatch.
+  // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)
+  const q = new URLSearchParams(location.search);
+  window.__calls = [];
+  window.__sets = [];
+  window.__noticed = {};
+  window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", apiKey: "k:fx",
+    // этап 3: согласие на отправку текста уже дано (проверки без него — в page/consent.test.js)
+    consent: { deepl: true, openai: true, anthropic: true } },
+    JSON.parse(q.get("store") || "{}"));
+  window.__onChanged = [];
+  window.__onMessage = [];
+  window.__bgReply = null;            // (msg) => ответ background на translateBatch
+  window.__bgDelay = 0;
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  // Тексты наших уведомлений и карточек (закрытые shadow root перехвачены выше).
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? c.className.replace("toast", "").replace("show", "").trim() + ":" + c.querySelector(".main").textContent : null; }).filter(Boolean);
+  window.toastRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".toast")).pop() || null;
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".card"));
+  window.hudRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".bar")).pop() || null;
+  // Середина элемента внутри закрытого root — в координатах страницы (для настоящих щелчков).
+  window.uiPoint = (root, sel) => { const e = root.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
+
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) {
+          const out = Object.assign({}, typeof defs === "object" && !Array.isArray(defs) ? defs : {}, JSON.parse(JSON.stringify(window.__store)));
+          if (cb) { setTimeout(() => cb(out), 0); return undefined; }
+          return Promise.resolve(out);
+        },
+        set(obj) { window.__sets.push(JSON.parse(JSON.stringify(obj))); setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      getManifest: () => ({ name: "Cursor Translate" }),
+      sendMessage(msg) {
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        if (msg.type === "noticeOnce") { const show = !window.__noticed[msg.problem]; window.__noticed[msg.problem] = true; return Promise.resolve({ ok: true, show }); }
+        if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
+        const reply = window.__bgReply ? window.__bgReply(msg) : { ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") };
+        return window.__bgDelay ? new Promise((r) => setTimeout(() => r(reply), window.__bgDelay)) : Promise.resolve(reply);
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: JSON.parse(JSON.stringify(obj[k])) }; window.__store[k] = JSON.parse(JSON.stringify(obj[k])); }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
+  window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+  window.typeCalls = (t) => window.__calls.filter((c) => c.type === t);
+
+  // Встроенный переводчик: «real» — настоящий Chrome; «fake» — модели уже скачаны; «none» — нет.
+  const builtin = q.get("builtin") || "fake";
+  if (builtin === "none") { try { delete window.Translator; delete window.LanguageDetector; } catch (e) {} }
+  if (builtin === "fake") {
+    window.Translator = { async availability() { return "available"; }, async create() { return { translate: async (t) => "[ru] " + t }; } };
+    window.LanguageDetector = { async availability() { return "available"; }, async create() { return { detect: async (t) => [{ detectedLanguage: /[а-я]/i.test(t) ? "ru" : (/[一-鿿]/.test(t) ? "zh" : "en"), confidence: 0.99 }] }; } };
+  }
+  // Кадры идут постоянно, как в видимой вкладке: Chrome обновляет «элемент под курсором» после сдвига
+  // вёрстки только на кадре.
+  (function tick() { requestAnimationFrame(tick); })();
+</script>
+</head>
+<body>
+  <p id="p1">The quick brown fox jumps over the lazy dog near the river bank.</p>
+  <p id="p2">Another paragraph with plain English text for the sweep test.</p>
+  <p id="p3" title="own title">Third paragraph has its own title attribute that must survive.</p>
+  <nav><ul><li id="navli"><a href="#a1" id="navlink">Products and services for everyone</a></li><li><a href="#a2">About our company history</a></li></ul></nav>
+  <p id="plink"><a href="#x" id="alink">Read the full article</a> about many interesting things happening in the world today.</p>
+  <button id="btn">Click this button to continue please</button>
+  <div id="rolebtn" role="button" class="blk">Open the settings dialog for this page now</div>
+  <div role="tablist" class="blk"><div role="tab" id="tab1">First tab with a long label text</div></div>
+  <p id="short">Hello world</p>
+  <p id="zhshort">你好世界</p>
+  <p id="zhlong">这是一个很长的中文句子用于测试翻译功能</p>
+  <div id="darkbox"><p id="dark">This paragraph sits on a dark background for the pulse colour test.</p></div>
+  <p id="edge">Edge paragraph: this text is deliberately long so that it wraps onto several lines, and its translation is much shorter, so after the translation the paragraph shrinks and the cursor resting on its last line ends up outside.</p>
+  <input id="inp" value="search here">
+  <div id="frameSlot"></div>
+  <div id="fillers"></div>
+  <script>
+    const f = document.getElementById("fillers");
+    for (let i = 0; i < 30; i++) { const p = document.createElement("p"); p.className = "filler"; p.id = "f" + i; p.textContent = "Filler paragraph number " + i + " with enough words to translate."; f.appendChild(p); }
+    if (q.get("frame")) { const fr = document.createElement("iframe"); fr.id = "fr"; fr.src = q.get("frame"); document.getElementById("frameSlot").appendChild(fr); }
+    const dir = q.get("old") ? "/old/" : "/src/";
+    // этап 4а: chrome.i18n — заглушка с текстами _locales/ru (lib/i18n-stub.js, отдаёт lib/server.js)
+    for (const src of ["/i18n-ru.js", dir + "shared.js", dir + "content.js"]) { const s = document.createElement("script"); s.src = src; s.async = false; document.body.appendChild(s); }
+  </script>
+</body>
+</html>

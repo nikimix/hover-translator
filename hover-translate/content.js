@@ -674,15 +674,34 @@
     return translators.get(key);
   }
 
-  // Модель не скачана: что сказать. key — что именно ждёт загрузки (одно уведомление на страницу).
+  // Язык пары, которого нет среди языков браузера, или "". Для таких пар Chrome скрывает от сайта, скачана
+  // ли модель: availability() отвечает «downloadable» на КАЖДОМ сайте, пока этот сайт сам не создаст
+  // переводчик для пары, а создать его можно только по щелчку (если модель уже на компьютере — мгновенно,
+  // без загрузки). Языки браузера — navigator.languages (Настройки Chrome → Языки); английский Chrome не
+  // скрывает. Проверено в Chrome 157: пара английский → русский на новом сайте при русском браузере —
+  // «available», при английском — «downloadable», после добавления русского в языки — снова «available».
+  function hiddenLang(src, tgt) {
+    const mine = new Set(["en"].concat([...(navigator.languages || [])].map(HT_langKey)));
+    return [src, tgt].find((l) => !mine.has(HT_langKey(l))) || "";
+  }
+
+  // Модель не готова: что сказать. key — что именно ждёт щелчка (одно уведомление на страницу).
+  // Щелчок нужен потому, что одиночный Shift (и наведение) Chrome действием пользователя не считает.
+  // После щелчка абзац под курсором переводится сам (см. обработчик click). Когда именно нужен щелчок:
+  //   • модели нет на компьютере — щелчок запускает загрузку, она нужна один раз для всех сайтов;
+  //   • пара с языком не из языков браузера — на каждом новом сайте (см. hiddenLang);
+  //   • детектор языка первые секунды после запуска Chrome тоже отвечает «downloadable», хотя модель есть.
+  // Поэтому подсказка не утверждает, что модели нет: «если её ещё нет — скачается».
   function needDownload(state, src, tgt) {
     const what = src ? HT_t("dlPair", [HT_langLabel(src), HT_langLabel(tgt)]) : HT_t("dlDetector");
-    // Детектор и пару «английский → язык перевода» готовит кнопка в окне расширения.
+    const key = src ? src + ">" + tgt : "detector";
+    if (state === "downloading") return { ok: false, kind: "download", key, error: HT_t("dlWait", what) };
+    const hidden = src ? hiddenLang(src, tgt) : "";
+    if (hidden) return { ok: false, kind: "download", key, error: HT_t("dlClickSite", [what, HT_langLabel(hidden)]) };
+    // Детектор и пару «английский → язык перевода» готовит и кнопка в окне расширения. Для пары со
+    // скрытым языком она не помогает: окно расширения — другой сайт.
     const prep = !src || src === HT_prepPair(settings.targetLang).src;
-    // Щелчок нужен потому, что одиночный Shift (и наведение) Chrome действием пользователя не считает.
-    // После щелчка абзац под курсором переводится сам (см. обработчик click).
-    const error = HT_t(state === "downloading" ? "dlWait" : prep ? "dlClickPrep" : "dlClick", what);
-    return { ok: false, kind: "download", key: src ? src + ">" + tgt : "detector", error };
+    return { ok: false, kind: "download", key, error: HT_t(prep ? "dlClickPrep" : "dlClick", what) };
   }
 
   // Перевод по тексту (без HTML) встроенным движком. Возвращает src для бейджа.
@@ -1933,10 +1952,14 @@
     s.setProperty("top", t + "px", "important");
     s.removeProperty("right");
     s.removeProperty("bottom");
+    placeToast();                       // панель сдвинулась — уведомление не должно оказаться под ней
     return { left: l, top: t };
   }
 
-  on(window, "resize", () => { if (hud && hudPos) placeHud(hud.host, hudPos.left, hudPos.top); });
+  on(window, "resize", () => {
+    if (hud && hudPos) placeHud(hud.host, hudPos.left, hudPos.top);
+    placeToast();
+  });
 
   function syncHud() { if (hud) hud.sel.value = settings.targetLang; }
 
@@ -1953,10 +1976,12 @@
       else {
         hud.host.style.setProperty("right", HUD_MARGIN + "px", "important");
         hud.host.style.setProperty("bottom", HUD_MARGIN + "px", "important");
+        placeToast();
       }
     } else if (!want && hud) {
       hud.host.remove();
       hud = null;
+      placeToast();
     }
   }
   function setHudWanted(v) {
@@ -2056,12 +2081,33 @@
   // над текстом: на чужом сайте видно, чьё это окно), detail (мелко: код ответа, текст сервиса),
   // actions: [{ label, run }], closable (✕) }. Возвращает { set(текст), update(o), close() }.
   let currentToast = null;
+  const TOAST_BOTTOM = 20, TOAST_GAP = 8;
+
+  // Уведомление стоит внизу по центру, мини-панель по умолчанию — внизу справа: в узком окне они
+  // ложились друг на друга. Если пересекаются — уведомление поднимается над панелью (но не выше
+  // верхнего края окна). Панель не двигаем: её место выбрал человек.
+  function placeToast() {
+    const t = currentToast;
+    if (!t || !t.host.isConnected) return;
+    const s = t.host.style;
+    s.setProperty("bottom", TOAST_BOTTOM + "px", "important");
+    if (!hud || !hud.host.isConnected) return;
+    const h = hud.host.getBoundingClientRect();
+    const r = t.host.getBoundingClientRect();
+    if (r.right <= h.left || r.left >= h.right || r.bottom <= h.top || r.top >= h.bottom) return;
+    // Нижний край окна — от самого уведомления: innerHeight включает горизонтальную полосу прокрутки,
+    // а bottom у fixed отсчитывается от края без неё.
+    const vb = r.bottom + TOAST_BOTTOM;
+    const lift = Math.min(vb - h.top + TOAST_GAP, vb - r.height);
+    s.setProperty("bottom", Math.round(Math.max(TOAST_BOTTOM, lift)) + "px", "important");
+  }
+
   function showToast(o) {
     if (currentToast) currentToast.close();
     const { host, root } = makeUiHost(TOAST_CSS, Z_TOAST);
     const s = host.style;
     s.setProperty("left", "50%", "important");
-    s.setProperty("bottom", "20px", "important");
+    s.setProperty("bottom", TOAST_BOTTOM + "px", "important");
     s.setProperty("transform", "translateX(-50%)", "important");
     const card = document.createElement("div");
     const main = document.createElement("div");
@@ -2085,7 +2131,8 @@
 
     let timer = 0, ms = 0, closed = false, hovered = false;
     const t = {
-      set(text) { body.textContent = text; },
+      host,
+      set(text) { body.textContent = text; placeToast(); },
       close() {
         if (closed) return;
         closed = true;
@@ -2096,7 +2143,7 @@
       },
       // Сменить содержимое на месте (например, «Перевожу…» → «Готово»), если уведомление ещё на
       // экране и его не заменило другое.
-      update(p) { if (!closed && currentToast === t) fill(Object.assign({}, o, p)); },
+      update(p) { if (!closed && currentToast === t) { fill(Object.assign({}, o, p)); placeToast(); } },
     };
     const arm = (delay) => { clearTimeout(timer); if (delay && !hovered) timer = setTimeout(t.close, delay); };
     function fill(p) {
@@ -2135,6 +2182,7 @@
     // чтобы правила страницы не могли нас спрятать.
     requestAnimationFrame(() => { if (!closed) card.classList.add("show"); });
     currentToast = t;
+    placeToast();
     return t;
   }
 

@@ -3,3 +3,7 @@ node_modules/
 .idea/
 .DS_Store
 dist/
+# test artifacts, if pointed inside the repo: tests/run.sh --shots tests/shots, HT_TMP=tests/tmp
+tests/shots/
+tests/tmp/
+*.log

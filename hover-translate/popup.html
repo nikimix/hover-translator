@@ -12,7 +12,7 @@
        Тексты — в _locales/*/messages.json: data-i18n заполняет текст, data-i18n-title/-aria-label/
        -placeholder — атрибуты (shared.js, HT_localize; $1 в них — короткое название расширения). -->
   <header class="appbar">
-    <img class="logo" src="icons/48.png" alt="" width="20" height="20" />
+    <img class="logo" src="icons/48.png" srcset="icons/48.png 1x, icons/96.png 2x" alt="" width="20" height="20" />
     <h1 data-i18n="extShortName"></h1>
   </header>
 
@@ -25,8 +25,10 @@
     </button>
     <label class="cb site-row" id="siteRow" hidden>
       <input type="checkbox" id="siteOn" />
-      <span class="site-label" data-i18n="siteOn"></span>
-      <span id="siteName" class="site-name"></span>
+      <span class="site-text">
+        <span class="site-label" data-i18n="siteOn"></span>
+        <span id="siteName" class="site-name"></span>
+      </span>
     </label>
   </div>
   <div class="page-row">
@@ -246,7 +248,8 @@
         <p id="noTrNote" class="hint" data-i18n="noTranslateNote"></p>
       </div>
 
-      <!-- Переводы DeepL и ИИ сохраняются на 14 дней: повторный перевод бесплатный и мгновенный. -->
+      <!-- Переводы DeepL и ИИ сохраняются на 14 дней: повторный перевод бесплатный и мгновенный. При
+           встроенном переводчике блок виден, только если от DeepL или ИИ что-то осталось (popup.js). -->
       <div class="field" id="cacheRow">
         <span class="lbl" data-i18n="savedTranslations"></span>
         <p id="stats" class="hint" aria-live="polite"></p>

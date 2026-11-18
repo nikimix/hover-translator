@@ -1215,7 +1215,7 @@
     }
   },
   "dlClick": {
-    "message": "The built-in translator needs to download $what$ once. Click the text — the download will start, and then it will be translated.",
+    "message": "Click the text to translate it. Chrome’s built-in translator only starts $what$ after a click; if it isn’t on your computer yet, it’s downloaded first — that’s needed only once.",
     "placeholders": {
       "what": {
         "content": "$1",
@@ -1224,11 +1224,24 @@
     }
   },
   "dlClickPrep": {
-    "message": "The built-in translator needs to download $what$ once. Click the text — the download will start, and then it will be translated. Or click the extension icon → “Set up translator”.",
+    "message": "Click the text to translate it. Chrome’s built-in translator only starts $what$ after a click; if it isn’t on your computer yet, it’s downloaded first — that’s needed only once. You can also download it in advance: extension icon → “Set up translator”.",
     "placeholders": {
       "what": {
         "content": "$1",
         "example": "language detection"
+      }
+    }
+  },
+  "dlClickSite": {
+    "message": "Click the text to translate it. $lang$ isn’t in Chrome’s language list, so on each new site Chrome only starts $what$ after a click (and downloads it first if it isn’t on your computer yet). To skip the click, add this language in Chrome settings → Languages.",
+    "placeholders": {
+      "what": {
+        "content": "$1",
+        "example": "the language model (Spanish → English)"
+      },
+      "lang": {
+        "content": "$2",
+        "example": "Spanish"
       }
     }
   },

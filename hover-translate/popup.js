@@ -64,6 +64,7 @@ let builtinState = "";                // "" — ещё проверяем; "read
 let keyVerified = false, llmVerified = false;
 let builtinOnTop = false;             // блок встроенного переводчика перенесён наверх (нужно скачать модели)
 let site = null;                      // { name, off } — сайт активной вкладки (от её content-скрипта)
+let savedSome = false;                // есть сохранённые переводы DeepL или ИИ (по счётчикам расхода)
 const keys = { toggle: "", page: "" };  // сочетания клавиш команд (chrome.commands)
 
 // ---- списки ----
@@ -256,7 +257,7 @@ function updateEngineVisibility() {
   els.keyBlock.hidden = e.keyField !== "apiKey";
   els.llmBlock.hidden = e.keyField !== "llmApiKey";
   els.formalityField.hidden = !e.formality;
-  els.cacheRow.hidden = e.via === "local";       // сохраняются переводы DeepL и ИИ, встроенного — нет
+  updateCacheRow();
   els.builtinBox.hidden = !e.note;               // встроенный участвует в переводе
   placeBuiltin();
   els.prepBox.hidden = !builtinOnTop || els.builtinBox.hidden;
@@ -536,12 +537,23 @@ async function checkLlm() {
 // Вставили ключ (а не набирают по букве) — проверяем сразу, не дожидаясь кнопки.
 const pasted = (e) => e.inputType === "insertFromPaste" || e.inputType === "insertFromDrop";
 
-// ---- статистика расхода ----
+// ---- сохранённые переводы и статистика расхода ----
+// Сохраняются переводы DeepL и ИИ, встроенного — нет. Но после перехода с DeepL на встроенный прежние
+// переводы ещё 14 дней лежат в браузере, и удалить их должно быть можно: блок показываем и при
+// встроенном, если что-то сохранено. Счётчики расхода обнуляются только вместе с удалением сохранённого,
+// поэтому ненулевые счётчики и значат «что-то сохранено» — без чтения всего хранилища при каждом
+// открытии окна.
+function updateCacheRow() {
+  els.cacheRow.hidden = HT_engine(engineValue()).via === "local" && !savedSome;
+}
 async function fetchStats() {
-  if (HT_engine(engineValue()).via === "local") { els.stats.textContent = ""; return; }
   let r;
   try { r = await chrome.runtime.sendMessage({ type: "getStats" }); } catch (e) { r = null; }
   if (!r || !r.ok) { els.stats.textContent = ""; return; }
+  // Раз показав блок, до закрытия окна его не прячем: иначе после «Удалить» при встроенном вместе со
+  // счётчиками пропало бы и «Удалено».
+  if (r.chars > 0 || r.hits > 0) savedSome = true;
+  updateCacheRow();
   els.stats.textContent = [HT_plural("statsSent", r.chars), HT_plural("statsHits", r.hits, HT_plural("statsFree", r.saved)),
     HT_t("statsKept")].join(" ");
 }
@@ -672,7 +684,7 @@ chrome.storage.local.get(DEFAULTS, (s) => {
   // Остаток DeepL — только для DeepL/«авто» и только после согласия: само по себе окно ничего не
   // отправляет, пока человек не разрешил (проверка ключа по его действию — можно и до согласия).
   if (HT_engine(s.engine).keyField === "apiKey" && s.apiKey && HT_agreed(consent, "deepl")) fetchQuota();
-  if (HT_engine(s.engine).via !== "local") fetchStats();
+  fetchStats();
 });
 
 // ---- вкладка: мини-панель и «Переводить на этом сайте» ----
@@ -763,11 +775,9 @@ els.dwellMs.addEventListener("input", updateDwell);
 function onEngineChange() {
   updateEngineVisibility();
   const v = engineValue();
-  if (HT_engine(v).via === "local") { renderQuota(null); els.stats.textContent = ""; }
-  else {
-    if (els.apiKey.value.trim() && HT_engine(v).keyField === "apiKey" && HT_agreed(consent, "deepl")) fetchQuota();
-    fetchStats();
-  }
+  if (HT_engine(v).via === "local") renderQuota(null);
+  else if (els.apiKey.value.trim() && HT_engine(v).keyField === "apiKey" && HT_agreed(consent, "deepl")) fetchQuota();
+  fetchStats();
 }
 els.engine.addEventListener("change", onEngineChange);
 

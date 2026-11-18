@@ -7,7 +7,7 @@
 #   - every file the manifest points to exists (icons, background worker, content scripts and styles,
 #     popup, default locale);
 #   - every __MSG_name__ used in the manifest exists in each locale;
-#   - local files used by the extension's own pages (<script src>, <link href>) and by importScripts()
+#   - local files used by the extension's own pages (<script src>, <link href>, <img src/srcset>) and by importScripts()
 #     in the background worker exist.
 # Prints the archive size and the list of files.
 #
@@ -102,7 +102,10 @@ for name in sorted(os.listdir(src)):
     if name.endswith(".html"):
         html = open(path, encoding="utf-8").read()
         html = re.sub(r"<!--.*?-->", "", html, flags=re.S)
-        for tag, url in re.findall(r"<(script|link)\b[^>]*?\b(?:src|href)\s*=\s*[\"']([^\"']+)[\"']", html, re.I):
+        found = re.findall(r"<(script|link|img)\b[^>]*?\b(?:src|href)\s*=\s*[\"']([^\"']+)[\"']", html, re.I)
+        for srcset in re.findall(r"<img\b[^>]*?\bsrcset\s*=\s*[\"']([^\"']+)[\"']", html, re.I):
+            found += [("img", part.split()[0]) for part in srcset.split(",") if part.strip()]
+        for tag, url in found:
             url = url.split("#")[0].split("?")[0]
             if local(url) and not os.path.isfile(os.path.join(src, url.lstrip("/"))):
                 errors.append(f"{name}: <{tag}> -> {url}: file not found")

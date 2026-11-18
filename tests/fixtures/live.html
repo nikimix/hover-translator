@@ -1,0 +1,18 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>live: page with frame</title>
+<style>body{font:16px/1.5 sans-serif;margin:0;padding:20px} p{margin:0 0 26px;width:620px} nav a{margin-right:18px}
+.filler{height:80px;background:#fafafa;margin:0 0 10px} iframe{width:640px;height:110px;border:1px solid #ccc;display:block;margin:0 0 26px}</style></head>
+<body>
+<p id="p1">The quick brown fox jumps over the lazy dog near the river bank.</p>
+<p id="p2">Another paragraph with plain English text, written to check the translation card below it.</p>
+<p id="p3" title="own title">Third paragraph has its own title attribute that must survive.</p>
+<nav><a href="#a" id="navlink">Products and services for everyone</a><a href="#b">About our company</a></nav>
+<p><br></p>
+<div id="slot"></div>
+<div id="fillers"></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  if (q.get("frame")) { const f = document.createElement("iframe"); f.id = "fr"; f.allow = "translator; language-detector"; f.src = q.get("frame"); document.getElementById("slot").appendChild(f); }
+  const box = document.getElementById("fillers");
+  for (let i = 0; i < 25; i++) { const p = document.createElement("p"); p.className = "filler"; p.id = "f" + i; p.textContent = "Filler paragraph number " + i + " with enough plain words to translate."; box.appendChild(p); }
+</script>
+</body></html>

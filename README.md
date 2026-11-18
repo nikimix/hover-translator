@@ -100,7 +100,7 @@ hover-translate/        the extension itself (Manifest V3, no build step) — th
 docs/                   GitHub Pages site: project page and privacy policy (English and Russian)
 store/                  Chrome Web Store texts, dashboard answers, screenshots and promo images
 scripts/pack.sh         builds dist/hover-translator-<version>.zip for the store
-tests/                  automated checks
+tests/                  automated checks: tests/run.sh (see “Development”)
 ```
 
 ## Development
@@ -108,12 +108,34 @@ tests/                  automated checks
 There is no build step: edit the files in `hover-translate/`, then press **Reload** on the extension’s card at
 `chrome://extensions` (Chrome keeps the old service worker until then) and reload the tab you test on.
 
-**Checks** live in `tests/` (Node.js and a local Chrome, nothing to install from npm). They cover the background
-worker and shared tables in Node, the page script in headless Chrome with a stubbed `chrome.*`, the `_locales`
-files (same keys in `en` and `ru`, no unused or missing messages), and live runs in a real Chrome with the built-in
-translator. *How to run them — to be added.*
+### Checks
 
-**Package for the store:**
+Everything is in `tests/`; nothing to install from npm. You need **Node.js 18+** and **Google Chrome** (or
+Chromium); the live checks need **Chrome 138+** on a computer and an internet connection — they download the
+built-in translator’s language models (a few minutes the first time) and send one request to DeepL with a made-up
+key.
+
+```sh
+tests/run.sh                  # everything (unit, page, live)
+tests/run.sh --fast           # without the live checks, about 2 minutes
+tests/run.sh --shots DIR      # also save the checks’ screenshots to DIR
+tests/run.sh page live/popup  # only the suites whose path contains one of the words
+```
+
+| Folder | What it checks |
+|---|---|
+| `tests/unit/` | `background.js` and `shared.js` in Node (`vm` with a stubbed `chrome.*`): settings validation, spending limits, requests to DeepL / OpenAI / Anthropic, errors, consent, badge, install; and the `_locales` files — same keys in `en` and `ru`, no unused or missing messages, no Russian in code |
+| `tests/page/` | `content.js` in headless Chrome on test pages with a stubbed `chrome.*`: only real key presses and clicks count, Shift / hover / Esc, card, notices, “Translate page”, turning off a site, mini panel, consent, the built-in translator’s download hint |
+| `tests/live/` | the real extension in headless Chrome with the real built-in translator: install and welcome page, the extension window in English and Russian (height, nothing cut off), notices on a site, shortcuts, extension update with an open tab |
+| `tests/fixtures/` | test pages; `tests/lib/` — Chrome over CDP, a server for the test pages, a `chrome.i18n` stub |
+
+`tests/run.sh` exits with 0 only if everything passed. The page server picks a free port (or `HT_PORT`); Chrome
+is found via `CHROME_PATH`, otherwise `google-chrome` / `chromium` in `PATH`. Chrome profiles and extension copies
+go to a temporary folder (`HT_TMP`, or the system one) that is deleted afterwards. The live suites of one run share
+a profile, so the models are downloaded once; set `HT_PROFILE=<folder>` to keep them between runs. A single suite
+can also be run on its own: `node tests/live/languages.test.js en`.
+
+### Package for the store
 
 ```sh
 bash scripts/pack.sh

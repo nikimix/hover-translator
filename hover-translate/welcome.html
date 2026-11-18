@@ -17,7 +17,8 @@
        их язык не зависит от языка интерфейса (см. HT_prepPair). -->
   <div class="page">
     <header class="hero" translate="no">
-      <img src="icons/48.png" width="44" height="44" alt="" />
+      <!-- 96 px — для экранов высокой плотности: 48 px на них растягивался и выглядел размытым. -->
+      <img src="icons/48.png" srcset="icons/48.png 1x, icons/96.png 2x" width="44" height="44" alt="" />
       <div>
         <h1 data-i18n="extShortName"></h1>
         <p id="heroText"></p>
@@ -66,7 +67,7 @@
           </span>
           <span class="pin-arrow">→</span>
           <span class="pin-chip">
-            <img src="icons/16.png" width="16" height="16" alt="" />
+            <img src="icons/16.png" srcset="icons/16.png 1x, icons/32.png 2x, icons/48.png 3x" width="16" height="16" alt="" />
             <span data-i18n="extShortName"></span>
             <svg class="pin-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5a3 3 0 0 1-3 3v2h5.97v7l1 1 1-1v-7H19v-2a3 3 0 0 1-3-3z"/></svg>
           </span>

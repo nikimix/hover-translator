@@ -246,18 +246,19 @@ input[type="color"] {
 .switch[aria-checked="true"] .switch-thumb { transform: translateX(16px); }
 .switch[aria-checked="false"] .switch-text { color: var(--muted); }
 
-/* Галочка — под серединой переключателя, подпись — под словом «Перевод». */
-.site-row { gap: 10px; font-size: 13px; }
-.site-row input { margin: 0 10px; }
-.site-label { flex: none; }
+/* Галочка — под серединой переключателя, подпись — под словом «Перевод», имя сайта — под подписью мелким
+   шрифтом. В одну строку с подписью длинное имя не помещалось (в русском окне оставалось «garden.e…»);
+   отдельная строка добавляет к высоте окна ~15 px. Многоточие — только для совсем длинных имён. */
+.site-row { gap: 10px; align-items: flex-start; font-size: 13px; }
+.site-row input { margin: 1px 10px 0; }
+.site-text { display: flex; flex-direction: column; min-width: 0; }
 .site-name {
-  min-width: 0;
-  margin-left: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.25;
 }
 
 /* ===== Сообщение о вкладке + «Обновить вкладку» ===== */

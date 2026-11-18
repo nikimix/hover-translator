@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stub: built-in translator</title>
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; padding: 20px; }
+  p { margin: 0 0 30px; width: 600px; }
+</style>
+<script>
+  // Настройка из адреса: ?builtin=fake|none|real&store={...}
+  const q = new URLSearchParams(location.search);
+  window.__calls = [];
+  window.__sets = [];
+  window.__noticed = {};
+  window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", dwellMs: 250,
+    // этап 3: согласие на отправку текста уже дано (проверки без него — в page/consent.test.js)
+    consent: { deepl: true, openai: true, anthropic: true } },
+    JSON.parse(q.get("store") || "{}"));
+  window.__onChanged = [];
+  window.__onMessage = [];
+  window.__bgReply = null;            // (msg) => ответ background на translateBatch
+  // Закрытые shadow root перехватываем, чтобы читать тексты уведомлений.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? c.className.replace("toast", "").replace("show", "").trim() + ":" + c.textContent : null; }).filter(Boolean);
+
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) { const out = Object.assign({}, defs, window.__store); setTimeout(() => cb(out), 0); },
+        set(obj) { window.__sets.push(obj); setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      sendMessage(msg) {
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        if (msg.type === "noticeOnce") { const show = !window.__noticed[msg.problem]; window.__noticed[msg.problem] = true; return Promise.resolve({ ok: true, show }); }
+        if (window.__bgReply) return Promise.resolve(window.__bgReply(msg));
+        return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: obj[k] }; window.__store[k] = obj[k]; }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(type) { let r; for (const fn of window.__onMessage) fn({ type }, {}, (x) => { r = x; }); return r; }
+  window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+
+  // Поддельный встроенный переводчик: ведёт себя как Chrome — create() без действия пользователя
+  // при нескачанной модели отказывает NotAllowedError, с ним — шлёт downloadprogress и «скачивает».
+  const builtin = q.get("builtin") || "fake";
+  if (builtin === "none") { delete window.Translator; delete window.LanguageDetector; try { window.Translator = undefined; delete window.Translator; } catch (e) {} }
+  if (builtin === "fake") {
+    window.__tr = { avail: "downloadable", quirk: false, creates: [], monitors: 0 };
+    window.__ld = { avail: "available", creates: 0, lang: "" };   // lang — какой язык «определять» у любого текста
+    const progress = async (opts) => {
+      if (!opts || !opts.monitor) return;
+      window.__tr.monitors++;
+      const m = new EventTarget();
+      opts.monitor(m);
+      for (const f of [0, 0.5, 1]) { await new Promise((r) => setTimeout(r, 60)); const e = new Event("downloadprogress"); e.loaded = f; e.total = 1; m.dispatchEvent(e); }
+    };
+    window.Translator = {
+      async availability(o) { return window.__tr.avail; },
+      async create(o) {
+        window.__tr.creates.push({ src: o.sourceLanguage, tgt: o.targetLanguage, active: navigator.userActivation.isActive, monitor: !!o.monitor });
+        if (window.__tr.avail === "unavailable") throw new DOMException("x", "NotSupportedError");
+        if (window.__tr.avail !== "available") {
+          if (!navigator.userActivation.isActive) throw new DOMException("Requires a user gesture", "NotAllowedError");
+          await progress(o);
+          window.__tr.avail = "available";
+          if (window.__tr.quirk) { window.__tr.quirk = false; throw new DOMException("Unable to create translator", "NotSupportedError"); }
+        }
+        return { translate: async (t) => "[ru] " + t };
+      },
+    };
+    window.LanguageDetector = {
+      async availability() { return window.__ld.avail; },
+      async create(o) {
+        window.__ld.creates++;
+        if (window.__ld.avail !== "available") {
+          if (!navigator.userActivation.isActive) throw new DOMException("Requires a user gesture", "NotAllowedError");
+          await progress(o);
+          window.__ld.avail = "available";
+        }
+        return { detect: async (t) => [{ detectedLanguage: window.__ld.lang || (/[а-я]/i.test(t) ? "ru" : "en"), confidence: 0.99 }] };
+      },
+    };
+  }
+</script>
+</head>
+<body>
+  <p id="p1">The quick brown fox jumps over the lazy dog near the river bank.</p>
+  <p id="p2">Another paragraph with plain English text for the sweep test.</p>
+  <p id="p3" title="own title">Third paragraph has its own title attribute that must survive.</p>
+  <script src="i18n-ru.js"></script><script src="../../hover-translate/shared.js"></script>
+  <script src="../../hover-translate/content.js"></script>
+</body>
+</html>
