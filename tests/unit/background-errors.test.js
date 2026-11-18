@@ -1,7 +1,7 @@
 // Ошибки и горячие клавиши: background.js в node через vm (как background-install.test.js), плюс commands,
-// tabs.sendMessage, action.openPopup и значок для вкладки. Проверяет: понятные ошибки с кодами, способ включения при
-// установке/обновлении, горячие клавиши, «Открыть настройки», Esc во всех фреймах, значок «off» для
-// выключенного сайта, нижнюю границу токенов ИИ.
+// tabs.sendMessage, runtime.openOptionsPage и значок для вкладки. Проверяет: понятные ошибки с кодами, последний сбой
+// сервиса для окна (htNetErr), способ включения при установке/обновлении и миграцию настроек, горячие клавиши,
+// «Открыть настройки», Esc во всех фреймах, значок «off» для выключенного сайта, нижнюю границу токенов ИИ.
 const vm = require("vm");
 const fs = require("fs");
 const path = require("path");
@@ -41,6 +41,7 @@ function makeEnv(initialLocal = {}, opts = {}) {
   const tabsCreated = [];
   const tabMsgs = [];
   const popups = [];
+  const optionsOpened = { n: 0 };
   const tabSlot = (id) => (badge.tab[id] = badge.tab[id] || {});
   const fetches = [];
   let fetchImpl = () => Promise.reject(new TypeError("Failed to fetch"));
@@ -56,6 +57,7 @@ function makeEnv(initialLocal = {}, opts = {}) {
         onStartup: { addListener() {} },
         getURL: (p) => "chrome-extension://abc/" + p,
         getManifest: () => ({ name: "Cursor Translate" }),
+        openOptionsPage: () => { optionsOpened.n++; return Promise.resolve(); },
       },
       action: {
         setBadgeText: ({ text, tabId }) => { if (tabId != null) tabSlot(tabId).text = text; else badge.text = text; return Promise.resolve(); },
@@ -88,7 +90,8 @@ function makeEnv(initialLocal = {}, opts = {}) {
   });
   const install = async (reason) => { for (const fn of installed) await fn({ reason }); await sleep(20); };
   const command = async (name, tab) => { for (const fn of commandFns) await fn(name, tab); await sleep(20); };
-  return { ctx, local, session, send, badge, tabsCreated, tabMsgs, popups, install, command, fetches, setFetch: (f) => { fetchImpl = f; } };
+  return { ctx, local, session, send, badge, tabsCreated, tabMsgs, popups, install, command, fetches, setFetch: (f) => { fetchImpl = f; },
+    get optionsOpened() { return optionsOpened.n; } };
 }
 
 function jsonRes(status, obj, headers) {
@@ -106,7 +109,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const env = makeEnv({ apiKey: "k:fx" });
     const msg = (t) => ({ type: "translateBatch", engine: "deepl", targetLang: "RU", sourceLang: "auto", formality: "default", noTranslate: "", by: "user-initiated", items: [t] });
     const cases = [
-      [403, "bad-key", /^DeepL не принял ключ — проверьте его в окне расширения\.$/],
+      [403, "bad-key", /^DeepL не принял ключ — проверьте его в настройках расширения\.$/],
       [401, "bad-key", /не принял ключ/],
       [456, "quota", /^Лимит DeepL на этот месяц закончился\.$/],
       [429, "rate", /^Слишком много запросов к DeepL/],
@@ -159,6 +162,48 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("DeepL: отклонённый ключ не отправляется повторно до смены; остаток знает, бесплатный ли ключ; ответ не JSON — «непонятный ответ», а не «нет связи»");
   }
 
+  // ---- последний сбой сервиса — для окна расширения (storage.session.htNetErr) ----
+  {
+    const env = makeEnv({ apiKey: "q:fx", engine: "deepl" });
+    const msg = (t) => ({ type: "translateBatch", engine: "deepl", targetLang: "RU", sourceLang: "auto", formality: "default", noTranslate: "", by: "user-initiated", items: [t] });
+    env.setFetch(() => jsonRes(456, {}));
+    await env.send(msg("a"), sender(1));
+    await sleep(10);
+    assert.deepStrictEqual([env.session.htNetErr.code, env.session.htNetErr.via, env.session.htNetErr.provider], ["quota", "deepl", "deepl"]);
+    env.setFetch(() => jsonRes(429, {}, { "Retry-After": "0" }));
+    await env.send(msg("b"), sender(1));
+    await sleep(10);
+    assert.strictEqual(env.session.htNetErr.code, "quota", "«слишком много запросов» окну не показываем — запись прежняя");
+    env.setFetch(() => jsonRes(200, { translations: [{ text: "x", detected_source_language: "EN" }] }));
+    await env.send(msg("c"), sender(1));
+    await sleep(10);
+    assert.ok(!("htNetErr" in env.session), "успешный ответ того же сервиса снимает запись");
+    env.setFetch(() => Promise.reject(new TypeError("Failed to fetch")));
+    await env.send({ type: "checkUsage" });
+    await sleep(10);
+    assert.strictEqual(env.session.htNetErr.code, "network", "проверка ключа тоже отмечает сбой");
+    await env.ctx.chrome.storage.local.set({ apiKey: "new:fx" });
+    await sleep(10);
+    assert.ok(!("htNetErr" in env.session), "новый ключ — запись снята");
+    const llm = makeEnv({ llmApiKey: "sk-proj-x", llmProvider: "openai", engine: "llm" });
+    llm.setFetch(() => jsonRes(429, { error: { code: "insufficient_quota", message: "You exceeded your current quota" } }));
+    await llm.send({ type: "checkLlm" });
+    await sleep(10);
+    assert.deepStrictEqual([llm.session.htNetErr.code, llm.session.htNetErr.via, llm.session.htNetErr.provider], ["money", "llm", "openai"]);
+    const st = makeEnv({ "htlc:a": { v: "один", t: Date.now() }, "htlc:b": { v: "два", t: Date.now() }, statChars: 7 });
+    const gs = await st.send({ type: "getStats" });
+    assert.ok(gs.ok && gs.entries === 2 && gs.bytes > 0 && gs.chars === 7, JSON.stringify(gs));
+    const ck = makeEnv({ llmApiKey: "sk-proj-saved", llmProvider: "openai" });
+    ck.setFetch(() => jsonRes(500, {}));
+    await ck.send({ type: "checkLlm", provider: "anthropic", key: "sk-ant-new", model: "" }, { url: "chrome-extension://abc/options.html", tab: { id: 5 } });
+    await ck.send({ type: "checkLlm", provider: "anthropic", key: "sk-ant-evil", model: "" }, sender(1));
+    assert.ok(/anthropic\.com/.test(ck.fetches[0].url) && /openai\.com/.test(ck.fetches[ck.fetches.length - 1].url), JSON.stringify(ck.fetches.map((f) => f.url)));
+    assert.strictEqual(ck.local.llmProvider, "openai", "проверка не меняет настройки");
+    ok("checkLlm: страница настроек проверяет новый сервис и ключ до сохранения; от сайта (content) — только сохранённые");
+    ok("getStats: для страницы настроек — сколько переводов сохранено и сколько они занимают");
+    ok("последний сбой DeepL/ИИ для окна (htNetErr): ключ, лимит, деньги, связь — пишется; успешный ответ и смена ключа — снимают; прочие коды не трогают");
+  }
+
   // ---- ошибки ИИ ----
   {
     const env = makeEnv({ llmApiKey: "sk-x", llmProvider: "openai", llmModel: "gpt-4o-mini" });
@@ -187,7 +232,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     // без ключа — подсказка без «popup»
     const env3 = makeEnv({});
     const r4 = await env3.send(msg("k"), sender(1));
-    assert.ok(r4.code === "no-key" && r4.error === "Не задан ключ ИИ — нажмите на значок расширения и вставьте ключ.", JSON.stringify(r4));
+    assert.ok(r4.code === "no-key" && r4.error === "Не задан ключ ИИ — вставьте его в настройках расширения.", JSON.stringify(r4));
     assert.ok(!JARGON.test(env3.ctx.HT_t(env3.ctx.HT_KEY_HINTS.apiKey)) && !JARGON.test(env3.ctx.HT_t(env3.ctx.HT_KEY_HINTS.llmApiKey)));
     // ключ не того сервиса не отправляется вовсе (раньше после смены сервиса ключ OpenAI уходил в Anthropic)
     let sent = 0;
@@ -237,6 +282,12 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.deepStrictEqual([chose2.local.trigger, chose2.local.dwellMs], ["dwell", 250]);
     assert.strictEqual(env.ctx.HT_DEFAULTS.trigger, "shift");
     assert.strictEqual(env.ctx.HT_DEFAULTS.dwellMs, 600);
+    const border = makeEnv({ dispMode: "custom", dispBg: "#123456", dispBorder: true, dispBorderColor: "#ff0000", dispBorderStyle: "dashed" });
+    await border.install("update");
+    assert.deepStrictEqual(["dispBorder", "dispBorderColor", "dispBorderStyle"].filter((k) => k in border.local), [], "обводки подсветки больше нет — ключи стёрты");
+    assert.deepStrictEqual([border.local.dispMode, border.local.dispBg], ["custom", "#123456"], "свой цвет остаётся");
+    assert.deepStrictEqual([env.ctx.HT_DEFAULTS.dispBg, env.ctx.HT_DEFAULTS.dispOpacity, "dispBorder" in env.ctx.HT_DEFAULTS], ["#ffcf4a", 35, false]);
+    ok("обновление стирает ключи обводки подсветки (dispBorder*), свой цвет сохраняется; по умолчанию — янтарь 35 %");
     ok("способ по умолчанию — Shift (записывается при установке); при обновлении прежним пользователям без выбора — наведение; сохранённое не трогаем");
   }
 
@@ -273,19 +324,22 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
         if (plat === "default") assert.ok(!/^Alt\+Shift\+[ABCINPRTWXZ]$/.test(k), "занято Chrome: " + k);
       }
     }
-    assert.deepStrictEqual(manifest.permissions, ["storage", "alarms"], "новых разрешений нет");
-    ok("горячие клавиши: вкл/выкл пишет enabled и говорит на странице (верхний фрейм), «перевести страницу» — верхнему фрейму; manifest по правилам chrome.commands, разрешения те же");
+    assert.deepStrictEqual(manifest.permissions, ["storage", "alarms", "activeTab"], "разрешения: activeTab — адрес вкладки для окна, без tabs и хостов");
+    assert.deepStrictEqual(manifest.options_ui, { page: "options.html", open_in_tab: true });
+    ok("горячие клавиши: вкл/выкл пишет enabled и говорит на странице (верхний фрейм), «перевести страницу» — верхнему фрейму; manifest по правилам chrome.commands; разрешения storage, alarms, activeTab; настройки — options_ui во вкладке");
   }
 
   // ---- «Открыть настройки», Esc во всех фреймах, значок выключенного сайта, noticeOnce ----
   {
     const env = makeEnv({});
-    const r = await env.send({ type: "openSettings" }, sender(3));
-    assert.ok(r.ok && r.how === "popup" && env.popups[0].windowId === 7, JSON.stringify(r));
-    const env2 = makeEnv({}, { popupFails: true });
-    const r2 = await env2.send({ type: "openSettings" }, sender(3));
-    assert.ok(r2.how === "tab" && env2.tabsCreated[0] === "chrome-extension://abc/popup.html", JSON.stringify(r2));
-    ok("«Открыть настройки»: окно расширения над значком (action.openPopup), не вышло — те же настройки во вкладке");
+    const r = await env.send({ type: "openSettings", focus: "deepl-key" }, sender(3));
+    assert.ok(r.ok && env.optionsOpened === 1, JSON.stringify(r));
+    assert.strictEqual(env.session.htFocus.to, "deepl-key");
+    assert.ok(Date.now() - env.session.htFocus.at < 5000);
+    await env.send({ type: "openSettings", focus: "<script>" }, sender(3));
+    assert.strictEqual(env.session.htFocus.to, "", "чужое значение focus не пропускаем");
+    assert.strictEqual(env.popups.length, 0, "окно над значком больше не открываем — настройки на своей странице");
+    ok("«Открыть настройки»: страница настроек (runtime.openOptionsPage, открытая — переключается), куда прокрутить — в storage.session.htFocus (только [a-z-])");
 
     await env.send({ type: "restoreTab" }, sender(4, 3));
     const m = env.tabMsgs.pop();
@@ -297,10 +351,10 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.ok(!env.badge.tab[8], "значок вкладки меняет только верхний фрейм");
     await env.send({ type: "siteBadge", off: true }, sender(8, 0));
     await sleep(10);
-    assert.deepStrictEqual(env.badge.tab[8], { color: "#6b7280", text: "off", title: "Переводчик при наведении — на этом сайте перевод выключен" });
+    assert.deepStrictEqual(env.badge.tab[8], { color: "#6b7280", text: "off", title: "Hover Translator — на этом сайте перевод выключен" });
     await env.send({ type: "siteBadge", off: false }, sender(8, 0));
     await sleep(10);
-    assert.ok(env.badge.tab[8].text === null && env.badge.tab[8].title === "Переводчик при наведении", JSON.stringify(env.badge.tab[8]));
+    assert.ok(env.badge.tab[8].text === null && env.badge.tab[8].title === "Hover Translator", JSON.stringify(env.badge.tab[8]));
     ok("сайт выключен — «off» на значке только этой вкладки; включили — у вкладки снова общий значок");
 
     const a = await env.send({ type: "noticeOnce", problem: "deepl-quota" });

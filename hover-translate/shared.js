@@ -390,9 +390,11 @@ function HT_canSend(engine, st) {
 function HT_engineProblem(engine, st, builtin) {
   const e = HT_engine(engine);
   const hasKey = !e.keyField || !!(st && st[e.keyField]);
-  // Язык — первым: без него ни ключ, ни согласие не помогут.
+  // Язык — первым: без него ни ключ, ни согласие не помогут. Затем согласие, потом ключ — в том же порядке,
+  // что и шаги подключения на странице настроек («Согласие → Ключ → Готово»).
+  const agreed = HT_agreed(st && st.consent, HT_provider(engine, st && st.llmProvider));
   const why = HT_langGap(e.via, st) ? "deepl-lang"
-    : !hasKey ? (e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key") : "no-consent";
+    : !agreed ? "no-consent" : !hasKey ? (e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key") : "no-consent";
   const net = e.via !== "local" && HT_canSend(engine, st);
   if (e.via !== "local" && !net && e.fallback !== "local") return why;
   const needLocal = e.via === "local" || !net;
@@ -476,9 +478,14 @@ var HT_DEFAULTS = {
   // чтобы их смена тоже триггерила живое перетранслирование уже показанных переводов.
   // Пустая модель — «по умолчанию» (первая в HT_LLM_MODELS для провайдера).
   llmProvider: "openai", llmModel: "",
-  dispMode: "auto", dispBg: "#0078d7", dispOpacity: 12,
-  dispBorder: false, dispBorderColor: "#0078d7", dispBorderStyle: "solid",
+  // Подсветка переведённого: «auto» — янтарная, подстраивается под фон страницы; «custom» — свой цвет
+  // (dispBg) и насыщенность в процентах (dispOpacity, 10–60); «none» — без подсветки. Обводка прежних
+  // версий (dispBorder*) убрана: её ключи стирает background при обновлении (HT_OBSOLETE_KEYS).
+  dispMode: "auto", dispBg: "#ffcf4a", dispOpacity: 35,
 };
+var HT_OBSOLETE_KEYS = ["dispBorder", "dispBorderColor", "dispBorderStyle"];
+// Шесть цветов подсветки на выбор (страница настроек): код, сообщение с названием.
+var HT_SWATCHES = [["#ffcf4a", "swAmber"], ["#7ed6a5", "swGreen"], ["#8fb8ff", "swBlue"], ["#f5a3c7", "swPink"], ["#c4b5fd", "swLilac"], ["#c9ced5", "swGray"]];
 
 // Допустимые значения настроек-перечислений. Хранилище общее для всех сайтов, а писать в него
 // может не только popup (мини-панель живёт на странице), поэтому значение сверяется со списком
@@ -508,6 +515,8 @@ function HT_validAll(s) {
 // Задержка наведения. Клэмп общий: popup пишет уже нормализованное значение, а content
 // перепроверяет прочитанное — раньше две проверки расходились (в content не было верхней границы).
 var HT_DWELL_MAX = 2000;
+// Ползунок задержки на странице настроек: 300–1500 мс, шаг 100 (сохранённые значения вне диапазона не трогаем).
+var HT_DWELL_UI = { min: 300, max: 1500, step: 100 };
 function HT_clampDwell(v) {
   // Пустое поле — это «не задано», а не 0: Number("") === 0, и стёртое поле «Задержка» иначе молча
   // включило бы перевод без задержки. Не `|| DEFAULTS` — иначе валидный 0 стал бы значением по умолчанию.

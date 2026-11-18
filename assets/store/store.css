@@ -1,12 +1,13 @@
-/* Общий стиль картинок магазина: бирюзовый фон значка, белые подписи, янтарные клавиши. */
+/* Общий стиль картинок магазина: синий фон в цвет акцента интерфейса (#2563eb) и значка, белые подписи,
+   янтарные клавиши (янтарь #ffcf4a — «переведённое», как строка на значке и подсветка на странице). */
 :root {
-  --teal-1: #138c7f;
-  --teal-2: #0b665e;
-  --teal-3: #074841;
+  --blue-1: #2459dc;
+  --blue-2: #1b41b3;
+  --blue-3: #122b7c;
   --amber: #ffcf4a;
   --amber-dark: #c99a17;
-  --ink: #0b2f2c;
-  --white-soft: rgba(255, 255, 255, 0.88);
+  --ink: #0b1f4d;
+  --white-soft: rgba(255, 255, 255, 0.9);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -18,7 +19,7 @@ body {
   background:
     radial-gradient(900px 600px at 88% -12%, rgba(255, 255, 255, 0.16), transparent 62%),
     radial-gradient(700px 500px at -8% 112%, rgba(0, 0, 0, 0.18), transparent 60%),
-    linear-gradient(160deg, var(--teal-1) 0%, var(--teal-2) 55%, var(--teal-3) 100%);
+    linear-gradient(160deg, var(--blue-1) 0%, var(--blue-2) 55%, var(--blue-3) 100%);
 }
 body.shot { width: 1280px; height: 800px; }
 
@@ -92,7 +93,7 @@ body.shot { width: 1280px; height: 800px; }
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
   z-index: 3;
 }
-.tag.before { background: #fff; color: var(--teal-2); }
+.tag.before { background: #fff; color: var(--blue-2); }
 .tag.after { background: var(--amber); color: var(--ink); }
 
 /* Курсор мыши поверх снимка (сам Chrome без интерфейса курсор не рисует) */
@@ -122,5 +123,5 @@ body.shot { width: 1280px; height: 800px; }
 .side h1 { margin: 0; font-size: 50px; line-height: 1.12; font-weight: 750; letter-spacing: -0.7px; }
 .side p { margin: 18px 0 0; font-size: 26px; line-height: 1.32; color: var(--white-soft); }
 .points { list-style: none; margin: 34px 0 0; padding: 0; }
-.points li { display: flex; gap: 18px; align-items: flex-start; font-size: 25px; line-height: 1.32; margin-bottom: 26px; color: #fff; }
+.points li { display: flex; gap: 18px; align-items: flex-start; font-size: 25px; line-height: 1.32; margin-bottom: 26px; color: #fff; text-wrap: pretty; }
 .points .ic { flex: none; width: 50px; height: 50px; border-radius: 14px; background: var(--amber); display: grid; place-items: center; margin-top: 2px; }

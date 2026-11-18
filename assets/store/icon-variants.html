@@ -16,8 +16,8 @@
   .name b { font-size: 30px; }
   .name span { font-size: 18px; margin-top: 4px; }
   .name small { font-size: 14px; color: #5e666e; margin-top: 8px; line-height: 1.35; }
-  .row.pick .name { outline: 4px solid #0b877b; }
-  .pickmark { display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 12px; background: #0b877b; color: #fff; font-size: 14px; font-weight: 700; align-self: flex-start; }
+  .row.pick .name { outline: 4px solid #2563eb; }
+  .pickmark { display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 12px; background: #2563eb; color: #fff; font-size: 14px; font-weight: 700; align-self: flex-start; }
   .bg { border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
   .bg.light { background: #ffffff; color: #3c4043; }
   .bg.dark { background: #35363a; color: #e8eaed; }
@@ -44,7 +44,7 @@
 <div id="rows"></div>
 <script>
   const V = [
-    { id: "A", name: "«Строки»", note: "бирюзовая плитка, курсор над строками, одна строка уже переведена (янтарная)", src: (s) => `../../hover-translate/icons/${s}.png`, pick: true },
+    { id: "A", name: "«Строки»", note: "синяя плитка в цвет интерфейса, курсор над строками, одна строка уже переведена (янтарная)", src: (s) => `../../hover-translate/icons/${s}.png`, pick: true },
     { id: "B", name: "«Лист»", note: "страница без плитки, переведённая строка на подсветке; в 16 px шумно, 4 цвета", src: (s) => `../variants/b-${s}.png` },
     { id: "C", name: "«Круг»", note: "две строки и крупный курсор; круг в 16 px теряет площадь, строки тесные", src: (s) => `../variants/c-${s}.png` },
   ];

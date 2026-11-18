@@ -24,7 +24,7 @@
   window.__roots = [];
   const origAttach = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
-  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? c.className.replace("toast", "").replace("show", "").trim() + ":" + c.textContent : null; }).filter(Boolean);
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? (c.getAttribute("role") === "alert" ? "err" : "info") + ":" + c.querySelector(".t-b").textContent : null; }).filter(Boolean);
 
   window.chrome = {
     storage: {
@@ -38,6 +38,8 @@
       id: "test-extension-id",
       getURL: (p) => "chrome-extension://test-extension-id/" + p,
       sendMessage(msg) {
+        // Сообщения окну (pageState) — отдельно: в __calls только обращения к background.
+        if (msg.type === "pageState") { (window.__states = window.__states || []).push(JSON.parse(JSON.stringify(msg.state))); return Promise.resolve(); }
         window.__calls.push(JSON.parse(JSON.stringify(msg)));
         if (msg.type === "noticeOnce") { const show = !window.__noticed[msg.problem]; window.__noticed[msg.problem] = true; return Promise.resolve({ ok: true, show }); }
         if (window.__bgReply) return Promise.resolve(window.__bgReply(msg));

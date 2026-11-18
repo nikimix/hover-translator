@@ -63,8 +63,8 @@ function phOf(m) {
 }
 
 // ---- 2. ссылки на ключи: существуют, неиспользуемых нет ----
-const JS = ["shared.js", "background.js", "content.js", "popup.js", "welcome.js", "builtin.js"];
-const HTML = ["popup.html", "welcome.html"];
+const JS = ["shared.js", "background.js", "content.js", "popup.js", "options.js", "welcome.js", "builtin.js", "ui.js"];
+const HTML = ["popup.html", "options.html", "welcome.html"];
 const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 const refs = new Map();          // ключ -> где
 const addRef = (k, where) => { if (!refs.has(k)) refs.set(k, where); };
@@ -92,9 +92,10 @@ const addRef = (k, where) => { if (!refs.has(k)) refs.set(k, where); };
   // Ключи в таблицах (подписи и тексты выбираются по коду): значения-строки этих объектов и массивов.
   const tables = [
     ["shared.js", /var HT_ENGINES = \[([\s\S]*?)\n\];/], ["shared.js", /var HT_KEY_HINTS = \{([\s\S]*?)\};/],
-    ["shared.js", /var HT_PROBLEMS = \{([\s\S]*?)\n\};/], ["content.js", /const FALLBACK_SAY = \{([\s\S]*?)\};/], ["content.js", /const FALLBACK_TELL = Object\.assign\(\{([\s\S]*?)\}/],
-    ["popup.js", /const SETUP_GO = \{([\s\S]*?)\};/], ["popup.js", /const SETUP_FIX = \{([\s\S]*?)\};/],
-    ["popup.js", /const key = deepl \?([\s\S]*?);\n/],
+    ["shared.js", /var HT_PROBLEMS = \{([\s\S]*?)\n\};/], ["shared.js", /var HT_SWATCHES = \[([\s\S]*?)\];/],
+    ["content.js", /const FALLBACK_SAY = \{([\s\S]*?)\};/], ["content.js", /const FALLBACK_TELL = Object\.assign\(\{([\s\S]*?)\}/],
+    // подсказка к ошибке по её коду (отклонённый ключ): HT_t(FAIL_HINT[out.code])
+    ["content.js", /const FAIL_HINT = \{([\s\S]*?)\};/],
   ];
   for (const [f, re] of tables) {
     const m = read(f).match(re);
@@ -153,7 +154,8 @@ ok("таблицы shared.js (переводчики, подсказки о кл
     for (const s of strings) bad.push(f + ": " + s);
   }
   for (const f of HTML) {
-    const vis = read(f).replace(/<!--[\s\S]*?-->/g, "").replace(/<p class="trainer" id="trainerRu"[^>]*>[^<]*<\/p>/, "");
+    // абзац для пробы на русском (приветствие) — не текст интерфейса: его язык — язык оригинала, а не интерфейса
+    const vis = read(f).replace(/<!--[\s\S]*?-->/g, "").replace(/<p lang="ru" hidden>[^<]*<\/p>/, "");
     for (const line of vis.split("\n")) if (/[А-Яа-яЁё]/.test(line)) bad.push(f + ": " + line.trim().slice(0, 80));
   }
   if (/[А-Яа-яЁё]/.test(read("manifest.json"))) bad.push("manifest.json");
@@ -165,7 +167,7 @@ ok("таблицы shared.js (переводчики, подсказки о кл
 // Допустимые английские слова в русских текстах: сервисы, модели, клавиши, адреса, раздел «API Keys» на
 // сайте DeepL, тариф «Free», примеры кодов языков, название расширения.
 const RU_ALLOWED = new Set(["DeepL", "OpenAI", "Anthropic", "ChatGPT", "Claude", "Chrome", "Google", "Shift", "Esc",
-  "API", "Keys", "Free", "fx", "deepl", "com", "pro", "api", "chrome", "extensions", "shortcuts", "EN", "RU"]);
+  "Alt", "Ctrl", "Windows", "API", "Keys", "Free", "fx", "deepl", "com", "pro", "api", "chrome", "extensions", "shortcuts", "EN", "RU"]);
 {
   const enCyr = Object.entries(MSG.en).filter(([, m]) => /[А-Яа-яЁё]/.test(m.message)).map(([k]) => k);
   assert.deepStrictEqual(enCyr, [], "кириллица в английских текстах");

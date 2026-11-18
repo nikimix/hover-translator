@@ -4,7 +4,9 @@
   <meta charset="utf-8" />
   <title>Store screenshot</title>
   <!-- Скриншот магазина 1280×800: screens.html?n=1..5&lang=en|ru. Подписи — texts.js, снимки
-       настоящего расширения — shots/<lang>/ (их делает capture.js), значок — из расширения. -->
+       настоящего расширения — shots/<lang>/ (их делает capture.js), значок — из расширения.
+       1 — до и после (абзац клавишей); 2 — карточка; 3 — страница настроек: способ перевода и показа;
+       4 — окно расширения у значка и переведённая страница с мини-панелью; 5 — раздел «Переводчик». -->
   <link rel="stylesheet" href="store.css" />
   <script src="texts.js"></script>
 </head>
@@ -31,7 +33,7 @@ function win({ x, y, w, img, vw, vh, icon = "", path = "" }) {
       <span class="addr">${HOST}${path}</span><span class="tb ${icon}"><img src="${ICON16}" alt=""></span></div>
     <img class="page" src="${SH}${img}" width="${w}" height="${h}" alt="">
   </div>`);
-  return { s, px: x, py: y + 36, h: h + 36 };
+  return { s, x, y, w, px: x, py: y + 36, h: h + 36 };
 }
 function cursorAt(x, y, extra = "") { const c = el(CURSOR); c.style.left = (x - 2) + "px"; c.style.top = (y - 2) + "px"; if (extra) c.style.cssText += extra; document.body.appendChild(c); }
 function caption(t) { return add(`<div class="cap"><h1>${keys(t.h)}</h1>${t.sub ? `<p>${keys(t.sub)}</p>` : ""}</div>`); }
@@ -41,8 +43,16 @@ function fitWin(capEl, o) {
   const w = Math.min(o.maxW, Math.floor((bottom - top - 36) * o.vw / o.vh));
   return win(Object.assign({ x: Math.round((1280 - w) / 2), y: Math.round(top), w }, o));
 }
-// Размер снимка части окна расширения в CSS-пикселях (снято с плотностью 3).
+// Размер снимка окна расширения или страницы настроек в CSS-пикселях (сняты с плотностью 3).
 const dims = (src) => new Promise((r) => { const i = new Image(); i.onload = () => r({ w: i.naturalWidth / 3, h: i.naturalHeight / 3 }); i.src = SH + src; });
+// Снимок страницы настроек справа от колонки текста (sideR — правый край колонки): масштаб — сколько
+// влезет по высоте и ширине, не больше maxS. Подложка — цвет фона страницы настроек (снимок взят с полями).
+async function sidePanel(src, sideR, bg, maxS = 1.15) {
+  const d = await dims(src), gap = 48, right = 64, v = 40;
+  const s = Math.min(maxS, (800 - 2 * v) / d.h, (1280 - right - sideR - gap) / d.w);
+  const w = Math.round(d.w * s), h = Math.round(d.h * s);
+  add(`<div class="panel" style="left:${1280 - right - w}px;top:${Math.round((800 - h) / 2)}px;width:${w}px;height:${h}px;background:${bg || "#fff"}"><img src="${SH}${src}" width="${w}" height="${h}" alt=""></div>`);
+}
 
 const S = {
   // 1. До и после: тот же фрагмент на языке оригинала и переведённый на месте
@@ -57,7 +67,7 @@ const S = {
     for (const node of document.querySelectorAll(".win")) node.style.height = Math.round(36 + vh * a.s) + "px";
     add(`<div class="tag before" style="left:${x1 + w / 2}px;top:${top}px">${T.s1.before}</div>`);
     add(`<div class="tag after" style="left:${x2 + w / 2}px;top:${top}px">${T.s1.after}</div>`);
-    add(`<div class="arrow" style="left:${x1 + w + gap / 2 - 27}px;top:${top + 36 + vh * a.s / 2 - 27}px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b2f2c" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>`);
+    add(`<div class="arrow" style="left:${x1 + w + gap / 2 - 27}px;top:${top + 36 + vh * a.s / 2 - 27}px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b1f4d" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>`);
     // курсор — за концом абзаца, не поверх слов
     const e = LAYOUT.s1.end, p1 = LAYOUT.s1.p1;
     cursorAt(b.px + Math.min(e.x + 26, p1.x + p1.w - 24) * b.s, b.py + (e.y - 4) * b.s);
@@ -69,44 +79,35 @@ const S = {
     const e = LAYOUT.s2.end, p2 = LAYOUT.s2.p2;
     cursorAt(b.px + Math.min(e.x + 30, p2.x + p2.w - 20) * b.s, b.py + (e.y - 6) * b.s);
   },
-  // 3. Окно расширения у значка на панели
-  3() {
-    add(`<div class="side" style="width:450px"><h1>${keys(T.s3.h)}</h1><p>${keys(T.s3.sub)}</p></div>`);
-    const ps = 1.18, pw = Math.round(340 * ps), ph = Math.round(LAYOUT.s3.h * ps);
-    const x = 560, w = 690, wh = 36 + Math.round(540 * w / 600), y = Math.round((800 - Math.max(wh, 40 + ph + 6)) / 2);
-    const b = win({ x, y, w, img: "s1-before.png", vw: 600, vh: 540, path: "/tomates", icon: "on" });
-    // окно расширения выходит из значка на панели (справа в рамке)
-    add(`<div class="panel" style="left:${x + w - pw - 14}px;top:${y + 40}px;width:${pw}px;height:${ph}px"><img src="${SH}s3-popup.png" width="${pw}" height="${ph}" alt=""></div>`);
+  // 3. Как переводить и как показывать — страница настроек, раздел «На странице»
+  async 3() {
+    const sideW = 420;   // снимок шире (превью способа показа рядом) — колонке текста хватает и 420
+    add(`<div class="side" style="width:${sideW}px"><h1>${keys(T.s3.h)}</h1><p>${keys(T.s3.sub)}</p></div>`);
+    await sidePanel("s3-settings.png", 70 + sideW, LAYOUT.s3.bg);
   },
-  // 4. Перевести страницу
+  // 4. Перевести страницу: окно расширения выходит из значка на панели, рамка — вокруг «Перевести страницу»;
+  // за окном — переведённая страница с мини-панелью внизу справа
   async 4() {
     const cap = caption(T.s4);
-    const [vw, vh] = LAYOUT.s4.view;
-    const b = fitWin(cap, { img: "s4-page.png", vw, vh, maxW: 1120, path: "/tomates" });
-    // кнопка «Перевести страницу» из окна расширения — в шапке сайта, между его названием и мини-панелью;
-    // рамка вместо курсора: курсор закрыл бы подпись кнопки
-    const a = await dims("s4-actions.png");
-    const s = 1.12, aw = Math.round(a.w * s), ah = Math.round(a.h * s);   // снимок ряда кнопок с полями 6 px
-    const ax = Math.round(b.px + 362 * b.s - aw / 2), ay = Math.round(b.py - 36 + 8);
-    add(`<div class="panel" style="left:${ax}px;top:${ay}px;width:${aw}px;height:${ah}px;border-radius:12px"><img src="${SH}s4-actions.png" width="${aw}" height="${ah}" alt=""></div>`);
-    // рамка вокруг первой кнопки (три кнопки равной ширины с промежутками 8 px)
-    const bw = (a.w - 12 - 16) / 3, bh = a.h - 12;
-    add(`<div class="ring" style="left:${ax + 6 * s - 7}px;top:${ay + 6 * s - 7}px;width:${bw * s + 14}px;height:${bh * s + 14}px"></div>`);
+    const [vw, vh] = LAYOUT.s4.view, P = LAYOUT.s4.popup;
+    const b = fitWin(cap, { img: "s4-page.png", vw, vh, maxW: 1120, path: "/tomates", icon: "on" });
+    // окно не закрывает мини-панель (48 px, отступ 16 от низа): низ окна — выше неё
+    const top = b.y + 40, limit = b.py + (vh - 16 - 48 - 10) * b.s;
+    const ps = Math.min(1.2, (limit - top) / P.h);
+    const pw = Math.round(P.w * ps), ph = Math.round(P.h * ps), px = b.x + b.w - pw - 12;
+    add(`<div class="panel" style="left:${px}px;top:${top}px;width:${pw}px;height:${ph}px"><img src="${SH}s4-popup.png" width="${pw}" height="${ph}" alt=""></div>`);
+    const r = P.btn;
+    if (r) add(`<div class="ring" style="left:${px + r.x * ps - 7}px;top:${top + r.y * ps - 7}px;width:${r.w * ps + 14}px;height:${r.h * ps + 14}px"></div>`);
   },
-  // 5. Бесплатно и приватно
+  // 5. Бесплатно и приватно: раздел «Переводчик» — встроенный готов, у DeepL сначала согласие
   async 5() {
     const ic = {
-      chip: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b2f2c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
-      key: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b2f2c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14.5 8.5l2 2"/></svg>`,
+      chip: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b1f4d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
+      key: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b1f4d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14.5 8.5l2 2"/></svg>`,
     };
-    add(`<div class="side" style="width:560px"><h1>${keys(T.s5.h)}</h1><ul class="points">${T.s5.points.map(([i, t]) => `<li><span class="ic">${ic[i]}</span><span>${keys(t)}</span></li>`).join("")}</ul></div>`);
-    // выбор переводчика (встроенный выбран) и просьба о согласии, если выбрать DeepL
-    const E = await dims("s5-engines.png"), C = await dims("s5-consent.png");
-    const s = Math.min(1.26, (800 - 2 * 40 - 28 - 24 - 30) / (E.h + C.h));
-    const ew = Math.round(E.w * s), eh = Math.round(E.h * s), cw = Math.round(C.w * s), chh = Math.round(C.h * s);
-    const total = eh + 28 + 30 + chh + 24, ex = 1280 - 84 - ew, ey = Math.round((800 - total) / 2) + 14;
-    add(`<div class="panel" style="left:${ex - 14}px;top:${ey - 14}px;width:${ew + 28}px;height:${eh + 28}px;padding:14px"><img src="${SH}s5-engines.png" width="${ew}" height="${eh}" alt=""></div>`);
-    add(`<div class="panel" style="left:${ex - 64}px;top:${ey + eh + 14 + 30}px;width:${cw + 24}px;height:${chh + 24}px;padding:12px"><img src="${SH}s5-consent.png" width="${cw}" height="${chh}" alt=""></div>`);
+    const sideW = 470;
+    add(`<div class="side" style="width:${sideW}px"><h1>${keys(T.s5.h)}</h1><ul class="points">${T.s5.points.map(([i, t]) => `<li><span class="ic">${ic[i]}</span><span>${keys(t)}</span></li>`).join("")}</ul></div>`);
+    await sidePanel("s5-translator.png", 70 + sideW, LAYOUT.s5.bg);
   },
 };
 

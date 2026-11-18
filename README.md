@@ -17,9 +17,11 @@ with your own key.
 ## Features
 
 - Translation in place, or in a card next to the text.
-- **Translate page**: what’s on screen first, the rest as you scroll.
-- Choose how to trigger it: Shift, Alt, Ctrl, or hover with a delay (links, buttons and menus are skipped).
-- Mini panel on the page to switch the language.
+- **Translate page**: what’s on screen first, the rest as you scroll; then switch between **Original** and
+  **Translation** in one click.
+- Choose how to trigger it: Shift, Alt, Ctrl, or no key at all — rest the cursor on the text (links, buttons and menus
+  are skipped).
+- Mini panel on the page to switch the language, translate the page or show the original.
 - Turn translation off on a particular site (email, bank).
 - “Don’t translate these words” list for names and terms (DeepL and AI).
 - 121 target languages (each translator supports its own set).
@@ -35,8 +37,8 @@ with your own key.
    and unpack it).
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select the `hover-translate` folder inside the repository.
-4. A welcome page opens: choose the language to translate into and click **Set up translator** — Chrome downloads
-   the language models once. Reload tabs that were open before installing.
+4. A welcome page opens: choose the language to translate into and click **Download translator** — Chrome downloads
+   it once; then try it on the sample text right there. Reload tabs that were open before installing.
 
 Requirements: Chrome 116 or newer; the built-in translator needs **Chrome 138 or newer on a computer**. Without it,
 use DeepL or AI with your own key.
@@ -46,8 +48,11 @@ use DeepL or AI with your own key.
 1. Point at some text and press and release **Shift** — it’s translated in place. Press again to bring back the
    original.
 2. **Esc** brings back the original everywhere on the page.
-3. Click the extension icon for settings: the language, how to trigger translation, **Translate page**, the mini
-   panel, and “Translation quality” (choose the translator and paste keys).
+3. Click the extension icon for a small window: translation on or off (**All sites**), the language and recently
+   used ones, **Translate page**, “Translate on example.com” for the current site, the mini panel.
+4. Everything else is on the **settings page** (the gear in the window, or right-click the icon → **Options**): the
+   translator and keys, how to trigger and show translations, highlighting, languages, sites and words, shortcuts,
+   saved translations.
 
 | Shortcut | What it does |
 |---|---|
@@ -63,8 +68,12 @@ Shortcuts can be changed at `chrome://extensions/shortcuts`.
 - **Built into Chrome** (default) — free, runs on your computer, works offline once the models are downloaded.
 - **DeepL** — your own API key; the free DeepL API plan includes 500,000 characters a month
   ([get a key](https://www.deepl.com/pro-api)).
-- **DeepL, with built-in as backup** — switches to the built-in translator if DeepL fails or the monthly limit runs out.
+- **Auto** (DeepL, with built-in as backup) — switches to the built-in translator if DeepL fails or the monthly limit
+  runs out, and goes back to DeepL when it can.
 - **AI** — your own OpenAI or Anthropic key; billed to your account.
+
+DeepL and AI are connected on the settings page in three steps — **Consent → Key → Done**; the extension switches
+to them only at “Done”, and until then the built-in translator keeps working.
 
 Limitations: extensions can’t run on `chrome://` pages, the Chrome Web Store and some embedded frames; blocks longer
 than 2,000 characters are skipped; “Translate page” covers up to 500 blocks at once and doesn’t pick up content that
@@ -73,10 +82,13 @@ loads later.
 ## Privacy
 
 - With the built-in translator, nothing leaves your computer.
-- DeepL, OpenAI or Anthropic receive text only if you select that service, paste your own key and click **I agree**.
-  Only the text you translate is sent, directly from your browser to that service; the page address is not sent.
+- DeepL, OpenAI or Anthropic receive text only if you select that service, click **Allow sending** and paste your
+  own key. Only the text you translate is sent, directly from your browser to that service; the page address is not
+  sent.
 - Keys, settings and saved translations stay in your browser. Saved translations (DeepL and AI only) are kept for
-  14 days; “More settings → Delete saved translations” removes them at once.
+  14 days; settings page → **Data** → **Delete** removes them at once.
+- When you click the icon, the window reads the current tab’s address (the `activeTab` permission) only to tell
+  whether translation can work there or the tab needs reloading. The address isn’t stored or sent.
 - No server of our own, no analytics, no ads.
 
 Full details: [privacy policy](https://nikimix.github.io/hover-translator/privacy.html)
@@ -90,10 +102,13 @@ hover-translate/        the extension itself (Manifest V3, no build step) — th
   background.js         service worker: requests to DeepL / OpenAI / Anthropic, saved translations, limits, badge, shortcuts
   content.js            on every page: finds the text under the cursor, replaces it, card, mini panel, notices
   shared.js             tables shared by all parts: languages, translators, default settings, consent, texts
-  builtin.js            built-in translator status and model download (popup and welcome page)
-  popup.html/.js/.css   the extension window
+  builtin.js            built-in translator status and download (no markup; used by the window, settings and welcome page)
+  popup.html/.js/.css   the extension window (toolbar icon)
+  options.html/.js/.css the settings page (opens in a tab)
   welcome.html/.js/.css welcome page shown once after installing
-  content.css           styles for translated text on pages
+  ui.css, ui.js         styles, icons and building blocks shared by the window, settings and welcome page
+  content.css           styles for text being translated on pages
+  fonts/                Inter (woff2) for the extension’s own pages, with its license OFL.txt
   _locales/en, ru       all interface texts
   icons/
   README.md             detailed technical notes (in Russian)
@@ -126,7 +141,7 @@ tests/run.sh page live/popup  # only the suites whose path contains one of the w
 |---|---|
 | `tests/unit/` | `background.js` and `shared.js` in Node (`vm` with a stubbed `chrome.*`): settings validation, spending limits, requests to DeepL / OpenAI / Anthropic, errors, consent, badge, install; and the `_locales` files — same keys in `en` and `ru`, no unused or missing messages, no Russian in code |
 | `tests/page/` | `content.js` in headless Chrome on test pages with a stubbed `chrome.*`: only real key presses and clicks count, Shift / hover / Esc, card, notices, “Translate page”, turning off a site, mini panel, consent, the built-in translator’s download hint |
-| `tests/live/` | the real extension in headless Chrome with the real built-in translator: install and welcome page, the extension window in English and Russian (height, nothing cut off), notices on a site, shortcuts, extension update with an open tab |
+| `tests/live/` | the real extension in headless Chrome with the real built-in translator: install and welcome page, the extension window in English and Russian (height, nothing cut off), the settings page (connecting DeepL and AI step by step, with stubbed services), notices on a site, shortcuts, extension update with an open tab |
 | `tests/fixtures/` | test pages; `tests/lib/` — Chrome over CDP, a server for the test pages, a `chrome.i18n` stub |
 
 `tests/run.sh` exits with 0 only if everything passed. The page server picks a free port (or `HT_PORT`); Chrome
@@ -156,6 +171,10 @@ your API keys there — issues are public.
 ## License
 
 [MIT](LICENSE) © 2026 nikimix
+
+The extension’s own pages use the [Inter](https://github.com/rsms/inter) font (© The Inter Project Authors), bundled
+in `hover-translate/fonts/` under the SIL Open Font License 1.1 — see
+[`hover-translate/fonts/OFL.txt`](hover-translate/fonts/OFL.txt).
 
 Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trademarks of their owners. This project
 is not affiliated with or endorsed by them.

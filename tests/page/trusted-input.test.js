@@ -147,7 +147,14 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const c9b = await calls();
     console.log(`      (уход курсора за окно: запросов ${c9}; после blur окна: ${c9b})`);
     assert.strictEqual(c9b, 0, "после blur окна нажатие не переводит");
-    ok("blur окна сбрасывает элемент под курсором" + (c9 === 0 ? "; уход курсора за окно тоже" : " (уход за окно в headless не воспроизвёлся — см. отчёт)"));
+    // окно вернуло фокус (закрыли окно расширения), курсор на том же абзаце — mouseover не придёт; первое же
+    // движение мыши возвращает «элемент под курсором», и Shift снова переводит
+    const c9c = await center("#p1");
+    await move(c9c.x + 3, c9c.y); await sleep(30);
+    await tapShift(); await sleep(100);
+    assert.strictEqual(await text("#p1"), "[RU] " + P1, "после потери фокуса и движения мыши в пределах абзаца — переводит");
+    await reset();
+    ok("blur окна сбрасывает элемент под курсором" + (c9 === 0 ? "; уход курсора за окно тоже" : " (уход за окно в headless не воспроизвёлся — см. отчёт)") + "; первое движение мыши после возврата фокуса его восстанавливает");
     await reset();
 
     // 10. translate="no" и .notranslate: наведение и «Перевести страницу»
@@ -189,8 +196,9 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("мини-панель: shadowRoot снаружи — null; поддельные change/click по хосту ничего не пишут");
     // настоящий клик по кнопке «Перевести страницу» внутри закрытого root работает
     const hb = await ev("(() => { const r = document.querySelector('[data-ht-ui]').getBoundingClientRect(); return { x: r.right, y: r.top, w: r.width, h: r.height }; })()");
-    // кнопки: grip, select, 🌐, ↺, ✕ — 🌐 третья; найдём точку перебором по elementFromPoint невозможно (closed), кликаем по координатам 🌐: справа налево ✕, ↺, 🌐 (по 28px + 6px зазор + 6px отступ)
-    const bx = Math.round(hb.x - 6 - 28 * 2 - 6 * 2 - 14), by = Math.round(hb.y + hb.h / 2);
+    // внутрь закрытого root не заглянуть — кликаем по координатам «Перевести страницу». Справа налево: рамка 1,
+    // поле 6, «⋯» 36, зазор 4, разделитель 1 + 4 + 4, зазор 4, «Показать оригинал» 36, зазор 4, перевод 36 → середина в 118 px
+    const bx = Math.round(hb.x - 118), by = Math.round(hb.y + hb.h / 2);
     await move(bx, by);
     await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: bx, y: by, button: "left", clickCount: 1 });
     await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: bx, y: by, button: "left", clickCount: 1 });

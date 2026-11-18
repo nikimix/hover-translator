@@ -6,6 +6,10 @@ const { launch, filePage, sleep } = require("../lib/chrome");
 const { rmDir } = require("../lib/env");
 let pass = 0;
 const ok = (name) => { pass++; console.log("  ok  " + name); };
+const until = async (fn, ms = 4000, step = 50) => {
+  const t0 = Date.now();
+  for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) return v; await sleep(step); }
+};
 
 (async () => {
   const page = filePage("stub-builtin.html");
@@ -53,7 +57,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(await errClass(), 0, "ни одного красного абзаца");
     assert.strictEqual(await text("#p1"), P1);
     const t1 = await ev("toasts()");
-    assert.ok(t1.length === 1 && t1[0].startsWith("info:") && /не задан ключ DeepL/.test(t1[0]), JSON.stringify(t1));
+    assert.ok(t1.length === 1 && t1[0].startsWith("err:Перевод не работает") && /не задан ключ DeepL/i.test(t1[0]), JSON.stringify(t1));
     assert.strictEqual(await ev("__calls.filter((c) => c.type === 'noticeOnce').length"), 1, "background спрошен один раз за страницу");
     // режим задержки — то же самое
     await ev("setStore({ trigger: 'dwell' }); true");
@@ -67,7 +71,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await sleep(100);
     await ev("sendCmd('translatePage'); true"); await sleep(100);
     const t1b = await ev("toasts()");
-    assert.ok(t1b.length >= 1 && /не задан ключ DeepL/.test(t1b[t1b.length - 1]), JSON.stringify(t1b));
+    assert.ok(t1b.length >= 1 && /не задан ключ DeepL/i.test(t1b[t1b.length - 1]), JSON.stringify(t1b));
     assert.strictEqual(await ev("trCalls().length"), 0);
     ok("«Перевести страницу» без ключа — объяснение, без запросов");
     // ключ вставили — заработало сразу
@@ -88,8 +92,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(await ev("document.querySelector('#p1').hasAttribute('title')"), false);
     const t2 = await ev("toasts()");
     assert.ok(t2.some((t) => t.startsWith("err:") && /403/.test(t)), JSON.stringify(t2));
-    await sleep(2000);
-    assert.strictEqual(await errClass(), 0, "подсветка ошибки снимается");
+    assert.ok(await until(async () => (await errClass()) === 0, 6000), "подсветка ошибки снимается");
     assert.strictEqual(await ev("document.querySelector('#p3').getAttribute('title')"), "own title");
     ok("ошибка движка: текст только в уведомлении (shadow root), title элемента не трогается");
     await ev("window.__bgReply = null; true");
@@ -120,13 +123,11 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(await errClass(), 0);
     assert.strictEqual(await text("#p1"), P1);
     const t4 = await ev("toasts()");
-    assert.ok(t4.length === 1 && t4[0].startsWith("info:") && /Щёлкните мышью по тексту — и он переведётся/.test(t4[0])
-      && /запускает языковую модель \(английский → русский\) только после щелчка/.test(t4[0]) && /Подготовить переводчик/.test(t4[0])
-      && !/каждом новом сайте/.test(t4[0]), JSON.stringify(t4));
+    assert.deepStrictEqual(t4, ["info:Щёлкните по текстуСкачаю переводчик для этой пары"]);
     assert.strictEqual(await ev("__tr.creates.length"), 0, "без действия пользователя create() не зовём");
     // Shift сам по себе активацией не является
     assert.strictEqual(await ev("navigator.userActivation.isActive"), false);
-    ok("модель не скачана: подсказка «щёлкните… / Подготовить переводчик» одна на страницу, абзац не краснеет, create() не зовётся");
+    ok("модель не скачана: подсказка «Щёлкните по тексту / Скачаю переводчик для этой пары» одна на страницу, абзац не краснеет, create() не зовётся");
     // щелчок по абзацу: повтор перевода с действием пользователя → загрузка с прогрессом → перевод
     await hover("#p1");
     await click("#p1");
@@ -136,7 +137,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(await text("#p1"), "[ru] " + P1);
     assert.deepStrictEqual(await ev("__tr.creates.map((c) => [c.src, c.tgt, c.active, c.monitor])"), [["en", "ru", true, true]]);
     console.log("      (уведомления во время загрузки: " + JSON.stringify(mid) + ")");
-    assert.ok(mid.some((t) => /Скачиваю языковую модель \(английский → русский\)/.test(t)), JSON.stringify(mid));
+    assert.ok(mid.some((t) => /^info:Скачиваю переводчикАнглийский → русский/.test(t)), JSON.stringify(mid));
     await sleep(300);
     assert.ok(!(await ev("toasts()")).some((t) => /Скачиваю/.test(t)), "уведомление о загрузке закрыто");
     // дальше — без щелчков
@@ -153,12 +154,10 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await hover("#p1"); await tapShift(); await sleep(150);
     const t4b = await ev("toasts()");
     console.log("      (языки браузера: " + langs + "; подсказка: " + JSON.stringify(t4b) + ")");
-    assert.ok(t4b.length === 1 && /Языка «испанский» нет в списке языков Chrome/.test(t4b[0]) && /на каждом новом сайте/.test(t4b[0])
-      && /языковую модель \(испанский → русский\)/.test(t4b[0]) && /настройки Chrome → «Языки»/.test(t4b[0])
-      && !/Подготовить переводчик|один раз/.test(t4b[0]), JSON.stringify(t4b));
+    assert.deepStrictEqual(t4b, ["info:Щёлкните по текстуЯзыка «испанский» нет в языках Chrome, поэтому щелчок нужен на каждом сайте"]);
     await hover("#p1"); await click("#p1"); await sleep(600);
     assert.strictEqual(await text("#p1"), "[ru] " + P1, "после щелчка — перевод");
-    ok("язык не из языков браузера: подсказка «на каждом новом сайте… добавьте язык в настройки Chrome», щелчок переводит");
+    ok("язык не из языков браузера: подсказка «Языка «испанский» нет в языках Chrome, поэтому щелчок нужен на каждом сайте», щелчок переводит");
 
     // 5. Особенность Chrome: create() сразу после загрузки отказал, а модель уже есть — повтор проходит
     await load("fake", { engine: "chrome" });
@@ -175,7 +174,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await ev("__ld.avail = 'downloadable'; true");
     await hover("#p1"); await tapShift(); await sleep(150);
     const t6 = await ev("toasts()");
-    assert.ok(t6.length === 1 && /модель определения языка/.test(t6[0]) && t6[0].startsWith("info:"), JSON.stringify(t6));
+    assert.deepStrictEqual(t6, ["info:Щёлкните по текстуChrome включит определение языка"]);
     await ev("__ld.avail = 'available'; __tr.avail = 'unavailable'; true");
     await sleep(3100);
     await hover("#p2"); await tapShift(); await sleep(150);
@@ -190,7 +189,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await hover("#p2"); await tapShift(); await sleep(150);
     assert.strictEqual(await errClass(), 0);
     const t7 = await ev("toasts()");
-    assert.ok(t7.length === 1 && /встроенный переводчик недоступен в этом браузере/.test(t7[0]), JSON.stringify(t7));
+    assert.ok(t7.length === 1 && /встроенный переводчик недоступен в этом браузере/i.test(t7[0]), JSON.stringify(t7));
     assert.ok(await ev("__sets.some((s) => s.htBuiltinApi === false)"), "верхний фрейм записал htBuiltinApi=false для значка");
     // «авто» без ключа и без встроенного — тоже нельзя
     await ev("setStore({ engine: 'auto' }); true");

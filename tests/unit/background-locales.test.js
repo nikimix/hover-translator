@@ -138,10 +138,10 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const env = makeEnv({ engine: "chrome", targetLang: "TT", htBuiltinApi: true });
     await sleep(30);
     assert.strictEqual(env.badge.text, "!");
-    assert.strictEqual(env.badge.title, "Переводчик при наведении — встроенный переводчик не переводит на этот язык: татарский");
+    assert.strictEqual(env.badge.title, "Hover Translator — встроенный переводчик не переводит на этот язык: татарский");
     await env.ctx.chrome.storage.local.set({ targetLang: "RU" });
     await sleep(30);
-    assert.ok(env.badge.text === "" && env.badge.title === "Переводчик при наведении", JSON.stringify(env.badge));
+    assert.ok(env.badge.text === "" && env.badge.title === "Hover Translator", JSON.stringify(env.badge));
     await env.ctx.chrome.storage.local.set({ engine: "auto", targetLang: "KN" });   // у DeepL нет — «авто» переводит встроенным
     await sleep(30);
     assert.strictEqual(env.badge.text, "", "«авто» с каннада — встроенный, значок чистый");
@@ -159,7 +159,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.ok(!r.ok && r.code === "timeout" && r.error === "DeepL didn’t respond within 15 seconds — try again.", JSON.stringify(r));
     env.setFetch(() => jsonRes(403, {}));
     const r2 = await env.send(msg("Hello again", { engine: "deepl" }), sender(1));
-    assert.ok(r2.error === "DeepL didn’t accept the key — check it in the extension window." && r2.detail === "response code 403", JSON.stringify(r2));
+    assert.ok(r2.error === "DeepL didn’t accept the key — check it in the extension settings." && r2.detail === "response code 403", JSON.stringify(r2));
     // суточный лимит: число по языку интерфейса
     const day = env.ctx.HT_plural("limitDay", 100000);
     assert.ok(/\(100,000 characters\)/.test(day), day);

@@ -6,8 +6,10 @@
 // DOM, и каркас веб-приложений (React/Vue/Angular) не ломается. Поэтому интерактивные элементы
 // (кнопки/ссылки) тоже можно переводить безопасно.
 // Способы показа (displayMode): «замена на месте» (узлы) и «поповер» (плавающая карточка —
-// только при наведении; страницу всегда переводим заменой). Опционально — бейдж исходного языка
-// (только в поповере) и мини-HUD смены языка на странице.
+// только при наведении; страницу всегда переводим заменой). Опционально — пара языков на карточке
+// и мини-панель на странице. Всё своё (уведомления, карточка, мини-панель) — в закрытом shadow root,
+// системным шрифтом и своими цветами по фону сайта (светлый сайт — белое, тёмный — #2a2d33).
+// Окну расширения скрипт верхнего фрейма сообщает, что со страницей (tabState, сообщение pageState).
 // Движки: DeepL, LLM (OpenAI/Anthropic) — через background; встроенный Chrome — on-device.
 // Если выбранный переводчик не может работать (нет ключа, нет встроенного в браузере), страница не
 // трогается вовсе; если расширение обновили или удалили, скрипт возвращает оригиналы и замолкает.
@@ -65,13 +67,22 @@
   let siteOff = false;                // этот сайт в списке «выключено на этом сайте»
   let lastOverTarget = null;          // последний элемент под курсором — и при выключенном переводе
   let pageActive = false;             // страницу переводили целиком, и оригинал с тех пор не возвращали
-  let pageToast = null;               // уведомление «Перевожу… / Готово» перевода страницы
+  let pageToast = null;               // уведомление «Страница переведена» (его закрывает возврат оригинала)
   let retranslateTimer = null;
+  // Для окна расширения: что сейчас со страницей (pageNow). pageBusy — идёт перевод видимой части:
+  // { done, total } — сколько видимых абзацев готово из скольких; pageWas — страницу переводили целиком и
+  // вернули оригинал (окно показывает сегмент на «Оригинал»); pageSrc — язык оригинала по ответам переводчика.
+  let pageBusy = null;
+  let pageWas = false;
+  let pageSrc = "";
+  const srcCount = new Map();         // язык оригинала -> сколько абзацев на нём пришло (pageSrc — самый частый)
+  let stateTimer = 0;                 // отложенная отправка pageState окну (несколько изменений — одно сообщение)
+  let stateSent = "";                 // что отправили последним (одинаковое не шлём)
 
   // Подсветка — мгновенно (rAF), без перевода. Язык/движок/формальность/исключения — перетранслирование.
   // Способ показа и бейдж влияют на следующие переводы; уже показанное не перерисовываем: карточка
   // держит перевод абзаца одной строкой, а замене нужен перевод каждого текстового узла.
-  const DISP_KEYS = ["dispMode", "dispBg", "dispOpacity", "dispBorder", "dispBorderColor", "dispBorderStyle"];
+  const DISP_KEYS = ["dispMode", "dispBg", "dispOpacity"];
   const TX_KEYS = ["targetLang", "sourceLang", "engine", "formality", "noTranslate", "llmProvider", "llmModel"];
   // Сами ключи API в content не хранятся (и не должны), но их появление меняет результат перевода:
   // с engine=auto страница уже могла быть заполнена встроенным фолбэком, и после ввода ключа
@@ -178,7 +189,7 @@
         if (off !== siteOff) { siteOff = off; siteChanged(); }
         continue;
       }
-      if (k === "hudShown") { hudWanted = ch.newValue === true; updateHud(); continue; }
+      if (k === "hudShown") { hudWanted = ch.newValue === true; updateHud(); pushState(); continue; }
       if (k === "hudPos") {
         hudPos = HT_hudPos(ch.newValue);
         if (hud && hudPos) placeHud(hud.host, hudPos.left, hudPos.top);
@@ -196,6 +207,9 @@
     }
     // Применяем изменения к уже показанным переводам сразу.
     if (enabledOff) { restoreAll(); return; }       // выключили перевод — откатываем всё
+    // Причину «Перевод не работает» устранили (дали согласие, вставили ключ, сменили переводчик) —
+    // уведомление о ней больше не правда.
+    if (problemToast && problemToast.alive() && !problem()) { problemToast.close(); problemToast = null; }
     if (dispChanged) scheduleRestyle();              // тема подсветки — мгновенный предпросмотр
     if (txChanged) {
       // Отменяем переводы «в полёте»: они вернутся на ПРЕЖНЕМ языке и попали бы в lines уже
@@ -212,6 +226,7 @@
     if (siteOff) { restoreAll(); clearTimeout(dwellTimer); dwellFor = null; }
     updateHud();
     tellSiteBadge();
+    pushState();
   }
   function tellSiteBadge() {
     if (TOP && SITE) send({ type: "siteBadge", off: siteOff }).catch(() => {});
@@ -250,6 +265,7 @@
     clearTimeout(dwellTimer);
     clearTimeout(retranslateTimer);
     clearTimeout(popCloseTimer);
+    clearTimeout(stateTimer);
     clearInterval(sweepTimer);
     hoverEl = null;
     modPress = null;
@@ -279,32 +295,62 @@
     }
     return true;
   }
-  // Объяснение с кнопками: без ключа или согласия, с языком, которого нет у DeepL, — включить встроенный
-  // (если он есть) или открыть настройки; встроенный недоступен или не знает язык — только настройки.
+  // Объяснение с кнопками: без ключа или согласия, с языком, которого нет у DeepL, — открыть настройки
+  // (главная кнопка) или переводить встроенным (если он есть); встроенный недоступен или не знает язык —
+  // только настройки. Заголовок «Перевод не работает», под ним причина — короткий текст из shared.js
+  // (тот же, что в подсказке значка) с заглавной буквы.
   function problemNotice(p) {
     const local = p === "no-builtin" || p === "builtin-lang" || BUILTIN !== "ok";
-    notice(HT_problemText(p, "page", netState()), 12000, { actions: local ? [ACT.settings] : [ACT.builtin, ACT.settings], closable: true });
+    const main = settingsAct(problemFocus(p), true);
+    problemToast = notice(problemDesc(p), 12000, {
+      title: HT_t("probTitle"), icon: "err", kind: "err",
+      actions: local ? [main] : [main, ACT.builtin], closable: true,
+    });
   }
+  let problemToast = null;            // уведомление «Перевод не работает»: причину устранили — закрываем
+  function problemDesc(p) { return sentence(HT_problemText(p, "short", netState())); }
+  // Куда вести на странице настроек по причине (значения focus — см. openSettings в background).
+  function problemFocus(p) {
+    if (p === "no-deepl-key") return "deepl-key";
+    if (p === "no-llm-key") return "llm-key";
+    if (p === "no-consent") return HT_engine(settings.engine).via === "llm" ? "llm" : "deepl";
+    if (p === "deepl-lang" || p === "builtin-lang") return "langs";
+    return "translator";
+  }
+  function sentence(s) { s = capFirst(String(s || "").trim()); return s && !/[.!?…]$/.test(s) ? s + "." : s; }
 
   // ---- кнопки в уведомлениях ----
   // Нажимаются только настоящим щелчком (проверка isTrusted — в showToast). Записываемое значение —
-  // только из таблицы shared.js.
+  // только из таблицы shared.js. Главная (залитая) кнопка — когда без настроек дальше никак.
+  function openSettings(focus) { send({ type: "openSettings", focus: focus || "" }).catch(() => {}); }
+  function settingsAct(focus, primary) { return { label: HT_t("openSettings"), run: () => openSettings(focus), primary: !!primary }; }
   const ACT = {
-    settings: { label: HT_t("openSettings"), run: () => { send({ type: "openSettings" }).catch(() => {}); } },
-    builtin: { label: HT_t("switchToBuiltin"), run: useBuiltin },
+    settings: settingsAct(""),
+    settingsMain: settingsAct("", true),
+    builtin: { label: HT_t("useBuiltin"), run: useBuiltin },
   };
   function useBuiltin() {
     chrome.storage.local.set({ engine: HT_valid("engine", "chrome") })
-      .then(() => notice(HT_t("builtinOn"), 5000))
+      .then(() => notice(HT_t("csBuiltinOnText"), 6000, { title: HT_t("csBuiltinOnTitle"), icon: "ok" }))
       .catch(() => {});
   }
-  // Какие кнопки предложить к ошибке перевода (коды ошибок — в background.js, failure()).
-  function actionsFor(code) {
-    if (code === "bad-key" || code === "no-key" || code === "model" || code === "lang") return [ACT.settings];
-    if (code === "no-consent") return BUILTIN === "ok" ? [ACT.builtin, ACT.settings] : [ACT.settings];
-    if (code === "quota" || code === "money" || code === "denied") return [BUILTIN === "ok" ? ACT.builtin : ACT.settings];
+  // Какие кнопки предложить к ошибке перевода (коды ошибок — в background.js, failure()). focus — куда
+  // вести на странице настроек (у ошибок встроенного — свой: язык оригинала или перевода).
+  function actionsFor(code, focus) {
+    const ai = HT_engine(settings.engine).via === "llm";
+    if (code === "bad-key") return [settingsAct(ai ? "llm-key" : "deepl-key", true)];
+    if (code === "no-key") return [settingsAct(focus || (ai ? "llm-key" : "deepl-key"), true)];
+    if (code === "model") return [settingsAct("llm", true)];
+    if (code === "lang") return [settingsAct(focus || "langs", true)];
+    if (code === "no-consent") return BUILTIN === "ok" ? [settingsAct("translator", true), ACT.builtin] : [settingsAct("translator", true)];
+    if (code === "quota" || code === "money" || code === "denied") return [BUILTIN === "ok" ? ACT.builtin : settingsAct("translator")];
     return [];
   }
+  // Подпись под заголовком ошибки — что делать, если по коду это понятно (иначе — текст ошибки).
+  const FAIL_HINT = { "bad-key": "badKeyHint" };
+  // Имя сервиса для «… не принял ключ».
+  const SERVICE_NAMES = { deepl: "DeepL", openai: "OpenAI", anthropic: "Anthropic" };
+  function serviceName() { return SERVICE_NAMES[HT_provider(settings.engine, settings.llmProvider)] || "DeepL"; }
 
   // ---- наведение с задержкой: что не переводить ----
   // Задержка срабатывает сама, без просьбы, поэтому здесь осторожнее, чем в режиме клавиши (там
@@ -482,7 +528,9 @@
     while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
     if (!el || el.nodeType !== 1) return false;
     if (el.tagName === "INPUT") return !NO_TYPING_INPUTS.test(el.type);
-    return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
+    // OPTION — пункт открытого списка (настраиваемый select Chrome 135+ раскрывается прямо на странице, и клавиши
+    // доходят сюда; системный список забирал их себе).
+    return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.tagName === "OPTION";
   }
 
   // Запустить/снять перевод owner-а под курсором (по клавише-триггеру).
@@ -506,8 +554,6 @@
   function isShown(owner) { return lineByOwner.has(owner) || popovers.has(owner); }
   function isBusy(owner) { return isShown(owner) || inFlight.has(owner); }
 
-  function targetBase() { return HT_langBase(settings.targetLang || "RU").toUpperCase(); }
-  function badgeText(src) { return `${src.toUpperCase()} → ${targetBase()}`; }
   // Тот же ли это язык, что язык перевода (детектор называет язык своим кодом: "no", "iw", "zh").
   function isTargetLang(code) { return HT_langKey(code) === HT_langKey(settings.targetLang || "RU"); }
 
@@ -547,7 +593,7 @@
   const TX_FAIL = HT_t("txFail");
   // Неудача из ответа background: текст, код (по нему — встроенный вместо DeepL и кнопки), подробности.
   function failOf(r) {
-    return { error: (r && r.error) || TX_FAIL, code: (r && r.code) || "", detail: (r && r.detail) || "" };
+    return { error: (r && r.error) || TX_FAIL, code: (r && r.code) || "", detail: (r && r.detail) || "", focus: (r && r.focus) || "" };
   }
   // Разбить строку на ведущие/конечные пробелы и «ядро» — пробелы сохраняем, ядро переводим.
   function splitWs(raw) {
@@ -564,20 +610,27 @@
   function userActive() { return !!(navigator.userActivation && navigator.userActivation.isActive); }
 
   // Уведомление с ходом загрузки модели: create() с monitor сообщает долю скачанного. Подсказку
-  // «нужно скачать» оно заменяет — оба стоят на одном месте внизу страницы.
+  // «щёлкните по тексту» оно заменяет на том же месте и той же высоты: заголовок, пара языков, полоса.
+  // what — «Испанский → русский» (пара) или «Определение языка» (детектор).
   let downloadHint = null;
   function downloadNotice(what) {
-    if (downloadHint) { downloadHint.close(); downloadHint = null; }
-    const t = showToast({ message: HT_t("dlProgress", what), kind: "info", ms: 0, title: extName() });
+    const opts = { title: HT_t("dlTitle"), icon: "", text: what, progress: "indet", ms: 0 };
+    const t = downloadHint && downloadHint.alive() ? downloadHint : null;
+    downloadHint = null;
+    const n = t ? (t.update(opts), t) : showToast(opts);
     return {
       monitor(m) {
         m.addEventListener("downloadprogress", (e) => {
-          t.set(HT_t("dlProgressPct", [what, Math.round(100 * (e.total ? e.loaded / e.total : e.loaded))]));
+          const pct = Math.round(100 * (e.total ? e.loaded / e.total : e.loaded));
+          n.update({ text: HT_t("dlPct", [what, String(pct)]), progress: pct });
         });
       },
-      done() { t.close(); },
+      done() { n.close(); },
     };
   }
+  // «Английский → русский» — названия языков на языке интерфейса, первая буква заглавная.
+  function capFirst(s) { s = String(s || ""); return s ? s[0].toLocaleUpperCase(HT_uiLang()) + s.slice(1) : s; }
+  function pairText(src, tgt) { return HT_t("pairArrow", [capFirst(HT_langLabel(HT_langBase(src))), HT_langLabel(HT_langBase(tgt))]); }
 
   const CREATE_RETRY_MS = [300, 700, 1000, 1500, 2500];   // ~6 с в сумме
 
@@ -615,7 +668,7 @@
     if (detector) return Promise.resolve({ inst: detector });
     if (!("LanguageDetector" in self)) return Promise.resolve({ kind: "unavailable" });
     if (!detectorPending) {
-      const p = createModel(LanguageDetector, {}, HT_t("dlDetector"), mayDownload)
+      const p = createModel(LanguageDetector, {}, HT_t("dlDetectorName"), mayDownload)
         .catch((e) => ({ kind: "fail", error: e }))
         .then((r) => {
           if (r.inst) detector = r.inst;
@@ -664,8 +717,7 @@
   function getTranslator(src, tgt) {
     const key = src + ">" + tgt;
     if (!translators.has(key)) {
-      const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt },
-        HT_t("dlPair", [HT_langLabel(src), HT_langLabel(tgt)]), true)
+      const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt }, pairText(src, tgt), true)
         .catch((e) => ({ kind: "fail", error: e }))
         .then((r) => {
           if (!r.inst && translators.get(key) === p) translators.delete(key);
@@ -689,34 +741,34 @@
 
   // Модель не готова: что сказать. key — что именно ждёт щелчка (одно уведомление на страницу).
   // Щелчок нужен потому, что одиночный Shift (и наведение) Chrome действием пользователя не считает.
-  // После щелчка абзац под курсором переводится сам (см. обработчик click). Когда именно нужен щелчок:
+  // После щелчка абзац под курсором переводится сам (см. обработчик click), а уведомление «Щёлкните по
+  // тексту» на том же месте становится «Скачиваю переводчик» (downloadNotice). Когда именно нужен щелчок:
   //   • модели нет на компьютере — щелчок запускает загрузку, она нужна один раз для всех сайтов;
   //   • пара с языком не из языков браузера — на каждом новом сайте (см. hiddenLang);
   //   • детектор языка первые секунды после запуска Chrome тоже отвечает «downloadable», хотя модель есть.
-  // Поэтому подсказка не утверждает, что модели нет: «если её ещё нет — скачается».
+  // Возвращает неудачу с готовым уведомлением (note): заголовок, строка и пустая полоса загрузки.
   function needDownload(state, src, tgt) {
-    const what = src ? HT_t("dlPair", [HT_langLabel(src), HT_langLabel(tgt)]) : HT_t("dlDetector");
     const key = src ? src + ">" + tgt : "detector";
-    if (state === "downloading") return { ok: false, kind: "download", key, error: HT_t("dlWait", what) };
+    const fail = (note) => ({ ok: false, kind: "download", key, error: note.text, note });
+    if (state === "downloading") {
+      return fail({ title: HT_t("csDlWaitTitle"), text: HT_t("csDlWaitText", src ? pairText(src, tgt) : HT_t("dlDetectorName")), progress: "indet" });
+    }
     const hidden = src ? hiddenLang(src, tgt) : "";
-    if (hidden) return { ok: false, kind: "download", key, error: HT_t("dlClickSite", [what, HT_langLabel(hidden)]) };
-    // Детектор и пару «английский → язык перевода» готовит и кнопка в окне расширения. Для пары со
-    // скрытым языком она не помогает: окно расширения — другой сайт.
-    const prep = !src || src === HT_prepPair(settings.targetLang).src;
-    return { ok: false, kind: "download", key, error: HT_t(prep ? "dlClickPrep" : "dlClick", what) };
+    const text = hidden ? HT_t("csClickSite", HT_langLabel(hidden)) : HT_t(src ? "csClickPair" : "csClickDetector");
+    return fail({ title: HT_t("csClickTitle"), icon: "pointer", text, progress: "empty" });
   }
 
   // Перевод по тексту (без HTML) встроенным движком. Возвращает src для бейджа.
   // Язык перевода — кодом встроенного переводчика (ZH-HANT → "zh-Hant", NB → "no"); языка нет в его
   // списке — честная причина (сюда это доходит только через «авто» после сбоя DeepL).
   async function chromeTranslate(text, targetLang) {
-    if (!("Translator" in self)) return { ok: false, error: HT_problemText("no-builtin", "page") };
+    if (!("Translator" in self)) return { ok: false, error: problemDesc("no-builtin") };
     const tgt = HT_builtinCode(targetLang);
-    if (!tgt) return { ok: false, code: "lang", error: HT_problemText("builtin-lang", "page", { targetLang }) };
+    if (!tgt) return { ok: false, code: "lang", focus: "target-lang", error: sentence(HT_problemText("builtin-lang", "short", { targetLang })) };
     const d = await detectLang(text, true);
     if (d.kind === "download") return needDownload(d.state);
     const src = d.lang;
-    if (!src) return { ok: false, code: "lang", error: HT_t("detectFail") };
+    if (!src) return { ok: false, code: "lang", focus: "source-lang", error: HT_t("csDetectFail") };
     if (HT_langKey(src) === HT_langKey(tgt)) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
     const t = await getTranslator(src, tgt);
     if (t.kind === "download") return needDownload(t.state, src, tgt);
@@ -742,7 +794,7 @@
     const results = await Promise.all(texts.map((t) => chromeTranslate(t, settings.targetLang)));
     if (results.some((r) => r && r.ok)) return { results };
     const dl = results.find((r) => r && r.kind === "download");
-    if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key };
+    if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key, note: dl.note };
     if (primary && primary.code !== "no-key" && primary.code !== "no-consent") return Object.assign({ results: null }, primary);
     return Object.assign({ results: null }, failOf(results.find((r) => r && r.error)));
   }
@@ -751,17 +803,18 @@
   // сервис недоступен. Выбор переводчика в настройках не меняем — один раз говорим, что происходит.
   // Про лимит — раз за сессию браузера (он не вернётся до следующего месяца), про сеть — раз на
   // страницу (сеть может вернуться и пропасть снова).
-  const FALLBACK_SAY = { quota: "fbQuota", network: "fbNetwork", timeout: "fbTimeout", server: "fbServer" };
+  const FALLBACK_SAY = { quota: "csFbQuota", network: "csFbNetwork", timeout: "csFbTimeout", server: "csFbServer" };
   // О чём сказать, когда перевели встроенным: сбои выше и — для «авто» — отклонённый ключ. Без этого
   // «авто» с неверным ключом молча переводил встроенным, и человек думал, что работает DeepL.
-  const FALLBACK_TELL = Object.assign({ "bad-key": "fbBadKey" }, FALLBACK_SAY);
+  const FALLBACK_TELL = Object.assign({ "bad-key": "csFbBadKey" }, FALLBACK_SAY);
   const FALLBACK_ONCE = { quota: "deepl-quota", "bad-key": "deepl-bad-key" };
   const fallbackTold = new Set();
   function fallbackSay(code) {
     if (!FALLBACK_TELL[code] || fallbackTold.has(code)) return;
     fallbackTold.add(code);
-    const opts = code === "quota" ? { actions: [ACT.builtin], closable: true }
-      : code === "bad-key" ? { actions: [ACT.settings], closable: true } : { closable: true };
+    // Одной строкой; лимит и отклонённый ключ — с кнопкой в настройки (переводит уже встроенный).
+    const opts = code === "quota" ? { actions: [settingsAct("deepl")] }
+      : code === "bad-key" ? { actions: [settingsAct("deepl-key")] } : {};
     const show = () => notice(HT_t(FALLBACK_TELL[code]), 9000, opts);
     if (!FALLBACK_ONCE[code]) { show(); return; }
     send({ type: "noticeOnce", problem: FALLBACK_ONCE[code] }).then((r) => { if (r && r.show && !dead) show(); }).catch(() => {});
@@ -784,8 +837,8 @@
     if (!HT_canSend(e.code, netState())) {
       if (e.fallback === "local") return localResults(texts);
       const p = problem();
-      return { results: null, error: p ? HT_problemText(p, "page", netState()) : TX_FAIL,
-        code: p === "no-consent" ? "no-consent" : p === "deepl-lang" ? "lang" : "no-key", detail: "" };
+      return { results: null, error: p ? problemDesc(p) : TX_FAIL,
+        code: p === "no-consent" ? "no-consent" : p === "deepl-lang" ? "lang" : "no-key", detail: "", focus: p ? problemFocus(p) : "" };
     }
     let resp;
     try {
@@ -820,11 +873,11 @@
     return out;
   }
 
-  // Показать сбой перевода. Нескачанная модель — не ошибка: абзац не краснеет, а подсказка, что
-  // сделать, — одна на страницу для каждой модели; следующий щелчок по странице повторяет перевод
-  // элемента под курсором (у щелчка есть «действие пользователя», и загрузка начнётся).
-  // Ошибка с действием («Открыть настройки», «Переключиться на встроенный») висит дольше и
-  // закрывается ✕; простая — исчезает сама.
+  // Показать сбой перевода. Нескачанная модель — не ошибка: абзац не краснеет, а подсказка «Щёлкните по
+  // тексту» — одна на страницу для каждой модели; следующий щелчок по странице повторяет перевод элемента
+  // под курсором (у щелчка есть «действие пользователя», и загрузка начнётся).
+  // Ошибка — заголовок с красным «!» и что случилось; с действием («Открыть настройки», «Переводить
+  // встроенным») висит дольше, простая исчезает сама. ✕ — у всех.
   const downloadTold = new Set();
   let retryOnClick = false;
   let retryPage = false;              // повторить после щелчка перевод всей страницы, а не абзаца
@@ -832,18 +885,26 @@
     if (out.kind === "download") {
       retryOnClick = true;
       retryPage = !!fromPage;
-      if (!downloadTold.has(out.key)) { downloadTold.add(out.key); downloadHint = notice(out.error, 12000, { closable: true }); }
+      if (!downloadTold.has(out.key)) {
+        downloadTold.add(out.key);
+        const n = out.note || { text: out.error };
+        downloadHint = notice(n.text, 15000, Object.assign({ anchor: owner || hoverEl }, n));
+      }
       return;
     }
     if (owner) failOwner(owner);
-    const actions = actionsFor(out.code);
-    // С кнопкой — и с именем расширения: на чужом сайте иначе непонятно, чьи это настройки.
-    toast(out.error || TX_FAIL, "err", actions.length
-      ? { title: extName(), detail: out.detail, actions, closable: true, ms: 8000 }
-      : { detail: out.detail });
+    const actions = actionsFor(out.code, out.focus);
+    // Отклонённый ключ — своим заголовком и подсказкой, что делать; остальное — «Не удалось перевести»
+    // и текст ошибки (мелко — код ответа сервиса).
+    const hint = FAIL_HINT[out.code];
+    toast({
+      title: hint ? HT_t("csBadKeyTitle", serviceName()) : HT_t("csFailTitle"), icon: "err", kind: "err",
+      text: hint ? HT_t(hint) : out.error || TX_FAIL, detail: out.detail, actions, anchor: owner,
+      ms: actions.length ? 10000 : 5000,
+    });
   }
 
-  // ---- подсветка ----
+  // ---- фон сайта и подсветка ----
   function hexToRgba(hex, alpha) {
     const m = String(hex).replace("#", "");
     const n = m.length === 3 ? m.split("").map((c) => c + c).join("") : m;
@@ -853,43 +914,81 @@
     return `rgba(${r},${g},${b},${alpha})`;
   }
 
-  // Яркость цвета rgb()/rgba(); null — прозрачный или нераспознанный формат.
-  function colorLum(c) {
+  // Цвет rgb()/rgba() → [r, g, b, a]; null — нераспознанный формат.
+  function parseColor(c) {
     const m = c && c.match(/^rgba?\(\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/);
-    if (!m) return null;
-    const a = m[4] === undefined ? 1 : parseFloat(m[4]);
-    if (a <= 0.1) return null;
-    return (0.2126 * +m[1] + 0.7152 * +m[2] + 0.0722 * +m[3]) / 255;
+    return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : parseFloat(m[4])] : null;
   }
 
-  // Яркость ближайшего непрозрачного фона (для адаптивной подсветки).
-  function bgLuminance(el) {
+  // Жёлтый или кремовый фон (#fff8dc, #fffde7, #ffeb3b): янтарная подложка на нём теряется, поэтому там
+  // переведённое подчёркивается.
+  function isCream(p) {
+    const r = p[0] / 255, g = p[1] / 255, b = p[2] / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    if (d < 0.06 || l < 0.6) return false;      // почти белый «бумажный» фон (#faf8f0) — янтарь на нём виден
+    const s = d / (1 - Math.abs(2 * l - 1));
+    let hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    hue = (hue * 60 + 360) % 360;
+    return s >= 0.25 && hue >= 35 && hue <= 70;
+  }
+
+  // Холст окна без своего фона у страницы: тёмный, если страница объявила только тёмную схему
+  // (color-scheme: dark — свойством или <meta name="color-scheme">) или «light dark» при тёмной теме системы.
+  function canvasDark() {
+    try {
+      let cs = getComputedStyle(document.documentElement).colorScheme || "";
+      if (!/dark|light/.test(cs)) {
+        const m = document.querySelector('meta[name="color-scheme"]');
+        cs = m ? String(m.getAttribute("content") || "") : "";
+      }
+      if (!/dark/.test(cs)) return false;
+      return !/light/.test(cs) || matchMedia("(prefers-color-scheme: dark)").matches;
+    } catch (e) { return false; }
+  }
+
+  // Фон под элементом — ближайший непрозрачный у него или предков: { dark, cream }.
+  function bgOf(el) {
     let node = el;
-    for (let i = 0; node && node.nodeType === 1 && i < 30; i++, node = node.parentElement) {
-      const lum = colorLum(getComputedStyle(node).backgroundColor);
-      if (lum !== null) return lum;
+    for (let i = 0; node && node.nodeType === 1 && i < 40; i++, node = node.parentElement) {
+      const p = parseColor(getComputedStyle(node).backgroundColor);
+      if (p && p[3] > 0.1) {
+        const lum = (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255;
+        return { dark: lum < 0.5, cream: lum >= 0.5 && isCream(p) };
+      }
     }
-    const b = document.body ? colorLum(getComputedStyle(document.body).backgroundColor) : null;
-    if (b != null) return b;
-    const h = colorLum(getComputedStyle(document.documentElement).backgroundColor);
-    return h == null ? 1 : h;
+    return { dark: canvasDark(), cream: false };
   }
 
-  const BORDER_OFFSET = 3;   // отступ границы от текста, px
-  const BORDER_WIDTH = 2;    // толщина границы, px
+  // Тёмный ли сайт — для уведомлений, мини-панели и меню: фон посередине окна (там основной текст),
+  // а не тема системы: светлый сайт при тёмной теме Chrome — всё равно светлый.
+  function siteDark() {
+    let el = null;
+    try {
+      const all = document.elementsFromPoint(Math.round(innerWidth / 2), Math.round(innerHeight / 2));
+      el = all.find((e) => !isOurUi(e)) || null;
+    } catch (e) { el = null; }
+    return bgOf(el || document.body || document.documentElement).dark;
+  }
 
-  function highlightFor(el) {
-    if (settings.dispMode === "none") return { bg: "", outline: "", offset: "" };
+  // Подсветка переведённого наведением или клавишей (замена на месте). «Подстраивать под страницу» —
+  // янтарь с ореолом 3 px (.34 на светлом фоне, .20 на тёмном), на жёлтом и кремовом — подчёркивание
+  // #b07a00; «Свой цвет» — dispBg с насыщенностью dispOpacity %; «Без подсветки» — ничего. Страницу,
+  // переведённую целиком, не подсвечиваем: она должна выглядеть как оригинал на другом языке.
+  // Список [свойство, значение] для inline-стиля владельца или null.
+  function highlightFor(line) {
+    if (settings.dispMode === "none") return null;
+    const fill = (c) => [["background-color", c], ["box-shadow", "0 0 0 3px " + c], ["border-radius", "2px"]];
+    const bg = line.bg || bgOf(line.owner.parentElement || line.owner);
     if (settings.dispMode === "custom") {
-      const bg = hexToRgba(settings.dispBg, (Number(settings.dispOpacity) || 0) / 100);
-      const outline = settings.dispBorder
-        ? `${BORDER_WIDTH}px ${settings.dispBorderStyle || "solid"} ${settings.dispBorderColor}`
-        : "";
-      return { bg, outline, offset: outline ? `${BORDER_OFFSET}px` : "" };
+      // На тёмном фоне — слабее (×0,6), как янтарь .34 → .20: яркая заливка там режет глаз.
+      const pct = Math.max(0, Math.min(100, Number(settings.dispOpacity) || 0));
+      return fill(hexToRgba(settings.dispBg, Math.round(pct * (bg.dark ? 0.6 : 1)) / 100));
     }
-    // auto — адаптивно к фону сайта (фон родителя — подложка под полупрозрачной подсветкой).
-    const lum = bgLuminance(el.parentElement || el);
-    return { bg: lum < 0.5 ? "rgba(255,255,255,0.18)" : "rgba(0,120,215,0.12)", outline: "", offset: "" };
+    if (bg.cream) {
+      return [["text-decoration-line", "underline"], ["text-decoration-style", "solid"], ["text-decoration-color", "#b07a00"],
+        ["text-decoration-thickness", "2px"], ["text-underline-offset", "3px"]];
+    }
+    return fill(bg.dark ? "rgba(255,207,74,0.2)" : "rgba(255,207,74,0.34)");
   }
 
   // Подсветка owner-а. Перед записью снимаем СНИМОК собственного inline-style элемента
@@ -899,43 +998,219 @@
   // а restyleAll стирал их сразу у всех переведённых строк при смене темы подсветки.
   function applyHLLine(line) {
     const owner = line.owner;
-    const h = highlightFor(owner);
     line.hlSaved = null;
-    if (!h.bg && !h.outline) return; // «без подсветки» — не трогаем стиль
-    const want = [["border-radius", "3px", ""]];
-    if (h.bg) want.unshift(["background-color", h.bg, ""]);
-    if (h.outline) want.push(["outline", h.outline, "important"], ["outline-offset", h.offset, "important"]);
-    line.hlSaved = want.map(([name]) => [name, owner.style.getPropertyValue(name), owner.style.getPropertyPriority(name)]);
-    for (const [name, value, prio] of want) owner.style.setProperty(name, value, prio);
+    if (line.page) return;              // страница целиком — без заливки блоков
+    const want = highlightFor(line);
+    if (!want) return;                  // «без подсветки» — не трогаем стиль
+    line.hlSaved = saveStyle(owner, want);
+    for (const [name, value] of want) owner.style.setProperty(name, value);
   }
 
   function clearHLLine(line) {
     const saved = line.hlSaved;
     if (!saved) return;
     line.hlSaved = null;
-    const st = line.owner.style;
+    restoreStyle(line.owner, saved);
+  }
+
+  // Снимок inline-свойств элемента страницы и возврат к нему (подсветка, обводка абзаца под карточкой).
+  function saveStyle(el, want) {
+    return want.map(([name]) => [name, el.style.getPropertyValue(name), el.style.getPropertyPriority(name)]);
+  }
+  function restoreStyle(el, saved) {
+    const st = el.style;
     for (const [name, value, prio] of saved) {
       if (value) st.setProperty(name, value, prio); // возвращаем собственный inline-style страницы
       else st.removeProperty(name);                 // своего значения не было — просто снимаем наше
     }
   }
 
-  // Наш UI (карточка перевода и HUD) живёт в shadow root. Это обычный DOM страницы, а CSS
-  // контент-скрипта попадает в author origin ПЕРЕД таблицами страницы, поэтому её собственные
+  // ---- свой интерфейс на странице ----
+  // Наш UI (уведомление, карточка перевода, мини-панель) живёт в shadow root. Это обычный DOM страницы,
+  // а CSS контент-скрипта попадает в author origin ПЕРЕД таблицами страницы, поэтому её собственные
   // правила (.site select { height:44px }, .card span { color:#000 }) перебивали наши по
-  // специфичности. Внутри shadow root правила страницы недоступны; наследуемые свойства
-  // (шрифт, цвет, выравнивание) задаём явно, а позицию и слой хоста — инлайново с !important.
+  // специфичности. Внутри shadow root правила страницы недоступны; наследуемые свойства (шрифт, цвет,
+  // выравнивание, межбуквенный интервал) задаём явно на корневом элементе (.ui), а позицию и слой
+  // хоста — инлайново с !important.
   // Побочная польза: document.body.querySelectorAll("*") в shadow root не заглядывает, так что
   // наша разметка вообще не попадает в кандидаты на перевод.
-  // Общая часть оформления: токенами на :host, чтобы конкретный CSS переопределял только своё.
-  const UI_BASE_CSS = `
-    :host {
-      --ht-bg: #1f2430;
-      --ht-fg: #f3f4f6;
-      --ht-shadow: 0 6px 24px rgba(0, 0, 0, .35);
-      --ht-font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  // Цвета — свои, по фону сайта, а не по теме системы: на светлом сайте белое с рамкой
+  // #c9ced5, на тёмном (.dk) — #2a2d33 с рамкой rgba(255,255,255,.4). Шрифт — системный: @font-face
+  // внутри shadow root Chrome не применяет, а грузить шрифт с чужого сайта незачем.
+  // Сбросы — только через :where(), чтобы не перебить цвета кнопок.
+  const UI_CSS = `
+    :where(*) { box-sizing: border-box; }
+    :where(p) { margin: 0; }
+    :where(button, select) { margin: 0; font: inherit; color: inherit; }
+    :where(svg) { display: block; flex: none; }
+    .ui {
+      --bg: #ffffff; --line: #c9ced5; --fg: #17191c; --muted: #4b525a; --muted-2: #5d646d; --hover: #eef0f3;
+      --sep: #e4e7eb; --btn-bg: #ffffff; --btn-line: #858b94; --btn-line-h: #5d646d; --pri: #2563eb; --pri-h: #1d4ed8;
+      --pri-fg: #ffffff; --ok: #157a3c; --err: #b42318; --track: #e3e6ea; --bar: #2563eb; --kbd-bg: #f5f6f8;
+      --kbd-line: #c9ced5; --shadow: 0 12px 32px rgba(15, 20, 25, 0.16); --focus: #2563eb; --icon: #4b525a;
+      --pressed-bg: #dbe6fe; --pressed-fg: #1d4ed8; --pressed-ring: #2563eb; --grip: #8a9099; --hi-fg: #17191c;
+      --pick: #eef3fe; --pick-press: #dbe6fe; --pick-fg: #1d4ed8;
+      color-scheme: light;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px; line-height: 20px; font-weight: 400; font-style: normal; font-variant: normal;
+      letter-spacing: normal; word-spacing: normal; text-transform: none; text-align: left; text-indent: 0;
+      text-shadow: none; white-space: normal; direction: ltr; writing-mode: horizontal-tb; cursor: auto;
+      visibility: visible; color: var(--fg); -webkit-text-fill-color: currentColor; -webkit-font-smoothing: antialiased;
     }
-    * { box-sizing: border-box; }
+    .ui.dk {
+      --bg: #2a2d33; --line: rgba(255, 255, 255, 0.4); --fg: #e8e9eb; --muted: #b9bec5; --muted-2: #b9bec5; --hover: #363a41;
+      --sep: rgba(255, 255, 255, 0.16); --btn-bg: transparent; --btn-line: rgba(255, 255, 255, 0.4);
+      --btn-line-h: rgba(255, 255, 255, 0.55); --pri: #8fb0ff; --pri-h: #a9c2ff; --pri-fg: #0b1220; --ok: #4ccf86;
+      --err: #ff8a80; --track: rgba(255, 255, 255, 0.16); --bar: #8fb0ff; --kbd-bg: rgba(255, 255, 255, 0.08);
+      --kbd-line: rgba(255, 255, 255, 0.4); --shadow: 0 12px 32px rgba(0, 0, 0, 0.6); --focus: #8fb0ff; --icon: #c4c9cf;
+      --pressed-bg: #22355e; --pressed-fg: #8fb0ff; --pressed-ring: #5b8cff; --hi-fg: #ffffff;
+      --pick: rgba(143, 176, 255, 0.16); --pick-press: rgba(143, 176, 255, 0.26); --pick-fg: #8fb0ff;
+      color-scheme: dark;
+    }
+    .ui :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); }
+
+    /* уведомление: 360, вверху справа или внизу над мини-панелью (место — placeToast) */
+    .toast {
+      display: flex; align-items: flex-start; gap: 12px; width: 360px; max-width: calc(100vw - 32px);
+      padding: 12px 8px 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
+      box-shadow: var(--shadow); opacity: 0; transform: translateY(-6px); transition: opacity 0.15s, transform 0.15s;
+    }
+    .toast.low { transform: translateY(6px); }
+    .toast.show { opacity: 1; transform: none; }
+    .t-b { flex: 1; min-width: 0; }
+    .t-t { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+    .t-d { margin-top: 2px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+    .t-m { overflow-wrap: anywhere; }
+    .t-dt { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--muted); overflow-wrap: anywhere; }
+    .t-a { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+    .t-btn {
+      display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--btn-line);
+      border-radius: 8px; background: var(--btn-bg); color: var(--fg); font-size: 13px; line-height: 20px; font-weight: 500;
+      white-space: nowrap; cursor: pointer;
+    }
+    .t-btn:hover { background: var(--hover); border-color: var(--btn-line-h); }
+    .t-btn.pri { background: var(--pri); border-color: var(--pri); color: var(--pri-fg); }
+    .t-btn.pri:hover { background: var(--pri-h); border-color: var(--pri-h); }
+    .t-hint { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+    .t-kbd {
+      display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid var(--kbd-line);
+      border-bottom-width: 2px; border-radius: 4px; background: var(--kbd-bg); color: var(--fg); font-size: 12px;
+      font-weight: 500; line-height: 1;
+    }
+    .t-prog { display: block; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--track); overflow: hidden; }
+    .t-prog > span { display: block; width: 0; height: 100%; border-radius: 2px; background: var(--bar); transition: width 0.2s; }
+    .t-prog.indet > span { width: 40%; animation: ht-indet 1.2s ease-in-out infinite; }
+    @keyframes ht-indet { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+    .x-btn, .c-btn {
+      flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+      padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted-2); cursor: pointer;
+    }
+    .x-btn { margin-top: -6px; }
+    .x-btn:hover, .c-btn:hover { background: var(--hover); color: var(--hi-fg); }
+
+    /* карточка перевода: хвостик к абзацу, шрифт текста — как у абзаца (задаётся инлайново) */
+    .tcard {
+      position: relative; padding: 8px 8px 16px 16px; border: 1px solid var(--line); border-radius: 12px;
+      background: var(--bg); box-shadow: var(--shadow);
+    }
+    .caret {
+      position: absolute; top: -7px; left: 28px; width: 12px; height: 12px; background: var(--bg);
+      border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg);
+    }
+    .tcard.up .caret { top: auto; bottom: -7px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .tcard.flat .caret { display: none; }
+    .c-top { display: flex; align-items: center; gap: 4px; }
+    .c-lang {
+      flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: var(--muted-2); white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .c-text {
+      margin-top: 4px; padding-right: 8px; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+      overflow-wrap: anywhere;
+    }
+
+    /* мини-панель 48: ручка, значок, язык 32, кнопки 36, «⋯» с меню */
+    .hud-wrap { position: relative; }
+    .hud {
+      display: inline-flex; align-items: center; gap: 4px; height: 48px; padding: 0 6px 0 2px; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--bg); box-shadow: 0 10px 28px rgba(15, 20, 25, 0.16); user-select: none;
+    }
+    .dk .hud { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6); }
+    .grip {
+      display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 32px; color: var(--grip);
+      cursor: grab; touch-action: none;
+    }
+    .grip:active { cursor: grabbing; }
+    .h-logo { margin-right: 4px; }
+    .h-lang { position: relative; display: inline-flex; align-items: center; }
+    .h-lang select {
+      appearance: none; -webkit-appearance: none; field-sizing: content; max-width: 160px; height: 32px;
+      padding: 0 28px 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg);
+      font-size: 13px; line-height: 20px; font-weight: 500; cursor: pointer; text-overflow: ellipsis;
+    }
+    .h-lang select:hover { border-color: var(--btn-line); }
+    .h-lang svg { position: absolute; right: 8px; top: 9px; pointer-events: none; transition: transform 0.15s; }
+    /* Раскрытый список языка — свой (настраиваемый select, Chrome 135+), как меню «⋯»: поверхность и рамка панели,
+       радиус 12, отступ 4, пункты 36; наведение и пункт под фокусом — мягкий фон акцента, выбранный — цвет акцента и
+       галочка справа. Цвета — по фону сайта (.dk), как у всей панели. Старее — системный список. */
+    @supports (appearance: base-select) {
+      .h-lang select, .h-lang select::picker(select) { appearance: base-select; }
+      .h-lang select { display: flex; align-items: center; white-space: nowrap; overflow: clip; overflow-clip-margin: content-box; }
+      .h-lang select > button {
+        display: block; flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit;
+        text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: inherit;
+      }
+      .h-lang select::picker-icon { display: none; }
+      .h-lang select:open { border-color: var(--btn-line-h); }
+      .h-lang:has(select:open) svg { transform: rotate(180deg); }
+      .h-lang select::picker(select) {
+        box-sizing: border-box; min-inline-size: max(200px, anchor-size(self-inline)); max-inline-size: min(320px, 100vw - 16px);
+        max-block-size: min(360px, 100% - 16px); margin: 16px 0; padding: 4px; border: 1px solid var(--line); border-radius: 12px;
+        background: var(--bg); color: var(--fg); box-shadow: 0 12px 32px rgba(15, 20, 25, 0.18); overflow-y: auto;
+        overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+      }
+      .dk .h-lang select::picker(select) { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); }
+      .h-lang option {
+        display: flex; align-items: center; gap: 12px; min-block-size: 36px; padding: 8px 12px; border-radius: 8px;
+        font-size: 14px; line-height: 20px; font-weight: 400; color: var(--fg); white-space: nowrap; cursor: pointer;
+      }
+      .h-lang option:hover, .h-lang option:focus-visible { background: var(--pick); outline: none; }
+      .h-lang option:active { background: var(--pick-press); }
+      .h-lang option:checked { color: var(--pick-fg); font-weight: 500; }
+      /* галочка — рамкой, без картинки: картинки на чужом сайте может запретить его CSP */
+      .h-lang option::checkmark {
+        order: 1; flex: none; content: ""; box-sizing: border-box; width: 12px; height: 7px; margin: 0 2px 3px auto;
+        border: solid currentColor; border-width: 0 0 2px 2px; transform: rotate(-45deg);
+      }
+    }
+    .h-sep { width: 1px; height: 24px; margin: 0 4px; background: var(--sep); }
+    .h-btn {
+      display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0;
+      border-radius: 8px; background: transparent; color: var(--icon); cursor: pointer;
+    }
+    .h-btn:hover, .h-btn[aria-expanded="true"] { background: var(--hover); color: var(--hi-fg); }
+    .h-btn[aria-pressed="true"] { background: var(--pressed-bg); color: var(--pressed-fg); box-shadow: inset 0 0 0 1px var(--pressed-ring); }
+    .menu {
+      position: absolute; right: 0; bottom: calc(100% + 8px); width: 248px; padding: 4px; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--bg); box-shadow: 0 12px 32px rgba(15, 20, 25, 0.18);
+    }
+    .dk .menu { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); }
+    .menu.down { bottom: auto; top: calc(100% + 8px); }
+    .menu[hidden] { display: none; }
+    .menu button {
+      display: flex; align-items: center; gap: 12px; width: 100%; height: 36px; padding: 0 12px; border: 0;
+      border-radius: 8px; background: transparent; color: var(--fg); text-align: left; white-space: nowrap; cursor: pointer;
+    }
+    .menu button svg { color: var(--muted-2); }
+    .menu button:hover, .menu button:focus-visible { background: var(--hover); outline: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .toast, .toast.low { transform: none; transition: none; }
+      .t-prog > span { transition: none; }
+      .t-prog.indet > span { width: 100%; opacity: 0.5; animation: none; }
+    }
   `;
 
   // Shadow root закрытый: в открытый сайт может зайти через host.shadowRoot и выбрать в списке
@@ -943,7 +1218,7 @@
   // host.shadowRoot у закрытого — null, поэтому ссылку на root держим сами.
   const uiRoots = new WeakMap();      // host -> его закрытый shadow root
 
-  function makeUiHost(css, zIndex) {
+  function makeUiHost(zIndex) {
     const host = document.createElement("div");
     host.setAttribute("data-ht-ui", "1");
     const s = host.style;
@@ -953,12 +1228,16 @@
     s.setProperty("padding", "0", "important");
     s.setProperty("border", "0", "important");
     s.setProperty("width", "max-content", "important");
+    s.setProperty("max-width", "none", "important");
+    s.setProperty("height", "auto", "important");
+    s.setProperty("transform", "none", "important");
     s.setProperty("visibility", "visible", "important");
     s.setProperty("opacity", "1", "important");
+    s.setProperty("display", "block", "important");
     const root = host.attachShadow({ mode: "closed" });
     uiRoots.set(host, root);
     const style = document.createElement("style");
-    style.textContent = UI_BASE_CSS + css;
+    style.textContent = UI_CSS;
     root.appendChild(style);
     return { host, root };
   }
@@ -966,7 +1245,7 @@
   // Смонтировать наше окно на страницу.
   function mountUi(node) { (document.body || document.documentElement).appendChild(node); }
 
-  // Слои: карточка < HUD < тост. Раньше HUD и тост стояли на 2147483647, а карточка — на
+  // Слои: карточка < мини-панель < уведомление. Раньше HUD и тост стояли на 2147483647, а карточка — на
   // 2147483646, поэтому карточка накрывала панель смены языка.
   const Z_POPOVER = "2147483644";
   const Z_HUD = "2147483645";
@@ -979,65 +1258,74 @@
   // применялся только к движку llm (для дефолтного deepl не применялся вообще), пропускал
   // фреймворковые директивы (hx-*, x-*, v-on:/@click) и не спускался во вложенный <template>.
 
-  // ---- карточка (плавающая под элементом, только при наведении) ----
-  // Одна за раз; закрывается ✕, Esc, щелчком мимо и заметной прокруткой.
-  const POPOVER_CSS = `
-    .card {
-      position: relative;
-      border-radius: 8px;
-      font: 14px/1.45 var(--ht-font-family);
-      text-align: left;
-      letter-spacing: normal;
-      white-space: normal;
-      color: var(--ht-fg);
-      background: var(--ht-bg);
-      box-shadow: var(--ht-shadow);
+  // Элемент: h("div", { class: "x", title: "…" }, "текст", ребёнок…). Только textContent и setAttribute.
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const k in attrs || {}) {
+      const v = attrs[k];
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else el.setAttribute(k, v === true ? "" : String(v));
     }
-    /* Длинный перевод (isTextTarget пропускает до 2000 символов) иначе не влезал бы в экран.
-       Прокручивается только текст: ✕ остаётся на месте. */
-    .scroll {
-      max-height: min(60vh, 420px);
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      padding: 8px 34px 8px 10px;
+    for (const k of kids) if (k != null && k !== false) el.append(k);
+    return el;
+  }
+
+  // Иконки — lucide (обводка 2), те же, что в окне расширения. Строим через DOM: в нашем окне на странице
+  // не должно быть ни одной строки разметки. Строки — атрибут d у <path>, объекты — другие фигуры.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const dot = (cx, cy) => ({ circle: { cx, cy, r: 1 } });
+  const ICONS = {
+    languages: ["m5 8 6 6", "m4 14 6-6 2-3", "M2 5h12", "M7 2h1", "m22 22-5-10-5 10", "M14 18h6"],
+    undo: ["M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"],
+    more: [dot(12, 12), dot(19, 12), dot(5, 12)],
+    grip: [dot(9, 12), dot(9, 5), dot(9, 19), dot(15, 12), dot(15, 5), dot(15, 19)],
+    x: ["M18 6 6 18", "m6 6 12 12"],
+    copy: [{ rect: { width: 14, height: 14, x: 8, y: 8, rx: 2, ry: 2 } }, "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"],
+    check: ["M20 6 9 17l-5-5"],
+    checkCircle: [{ circle: { cx: 12, cy: 12, r: 10 } }, "m9 12 2 2 4-4"],
+    alert: [{ circle: { cx: 12, cy: 12, r: 10 } }, "M12 8v4", "M12 16h.01"],
+    pointer: ["M12.586 12.586 19 19", "M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"],
+    ban: [{ circle: { cx: 12, cy: 12, r: 10 } }, "m4.9 4.9 14.2 14.2"],
+    chevDown: ["m6 9 6 6 6-6"],
+  };
+  function svgEl(tag, attrs) {
+    const e = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) e.setAttribute(k, String(attrs[k]));
+    return e;
+  }
+  function icon(name, size) {
+    const svg = svgEl("svg", { viewBox: "0 0 24 24", width: size || 18, height: size || 18, fill: "none", stroke: "currentColor",
+      "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" });
+    for (const part of ICONS[name]) {
+      if (typeof part === "string") svg.appendChild(svgEl("path", { d: part }));
+      else for (const tag in part) svg.appendChild(svgEl(tag, part[tag]));
     }
-    .card.loading .scroll { color: #cbd5e1; font-style: italic; }
-    .close {
-      position: absolute;
-      top: 5px;
-      right: 5px;
-      width: 24px;
-      height: 24px;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: rgba(255, 255, 255, .62);
-      font: 15px/1 var(--ht-font-family);
-      cursor: pointer;
+    return svg;
+  }
+  // Значок расширения: синий квадрат, строки текста (янтарная — переведённая) и курсор.
+  function logo(size, cls) {
+    const svg = svgEl("svg", { class: cls || "", width: size, height: size, viewBox: "16 16 96 96", "aria-hidden": "true" });
+    svg.appendChild(svgEl("rect", { x: 16, y: 16, width: 96, height: 96, rx: 22, fill: "#2563eb" }));
+    for (const [y, w, c] of [[36, 62, "#ffffff"], [58, 44, "#ffcf4a"], [80, 28, "#ffffff"]]) {
+      svg.appendChild(svgEl("rect", { x: 32, y, width: w, height: 13, rx: 6.5, fill: c }));
     }
-    .close:hover { color: #fff; background: rgba(255, 255, 255, .14); }
-    .close:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; }
-    /* Бейдж исходного языка (EN → RU) — маленькая «таблетка» перед переводом. */
-    .badge {
-      display: inline-block;
-      margin-right: 6px;
-      padding: 0 5px;
-      border-radius: 999px;
-      font: 600 10px/1.6 var(--ht-font-family);
-      letter-spacing: .2px;
-      vertical-align: middle;
-      color: #fff;
-      background: rgba(255, 255, 255, .18);
-      white-space: nowrap;
-      user-select: none;
-    }
-    .body { display: inline; }
-  `;
+    svg.appendChild(svgEl("path", { d: "M66 62 L66 101.5 L75.6 92.4 L82.4 107.2 L89.1 104.4 L82.6 89.8 L95.1 89.8Z", fill: "#ffffff",
+      stroke: "#0b1f4d", "stroke-width": 6, "stroke-linejoin": "round", "paint-order": "stroke" }));
+    return svg;
+  }
+  // Кнопка нашего окна: срабатывает только от настоящего щелчка (сайт мог бы нажать её сам).
+  function uiButton(cls, attrs, kids, onClick) {
+    const b = h("button", Object.assign({ type: "button", class: cls }, attrs), ...kids);
+    b.addEventListener("click", (e) => { if (e.isTrusted) onClick(e); });
+    return b;
+  }
+
+  // ---- карточка (под абзацем, только при наведении) ----
+  // Одна за раз; закрывается ✕, Esc, щелчком мимо и заметной прокруткой. Пока идёт перевод, карточки ещё
+  // нет — абзац пульсирует синим, как при замене на месте; когда перевод пришёл, абзац обводится 2 px
+  // акцентом, а карточка встаёт под ним с хвостиком к нему. Обводка — inline-стилем абзаца со снимком
+  // прежних значений (см. saveStyle), при закрытии возвращается то, что было.
 
   // Карточка едет за абзацем при прокрутке, а когда абзац сдвинулся заметно (на четверть окна, но
   // не меньше 120 px) — закрывается: человек ушёл читать дальше. Мерим сдвиг самого абзаца, поэтому
@@ -1046,20 +1334,21 @@
   function repositionPopovers() {
     popPending = false;
     for (const [owner, st] of Array.from(popovers)) {
-      if (st && st.node && owner.isConnected) {
+      if (!st.node) continue;               // перевод ещё идёт — карточки пока нет
+      if (owner.isConnected) {
         const r = owner.getBoundingClientRect();
         if (st.anchor && (Math.abs(r.top - st.anchor.top) > popScrollLimit() || Math.abs(r.left - st.anchor.left) > popScrollLimit())) {
           removePopover(owner, st.node);
           continue;
         }
-        positionPopover(st.node, owner);
+        positionPopover(st, owner);
         continue;
       }
       // Владелец отвалился (SPA перерисовала DOM) — снимаем и САМ узел карточки. Раньше здесь
       // владелец просто удалялся из коллекции: узел оставался в DOM навсегда, а все пути
       // очистки (restoreAll, sweeper, mouseout, toggle) ходят по этой же коллекции и до него
       // уже не доставали.
-      removePopover(owner, st && st.node);
+      removePopover(owner, st.node);
     }
   }
 
@@ -1081,86 +1370,106 @@
 
   // Под абзацем: над ним карточка закрывала бы строку, которую только что прочитали. Над абзацем —
   // только если снизу не помещается, а если не помещается нигде — где места больше, в пределах окна.
-  const POP_GAP = 6;
-  function positionPopover(node, el) {
+  // POP_GAP — от края абзаца до карточки: обводка (отступ 6 + 2) и хвостик.
+  const POP_GAP = 22;
+  function positionPopover(st, el) {
+    const node = st.node, card = st.card;
     const r = el.getBoundingClientRect();
-    const vw = innerWidth, vh = innerHeight;
-    const w = node.offsetWidth, h = node.offsetHeight;
+    const vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight;
+    const w = node.offsetWidth, hgt = node.offsetHeight;
     const below = vh - r.bottom - POP_GAP - 8, above = r.top - POP_GAP - 8;
-    let top;
-    if (h <= below || below >= above) top = r.bottom + POP_GAP;
-    else top = r.top - POP_GAP - h;
-    top = Math.max(8, Math.min(top, vh - h - 8));
+    const up = !(hgt <= below || below >= above);
+    let top = up ? r.top - POP_GAP - hgt : r.bottom + POP_GAP;
+    const clamped = Math.max(8, Math.min(top, vh - hgt - 8));
     const left = Math.max(8, Math.min(r.left, vw - w - 8));
     node.style.setProperty("left", left + "px", "important");
-    node.style.setProperty("top", top + "px", "important");
+    node.style.setProperty("top", clamped + "px", "important");
+    // Хвостик смотрит на абзац; карточку пришлось прижать к краю окна и она легла на абзац — без хвостика.
+    card.classList.toggle("up", up);
+    card.classList.toggle("flat", Math.abs(clamped - top) > 4);
+    const caret = Math.max(16, Math.min(r.left - left + 28, w - 28));
+    st.caret.style.setProperty("left", Math.round(caret) + "px");
   }
 
-  function showPopover(el, content, badge, stateClass) {
-    // Одна карточка за раз: новая закрывает прежние (и те, что ещё ждут перевода).
-    for (const owner of Array.from(popovers.keys())) if (owner !== el) removePopover(owner);
-    const { host, root } = makeUiHost(POPOVER_CSS, Z_POPOVER);
-    host.style.setProperty("max-width", "min(360px, 90vw)", "important");
-    const card = document.createElement("div");
-    card.className = "card";
-    card.setAttribute("role", "dialog");
-    card.setAttribute("aria-label", HT_t("cardLabel"));
-    const scroll = document.createElement("div");
-    scroll.className = "scroll";
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "close";
-    close.textContent = "✕";
-    close.title = HT_t("cardClose");
-    close.setAttribute("aria-label", HT_t("cardCloseAria"));
-    close.addEventListener("click", (ev) => { if (ev.isTrusted) removePopover(el, host); });
-    card.append(scroll, close);
+  // Шрифт текста карточки — как у абзаца (семейство, начертание, размер, интервал строк), но размер — в
+  // разумных пределах: заголовок в 40 px в карточке был бы громоздким.
+  function cardFont(owner, box) {
+    const cs = getComputedStyle(owner);
+    const size = parseFloat(cs.fontSize) || 16;
+    const fit = Math.max(13, Math.min(22, size));
+    const lh = parseFloat(cs.lineHeight);
+    box.style.setProperty("font-family", cs.fontFamily);
+    box.style.setProperty("font-weight", cs.fontWeight);
+    box.style.setProperty("font-style", cs.fontStyle);
+    box.style.setProperty("font-size", fit + "px");
+    box.style.setProperty("line-height", Number.isFinite(lh) ? Math.round(lh * fit / size) + "px" : "1.5");
+  }
+
+  // Обводка абзаца под карточкой: 2 px акцентом с отступом 6 (на тёмном фоне — светлее).
+  function ringOn(owner, dark) {
+    const want = [["outline", "2px solid " + (dark ? "#7aa2ff" : "#2563eb")], ["outline-offset", "6px"]];
+    if (parseFloat(getComputedStyle(owner).borderTopLeftRadius) === 0) want.push(["border-radius", "4px"]);
+    const saved = saveStyle(owner, want);
+    for (const [name, value] of want) owner.style.setProperty(name, value, "important");
+    return saved;
+  }
+
+  // Показать карточку с готовым переводом. st — запись в popovers (поставлена, пока шёл перевод).
+  function showCard(owner, st, value, src) {
+    const { host, root } = makeUiHost(Z_POPOVER);
+    const r = owner.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth || innerWidth;
+    host.style.setProperty("width", Math.round(Math.max(280, Math.min(560, r.width, vw - 16))) + "px", "important");
+    const dark = bgOf(owner).dark;
+    const caret = h("span", { class: "caret", "aria-hidden": "true" });
+    const lang = settings.showLangBadge && src && !isTargetLang(src) ? pairText(src, settings.targetLang) : "";
+    const copyBtn = uiButton("c-btn", { title: HT_t("csCopy"), "aria-label": HT_t("csCopy") }, [icon("copy", 16)], () => copyText(value, copyBtn));
+    const closeBtn = uiButton("c-btn", { title: HT_t("csCloseTip"), "aria-label": HT_t("cardCloseAria") }, [icon("x", 16)], () => removePopover(owner, host));
+    const text = h("p", { class: "c-text" }, value);
+    cardFont(owner, text);
+    const card = h("div", { class: "ui tcard" + (dark ? " dk" : ""), role: "dialog", "aria-label": HT_t("cardLabel") },
+      caret, h("div", { class: "c-top" }, h("span", { class: "c-lang" }, lang), copyBtn, closeBtn), text);
     root.appendChild(card);
-    fillPopover(host, content, badge, stateClass);
     // Карточку намеренно можно навести и прокрутить, поэтому pointer-events её не отключает.
     // Мерцание, от которого раньше спасал pointer-events:none, закрыто проверками relatedTarget
     // здесь и в обработчике mouseout.
     host.addEventListener("mouseenter", (ev) => {
-      if (ev.isTrusted && popCloseOwner === el) popCloseCancel();   // дошли с абзаца до карточки
+      if (ev.isTrusted && popCloseOwner === owner) popCloseCancel();   // дошли с абзаца до карточки
     });
     host.addEventListener("mouseleave", (ev) => {
       if (!ev.isTrusted) return;                          // хост лежит в DOM страницы — события сайта не слушаем
       if (settings.trigger !== "dwell") return;          // в режиме клавиши держим до повторного нажатия
       const to = ev.relatedTarget;
-      if (to && (el === to || el.contains(to))) return;  // вернулись на сам элемент — карточку держим
-      removePopover(el, host);
+      if (to && (owner === to || owner.contains(to))) return;  // вернулись на сам элемент — карточку держим
+      removePopover(owner, host);
     });
     mountUi(host);
-    const r = el.getBoundingClientRect();
-    const state = { node: host, anchor: { top: r.top, left: r.left } };
-    popovers.set(el, state);          // и маркер «занят», и состояние — одной записью
+    Object.assign(st, { node: host, card, caret, anchor: { top: r.top, left: r.left }, ring: ringOn(owner, dark) });
     ensurePopScroll();
-    positionPopover(host, el);
-    return state;
+    positionPopover(st, owner);
   }
 
-  // Содержимое карточки. Только textContent: ответ движка недоверенный, в innerHTML не пишем.
-  function fillPopover(host, content, badge, stateClass) {
-    const root = uiRoots.get(host);
-    const card = root.querySelector(".card");
-    const box = root.querySelector(".scroll");
-    card.className = "card" + (stateClass ? " " + stateClass : "");
-    box.textContent = "";
-    if (badge) {
-      const b = document.createElement("span");
-      b.className = "badge";
-      b.textContent = badge;
-      box.appendChild(b);
-    }
-    const body = document.createElement("span");
-    body.className = "body";
-    body.textContent = content;
-    box.appendChild(body);
-  }
-
-  function updatePopover(host, el, content, badge, stateClass) {
-    fillPopover(host, content, badge, stateClass);
-    positionPopover(host, el);
+  // Копировать перевод: Clipboard API (нужен защищённый адрес), иначе — выделением в своём поле.
+  function copyText(value, btn) {
+    const done = () => {
+      btn.replaceChildren(icon("check", 16));
+      btn.title = HT_t("csCopied");
+      setTimeout(() => { btn.replaceChildren(icon("copy", 16)); btn.title = HT_t("csCopy"); }, 1500);
+    };
+    const legacy = () => {
+      const root = btn.getRootNode();
+      const ta = h("textarea", { "aria-hidden": "true", style: "position:fixed;left:-9999px;top:0;opacity:0" });
+      ta.value = value;
+      root.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      ta.remove();
+      btn.focus();
+      if (ok) done();
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(value).then(done, legacy);
+    else legacy();
   }
 
   function removePopover(owner, node) {
@@ -1168,7 +1477,10 @@
     const n = node || (st && st.node);
     if (n && n.parentNode) n.remove();
     // Чужой узел (устаревшая карточка того же абзаца) не снимает с учёта текущую.
-    if (!node || !st || st.node === node) popovers.delete(owner);
+    if (!node || !st || st.node === node) {
+      popovers.delete(owner);
+      if (st && st.ring) { restoreStyle(owner, st.ring); st.ring = null; }
+    }
     if (popCloseOwner === owner) popCloseCancel();
   }
 
@@ -1182,37 +1494,41 @@
   }
   function popCloseCancel() { clearTimeout(popCloseTimer); popCloseOwner = null; }
 
-  // ---- перевод наведением: поповер (элемент целиком) ----
+  // ---- перевод наведением: карточка (элемент целиком) ----
   async function translatePopover(owner) {
     if (!owner || !owner.isConnected || isBusy(owner)) return;
     const gen = liveGen;   // токен отмены — ДО первого await, см. пояснение в translateLine
     inFlight.add(owner);
+    let st = null;
     try {
       const text = owner.textContent;
       if (await isAlreadyTarget(text)) return;
       if (gen !== liveGen || !active() || !owner.isConnected || isShown(owner)) return;
-      const state = showPopover(owner, HT_t("cardLoading"), null, "loading");
-      const node = state.node;
+      // Одна карточка за раз: новая закрывает прежние (и те, что ещё ждут перевода).
+      for (const o of Array.from(popovers.keys())) if (o !== owner) removePopover(o);
+      st = { node: null };
+      popovers.set(owner, st);          // маркер «занят»: mouseout, Esc и щелчок мимо снимают и ожидание
+      loadingOn(owner);
+      placeToast(owner);
       const out = await translateItems([text], HT_BY_PAGE);
-      if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== state) {
-        removePopover(owner, node);
-        return;
-      }
+      loadingOff(owner);
+      if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== st) return;
       const res = out.results && out.results[0];
       if (res && res.ok && res.value && res.value.trim()) {
         let src = res.src || null;
         if (!src && settings.showLangBadge) src = (await detectLang(text, false)).lang || null;
-        if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== state) { removePopover(owner, node); return; }
-        const badge = (settings.showLangBadge && src && src.toLowerCase() !== targetBase().toLowerCase()) ? badgeText(src) : null;
-        updatePopover(node, owner, res.value, badge, "");
-      } else if (res) {
-        removePopover(owner, node); // переводить нечего
+        if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== st) return;
+        noteSrc(src);
+        showCard(owner, st, res.value, src);
       } else {
-        removePopover(owner, node);
-        showFail(null, out);
+        removePopover(owner);
+        if (!res) showFail(owner, out);   // нет ответа — ошибка; пустой ответ — переводить нечего
       }
     } finally {
       inFlight.delete(owner);
+      loadingOff(owner);
+      // Не дождались (отмена, сбой): ожидание без карточки не должно занимать абзац.
+      if (st && !st.node && popovers.get(owner) === st) removePopover(owner);
     }
   }
   // ---- перевод наведением/страницы: замена текстовых узлов ----
@@ -1234,10 +1550,12 @@
       const nodes = collectTextNodes(owner);
       if (!nodes.length) return;
 
-      line = { owner, nodes, persistent: !!persistent, gen, hlSaved: null };
+      // Фон под абзацем — до своих классов: пульсация «идёт перевод» меняет его цвет.
+      line = { owner, nodes, persistent: !!persistent, gen, hlSaved: null, bg: bgOf(owner) };
       recs = nodes.map((n) => newEntry(n, line));
       lineByOwner.set(owner, line);          // маркер «занят» — закрывает гонку и ловит mouseout во время await
-      loadingOn(owner);
+      loadingOn(owner, line.bg.dark);
+      placeToast(owner);                     // уведомление не должно закрывать то, что переводится
 
       const out = await translateItems(recs.map((r) => r.core), HT_BY_PAGE);
 
@@ -1245,9 +1563,13 @@
       if (gen !== liveGen || !owner.isConnected || lineByOwner.get(owner) !== line) return;
       if (out.error) { showFail(owner, out); return; }
       if (!writeLine(recs, out.results, line)) return;
+      // Страницу переводят целиком — переведённое клавишей остаётся и при уходе курсора.
+      if (pageActive) line.persistent = true;
       lines.add(line);
       applyHLLine(line);
+      for (const res of out.results) noteSrc(res && res.src);
       committed = true;
+      pushState();
     } finally {
       inFlight.delete(owner);
       loadingOff(owner);
@@ -1305,10 +1627,11 @@
       nodeRecs.delete(n);
     }
     if (lineByOwner.get(owner) === line) lineByOwner.delete(owner);
-    lines.delete(line);
+    const counted = lines.delete(line);
     clearHLLine(line);                 // и при keep-alive: иначе наш inline-style остался бы навсегда
     if (revert) clearError(owner);     // таймер и класс ошибки
     loadingOff(owner);                  // ht-translated нигде не ставится — снимать нечего
+    if (counted) pushState();           // окну: «Переведено N» изменилось
   }
 
   function restoreLine(line) { releaseLine(line, true); }  // с откатом текста к оригиналу
@@ -1323,40 +1646,68 @@
     return false;
   }
 
-  // Ошибка движка при наведении (замена): подсветить owner и сбросить через таймер. Текст ошибки на
-  // элемент страницы не пишем — в title его прочитал бы скрипт сайта; он только в нашем уведомлении.
+  // Ошибка движка при наведении: красная подложка .10 и «!» 20 после текста (псевдоэлементом —
+  // content.css, в DOM страницы ничего не добавляем), снимается по таймеру. Текст ошибки на элемент
+  // страницы не пишем — в title его прочитал бы скрипт сайта; он только в нашем уведомлении.
+  const ERROR_MS = 4000;
   function failOwner(owner) {
     clearTimeout(errors.get(owner));
     loadingOff(owner);
     owner.classList.add("ht-error");
-    errors.set(owner, setTimeout(() => clearError(owner), 1800));
+    owner.classList.toggle("ht-error-dark", bgOf(owner).dark);
+    errors.set(owner, setTimeout(() => clearError(owner), ERROR_MS));
+  }
+
+  // Пока идёт перевод — синяя подложка с пульсом 1,2 с (content.css; на тёмном фоне — светлее, при
+  // prefers-reduced-motion — ровная). Появляется с задержкой 0,15 с: перевод из сохранённых приходит
+  // мгновенно и мигать не должен. dark — тёмный ли фон (если уже известен).
+  function loadingOn(owner, dark) {
+    owner.classList.add("ht-loading");
+    if (dark === undefined ? bgOf(owner).dark : dark) owner.classList.add("ht-loading-dark");
+  }
+  function loadingOff(owner) { owner.classList.remove("ht-loading", "ht-loading-dark"); }
+  // «Стоп» и возврат оригинала: у отменённых переводов пульс снимаем сразу, а не когда придёт (и будет
+  // отброшен) ответ — на медленной сети это до тайм-аута сервиса. pageOnly — только перевод страницы.
+  function loadingOffCancelled(pageOnly) {
+    for (const el of document.querySelectorAll(".ht-loading")) {
+      const line = lineByOwner.get(el);
+      if (!pageOnly || (line && line.page)) loadingOff(el);
+    }
   }
 
   // Снять состояние ошибки. Единственная точка выхода из него: и по таймеру, и по повторному
   // наведению, и при откате строки.
-  // Пока идёт перевод — лёгкая пульсация подсветки (content.css). На тёмном фоне — светлая, как и сама
-  // подсветка перевода; при prefers-reduced-motion вместо пульсации ровный фон.
-  function loadingOn(owner) {
-    owner.classList.add("ht-loading");
-    if (bgLuminance(owner.parentElement || owner) < 0.5) owner.classList.add("ht-loading-dark");
-  }
-  function loadingOff(owner) { owner.classList.remove("ht-loading", "ht-loading-dark"); }
-
   function clearError(owner) {
-    owner.classList.remove("ht-error");
+    owner.classList.remove("ht-error", "ht-error-dark");
     clearTimeout(errors.get(owner));
     errors.delete(owner);
   }
 
+  // Вернуть оригинал везде. Страницу переводили целиком — окно покажет сегмент на «Оригинал» (pageWas).
   function restoreAll() {
+    if (pageActive) pageWas = true;
     pageActive = false;
+    pageBusy = null;
     stopPageObserver();
     liveGen++; // отменяем переводы «в полёте»
+    loadingOffCancelled(false);
     for (const line of Array.from(lines)) restoreLine(line);
     for (const owner of Array.from(popovers.keys())) removePopover(owner);
     drift = null;
-    // «Готово · Вернуть оригинал» после возврата оригинала уже ни к чему.
+    // «Страница переведена · Показать оригинал» после возврата оригинала уже ни к чему.
     if (pageToast) { pageToast.close(); pageToast = null; }
+    pushState();
+  }
+
+  // «Стоп» в окне: перевод страницы останавливается, переведённое остаётся (окно покажет «Переведено N»).
+  // Пачки в полёте отменяются (pageGen) и на страницу не попадают.
+  function stopPage() {
+    if (!pageActive) return;
+    stopPageObserver();
+    loadingOffCancelled(true);
+    pageActive = false;
+    pageBusy = null;
+    pushState();
   }
 
   // Есть ли что возвращать: переводы, карточки, перевод страницы по прокрутке, перевод в полёте.
@@ -1403,6 +1754,7 @@
     if (!active() || problem()) return;            // переводчик не может работать — прежнее остаётся
     // Вкладку могли скрыть за время задержки — тогда тоже ждём её показа.
     if (document.visibilityState !== "visible") { retranslateOnShow = true; return; }
+    if (pageActive) return retranslatePage();
     const list = [];
     for (const line of lines) {
       if (!line.owner.isConnected || inFlight.has(line.owner)) continue;
@@ -1419,6 +1771,38 @@
     } finally {
       for (const line of list) inFlight.delete(line.owner);
     }
+  }
+
+  // Страница переведена целиком, а язык (переводчик, тон) сменили: переводим заново, и окно на это время
+  // видит «Перевожу… N из M» по видимым абзацам. Видимое — маленькими пачками параллельно, затем
+  // невидимое уже переведённое — в фоне, а непереведённое — по прокрутке, как при первом переводе.
+  async function retranslatePage() {
+    stopPageObserver();
+    const gen = pageGen, lgen = liveGen;
+    const vis = [], hid = [];
+    for (const line of lines) {
+      if (line.owner.isConnected) (inView(line.owner) ? vis : hid).push(line);
+    }
+    const fresh = collectCandidates();
+    const freshVis = fresh.filter(inView), freshRest = fresh.filter((el) => !freshVis.includes(el));
+    const jobs = [];
+    const size = firstBatch(vis.length + freshVis.length);
+    for (let i = 0; i < vis.length; i += size) jobs.push({ lines: vis.slice(i, i + size) });
+    for (let i = 0; i < freshVis.length; i += size) jobs.push({ owners: freshVis.slice(i, i + size) });
+    pageBusy = { done: 0, total: vis.length + freshVis.length };
+    pushState();
+    const still = () => gen === pageGen && lgen === liveGen;
+    await runParallel(jobs, async (j) => {
+      if (j.lines) await retranslateLines(j.lines, lgen);
+      else await translatePageChunk(j.owners, gen);
+      if (still() && pageBusy) { pageBusy.done = Math.min(pageBusy.total, pageBusy.done + (j.lines || j.owners).length); pushState(); }
+      return still();
+    });
+    if (gen !== pageGen) return;                   // остановили или запустили заново — состояние у них
+    pageBusy = null;
+    pushState();
+    if (freshRest.length) observeRest(freshRest);
+    for (let i = 0; i < hid.length && still(); i += LINE_BATCH) await retranslateLines(hid.slice(i, i + LINE_BATCH), lgen);
   }
 
   async function retranslateLines(chunkLines, gen) {
@@ -1448,7 +1832,11 @@
 
   // ---- перевод всей страницы (батчами, с учётом кэша на стороне background) ----
   const PAGE_MAX = 500;
-  const OWNER_BATCH = 20; // owner-ов на один сетевой батч (узлы внутри дочанкуются в background)
+  const OWNER_BATCH = 20; // owner-ов на один сетевой батч при прокрутке (узлы внутри дочанкуются в background)
+  // Видимое при первом проходе — маленькими пачками (по 1–2 абзаца) по нескольку параллельно: окно
+  // показывает «Перевожу… N из M», и счётчик должен двигаться, а не прыгать с 0 сразу на M.
+  const FIRST_PARALLEL = 3;
+  function firstBatch(total) { return total <= 8 ? 1 : 2; }
 
   // Кандидаты на перевод страницы. Уже переведённые owner-ы бюджет PAGE_MAX НЕ занимают: раньше
   // лимит применялся до фильтрации, поэтому повторный запуск снова упирался в те же первые 500
@@ -1472,8 +1860,10 @@
     return out;
   }
 
-  function tellAlreadyTranslated() {
-    notice(HT_t("pageAlready"), 6000, { closable: true, actions: [{ label: HT_t("showOriginal"), run: () => restoreAll() }] });
+  // Виден ли элемент в окне сейчас (хотя бы частично).
+  function inView(el) {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
   }
 
   function stopPageObserver() {
@@ -1489,85 +1879,136 @@
     if (batch.length) translatePageOwners(batch, pageGen);
   }
 
-  // via — откуда просьба: "popup" (кнопка окна или панели) или "command" (горячая клавиша; keys —
+  // Остальное — по мере появления в зоне видимости (с запасом 300 px).
+  function observeRest(rest) {
+    pageObserver = new IntersectionObserver((entries, observer) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        observer.unobserve(e.target);
+        if (!lineByOwner.has(e.target)) pendingObserved.add(e.target);
+      }
+      clearTimeout(flushTimer);
+      flushTimer = setTimeout(flushObserved, 150);
+    }, { rootMargin: "300px" });
+    for (const el of rest) pageObserver.observe(el);
+  }
+
+  // Выполнить задания по FIRST_PARALLEL одновременно; run(job) → продолжать ли (false — остановиться).
+  async function runParallel(jobs, run) {
+    let next = 0, go = true;
+    const worker = async () => {
+      while (go && next < jobs.length) {
+        const job = jobs[next++];
+        if (!(await run(job))) go = false;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(FIRST_PARALLEL, jobs.length) }, worker));
+  }
+
+  // «Страница переведена» с парой языков, «Показать оригинал» и подсказкой «или Esc».
+  function showPageDone() {
+    const tgt = settings.targetLang;
+    // Язык оригинала — по ответам переводчика; сохранённые переводы приходят без него — тогда по атрибуту
+    // lang страницы (так же делает окно), а если и его нет — «На русский».
+    const lang = HT_langKey(document.documentElement.lang || "");
+    const src = pageSrc || (/^[a-z]{2,3}$/.test(lang) && !isTargetLang(lang) ? lang : "");
+    const text = src ? pairText(src, tgt) : HT_t("intoLang", HT_langLabel(HT_langBase(tgt)));
+    if (pageToast) pageToast.close();
+    pageToast = notice(text, 8000, {
+      title: HT_t("csPageDone"), icon: "ok", esc: true,
+      actions: [{ label: HT_t("csShowOrig"), run: () => restoreAll() }],
+    });
+  }
+
+  // via — откуда просьба: "popup" (кнопка окна или мини-панели) или "command" (горячая клавиша; keys —
   // её сочетание для подсказки). Окно расширения само говорит, что перевод выключен, а горячая
   // клавиша — только здесь.
   // На выключенном сайте не переводим и по явной просьбе: сайты выключают ради приватности (почта,
   // банк), и привычное сочетание клавиш не должно отправить такую страницу в DeepL. Включить сайт —
   // один щелчок в окне расширения.
+  // Ход работы — окну (pageState): «busy» с числом готовых видимых абзацев, затем «done». Уведомления
+  // «Перевожу…» нет; когда видимое готово — «Страница переведена», остальное — при прокрутке.
   async function translatePage(via, keys) {
     if (!settings.enabled) {
-      if (via === "command") notice(keys ? HT_t("offViaKeys", keys) : HT_t("offViaWindow"), 5000);
+      if (via === "command") notice(keys ? HT_t("csOffPageKeys", keys) : HT_t("csOffWindow"), 5000, { title: HT_t("csOffTitle") });
       return;
     }
     if (siteOff) {
-      notice(HT_t("siteOffPage"), 7000, { closable: true });
+      notice(HT_t("csSiteOffText", SITE || location.hostname), 7000, { title: HT_t("csSiteOffTitle") });
       return;
     }
     if (blocked(true)) return;
-    // Страница уже переведена. Горячая клавиша работает как переключатель — возвращает оригинал, как
-    // и ожидают от повторного нажатия. Кнопка окна переводит то, что появилось нового, а если нового
-    // нет — говорит, что страница уже переведена (раньше: «уже на нужном языке» — неправда и тупик).
-    const wasActive = pageActive && lines.size > 0;
-    if (wasActive && via === "command") {
+    // Горячая клавиша на переведённой странице — переключатель: возвращает оригинал, как и ожидают от
+    // повторного нажатия. Окно и мини-панель показывают оригинал своими кнопками.
+    if (pageActive && via === "command") {
       restoreAll();
-      notice(HT_t("originalBack"), 3000);
+      notice(HT_t("csOrigShown"), 3000);
       return;
     }
+    if (pageBusy) return;          // видимое уже переводится — второе нажатие ничего не добавляет
+    const wasActive = pageActive;
     stopPageObserver();          // сбрасывает прошлый прогон и инкрементит pageGen
     const gen = pageGen;
     const fresh = collectCandidates();
-    if (!fresh.length && wasActive) { pageActive = true; tellAlreadyTranslated(); return; }
-    // Молчать нельзя: раньше при пустом списке не было ни тоста, ни observer-а, и пользователь
-    // жал кнопку снова и снова, не понимая, почему ничего не происходит. Это не успех и не ошибка —
-    // поэтому нейтральная подсказка.
-    if (!fresh.length) { notice(HT_t("nothingOnPage"), 4000); return; }
-
-    const vh = innerHeight, vw = innerWidth;
-    const inView = [], rest = [];
-    for (const el of fresh) {
-      const r = el.getBoundingClientRect();
-      const visible = r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
-      (visible ? inView : rest).push(el);
+    if (!fresh.length) {
+      // Всё уже переведено — целиком или наведением: страница считается переведённой.
+      if (wasActive || lines.size) {
+        const was = wasActive;
+        for (const l of lines) l.persistent = true;
+        pageActive = true; pageWas = false;
+        pushState();
+        if (!was) showPageDone();
+        return;
+      }
+      // Молчать нельзя: раньше при пустом списке не было ни уведомления, ни observer-а, и человек
+      // жал кнопку снова и снова. Это не успех и не ошибка — поэтому нейтрально, без значка.
+      notice(HT_t("csNothingText"), 5000, { title: HT_t("csNothingTitle") });
+      return;
     }
 
+    const visible = fresh.filter(inView);
+    const rest = fresh.filter((el) => !visible.includes(el));
+    // Переведённое наведением остаётся, пока страница переведена (уход курсора его не откатывает).
+    for (const l of lines) l.persistent = true;
     pageActive = true;
-    const t = pageToast = showToast({ message: HT_t("translatingPage"), kind: "info", ms: 0, title: extName() });
-    const done = await translatePageOwners(inView, gen); // видимое — сразу
-    if (gen !== pageGen) { t.close(); return; }
-    // Ошибку уже показали (она заняла место «Перевожу…») — «Готово» её бы спрятало.
-    if (done.failed) { if (pageToast === t) pageToast = null; }
-    else if (!done.wrote && wasActive) {
-      t.close();
-      if (pageToast === t) pageToast = null;
-      tellAlreadyTranslated();
-    } else if (!done.wrote) {
-      // Ничего не заменено — «Готово» было бы неправдой. Видимая часть уже на нужном языке (или на экране
-      // нет текста для перевода); остальное, если оно есть, переведётся по прокрутке.
-      t.update(rest.length
-        ? { message: HT_t(inView.length ? "visibleInLang" : "scrollToTranslate"), closable: true, ms: 6000 }
-        : { message: HT_t("alreadyInLang"), ms: 4000 });
-      if (pageToast === t) pageToast = null;
-    } else {
-      t.update({
-        message: HT_t(rest.length ? "doneScroll" : "donePage"),
-        actions: [{ label: HT_t("showOriginal"), run: () => restoreAll() }],
-        closable: true, ms: 8000,
-      });
-    }
+    pageWas = false;
+    pageBusy = { done: 0, total: visible.length };
+    if (pageToast) { pageToast.close(); pageToast = null; }
+    pushState();
 
-    if (rest.length) {                   // остальное — по мере появления в зоне видимости
-      pageObserver = new IntersectionObserver((entries, observer) => {
-        for (const e of entries) {
-          if (!e.isIntersecting) continue;
-          observer.unobserve(e.target);
-          if (!lineByOwner.has(e.target)) pendingObserved.add(e.target);
-        }
-        clearTimeout(flushTimer);
-        flushTimer = setTimeout(flushObserved, 150);
-      }, { rootMargin: "300px" });
-      for (const el of rest) pageObserver.observe(el);
+    const sum = { wrote: 0, failed: false };
+    const jobs = [];
+    const size = firstBatch(visible.length);
+    for (let i = 0; i < visible.length; i += size) jobs.push(visible.slice(i, i + size));
+    await runParallel(jobs, async (chunk) => {
+      const r = await translatePageChunk(chunk, gen);
+      sum.wrote += r.wrote;
+      if (r.failed) sum.failed = true;
+      if (gen === pageGen && pageBusy) { pageBusy.done = Math.min(pageBusy.total, pageBusy.done + chunk.length); pushState(); }
+      return gen === pageGen && !r.failed;      // ошибка — одна на всех: дальше не шлём
+    });
+    if (gen !== pageGen) return;   // «Стоп», Esc, новый запуск или смена языка — состояние ведут они
+
+    pageBusy = null;
+    if (sum.failed && !sum.wrote) {
+      // Ошибку (или «Щёлкните по тексту») уже показали; страница не переведена.
+      pageActive = false;
+      stopPageObserver();
+      pushState();
+      return;
     }
+    if (rest.length) observeRest(rest);
+    if (sum.wrote || wasActive) {
+      if (sum.wrote) showPageDone();
+    } else if (rest.length) {
+      // Видимая часть уже на нужном языке (или на экране нет текста); остальное — при прокрутке.
+      notice(HT_t(visible.length ? "csVisibleInLang" : "csScrollToTranslate"), 6000);
+    } else {
+      // Ничего не заменено — «Страница переведена» было бы неправдой.
+      pageActive = false;
+      notice(HT_t("csAlreadyText"), 5000, { title: HT_t("csNothingTitle") });
+    }
+    pushState();
   }
 
   // Возвращает { wrote: сколько элементов переведено, failed: была ли ошибка }.
@@ -1600,7 +2041,8 @@
       if (!nodes.length) continue;
       inFlight.add(owner);
       loadingOn(owner);
-      const line = { owner, nodes, persistent: true, gen: lgen, hlSaved: null };
+      // page — переведено вместе со страницей: без подсветки (applyHLLine).
+      const line = { owner, nodes, persistent: true, page: true, gen: lgen, hlSaved: null };
       lineByOwner.set(owner, line);
       lineObjs.push(line);
       for (const n of nodes) entries.push(newEntry(n, line));
@@ -1630,7 +2072,7 @@
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
       if (e.line.gen !== liveGen || lineByOwner.get(e.line.owner) !== e.line) continue;
-      if (writeEntry(e, results[i], e.rec.orig)) wrote.add(e.line);
+      if (writeEntry(e, results[i], e.rec.orig)) { wrote.add(e.line); noteSrc(results[i].src); }
     }
 
     for (const line of lineObjs) {
@@ -1638,6 +2080,7 @@
       if (wrote.has(line)) { lines.add(line); applyHLLine(line); }
       else dropLine(line);           // ничего не записали — снять маркеры
     }
+    if (wrote.size) pushState();
     return { wrote: wrote.size, failed: false };
   }
 
@@ -1656,6 +2099,7 @@
   on(document, "mouseover", (e) => {
     if (!e.isTrusted) return;
     lastOverTarget = e.target;            // и при выключенном переводе: см. keydown
+    hoverLost = false;
     if (!active() || !alive()) return;
     const target = pickTarget(e.target);
     hoverEl = (target && isTextTarget(target)) ? target : null;
@@ -1677,9 +2121,18 @@
   // под курсор, ждёт, пока мышь сдвинется. Таймер — один раз на заход на элемент (dwellFor), так что
   // и фильтр dwellSkip считается один раз, а не на каждое движение.
   const DRIFT_PX = 16;
+  let hoverLost = false;              // элемент под курсором сброшен потерей фокуса окна
   on(document, "mousemove", (e) => {
     if (!e.isTrusted || !pointerMoved(e)) return;
     lastXY = { x: e.clientX, y: e.clientY };
+    // Окно теряло фокус (открыли окно расширения, Alt+Tab): «элемент под курсором» тогда сброшен, а
+    // mouseover после возврата не приходит, если курсор остался на том же элементе. Без этого клавиша
+    // и щелчок по абзацу (повтор для загрузки переводчика) после закрытия окна расширения не работали.
+    if (hoverLost) {
+      hoverLost = false;
+      lastOverTarget = e.target;
+      if (active() && !dead) { const t = pickTarget(e.target); hoverEl = t && isTextTarget(t) ? t : null; }
+    }
     if (settings.trigger !== "dwell" || !active() || dead) return;
     if (drift && !settleDrift(e)) return;
     const el = hoverEl;
@@ -1784,6 +2237,10 @@
   // Esc для поля (закрыть подсказки поиска), переводы не трогаем. Встроенные окна вкладки (у
   // каждого свой скрипт и свои переводы) откатывает background по нашей просьбе.
   function escRestore() {
+    // Открыто меню мини-панели — Esc закрывает только его (фокус возвращается на «⋯»).
+    if (menuOpen()) { closeMenu(true); return; }
+    // Открыт список языка мини-панели — Esc закрывает только его (это делает сам Chrome).
+    if (hudPickerOpen()) return;
     if (typingFocus()) return;
     // Esc закрывает и уведомление расширения на странице (раньше оно висело до таймера или ✕).
     if (currentToast) currentToast.close();
@@ -1794,10 +2251,12 @@
 
   on(window, "mousedown", (e) => { if (e.isTrusted) modPress = null; }, true);
 
-  // Щелчок мимо карточки закрывает её. Щелчок внутри приходит с хостом карточки в target (закрытый
-  // shadow root наружу показывает только хост).
+  // Щелчок мимо карточки закрывает её, мимо мини-панели — её меню. Щелчок внутри приходит с хостом в
+  // target (закрытый shadow root наружу показывает только хост).
   on(window, "pointerdown", (e) => {
-    if (!e.isTrusted || !popovers.size) return;
+    if (!e.isTrusted) return;
+    if (menuOpen() && e.target !== hud.host) closeMenu(false);
+    if (!popovers.size) return;
     for (const st of popovers.values()) if (st.node === e.target) return;
     for (const owner of Array.from(popovers.keys())) removePopover(owner);
   }, true);
@@ -1815,22 +2274,68 @@
 
   // Окно потеряло фокус (Alt+Tab, клик в адресную строку): отпускание клавиши придёт уже не нам,
   // а элемент под курсором неизвестен до следующего движения мыши.
-  on(window, "blur", () => { hoverEl = null; lastOverTarget = null; modPress = null; clearTimeout(dwellTimer); dwellFor = null; });
+  on(window, "blur", () => {
+    hoverEl = null; lastOverTarget = null; modPress = null; clearTimeout(dwellTimer); dwellFor = null;
+    hoverLost = true;                    // вернуть при первом движении мыши (см. mousemove)
+    if (menuOpen()) closeMenu(false);
+  });
 
-  // Команды из popup и от горячих клавиш (через background). Обязательно отвечаем (sendResponse),
-  // иначе на стороне popup взводится lastError «порт закрыт» и страница ошибочно считается
-  // недоступной. Ответ на getHudState — заодно и состояние сайта для переключателя в окне.
+  // ---- состояние страницы для окна расширения ----
+  // page: "idle" — ничего не переведено; "busy" — идёт перевод видимой части (done из total видимых
+  // абзацев первого прохода); "done" — видимое переведено, остальное переводится при прокрутке; "orig" —
+  // страницу переводили целиком и вернули оригинал (окно ставит сегмент на «Оригинал»); "part" —
+  // переведено count абзацев наведением или клавишей (или перевод страницы остановили «Стопом»).
+  // src — язык оригинала по ответам переводчика ("" — неизвестен); lang — атрибут lang страницы:
+  // окно готовит встроенному переводчику именно эту пару.
+  function pageNow() {
+    if (pageActive) return pageBusy ? "busy" : "done";
+    if (lines.size) return "part";
+    return pageWas ? "orig" : "idle";
+  }
+  function tabState() {
+    return {
+      ok: true, hud: !!hud, site: SITE, siteOff, lang: String(document.documentElement.lang || "").slice(0, 20),
+      page: pageNow(), done: pageBusy ? pageBusy.done : 0, total: pageBusy ? pageBusy.total : 0, count: lines.size, src: pageSrc,
+    };
+  }
+  // Окно открыто и ждёт: верхний фрейм сам сообщает каждое изменение (несколько подряд — одним
+  // сообщением, одинаковое — не повторяет). Кнопка перевода в мини-панели — тоже по этому состоянию.
+  function pushState() {
+    syncHud();
+    if (!TOP || OWN_PAGE || dead || stateTimer) return;
+    stateTimer = setTimeout(() => {
+      stateTimer = 0;
+      if (dead) return;
+      themeHud();                       // сайт мог сменить тему (свои цвета панели — по фону сайта)
+      const st = tabState();
+      const json = JSON.stringify(st);
+      if (json === stateSent) return;
+      stateSent = json;
+      send({ type: "pageState", state: st }).catch(() => {});
+    }, 30);
+  }
+  // Язык оригинала страницы — самый частый среди ответов переводчика (на целевом языке не считаем).
+  function noteSrc(src) {
+    const k = HT_langKey(src || "");
+    if (!/^[a-z]{2,3}$/.test(k) || isTargetLang(k)) return;
+    srcCount.set(k, (srcCount.get(k) || 0) + 1);
+    let best = "", n = 0;
+    for (const [code, m] of srcCount) if (m > n) { best = code; n = m; }
+    if (best !== pageSrc) { pageSrc = best; pushState(); }
+  }
+
+  // Команды из окна и от горячих клавиш (через background). Обязательно отвечаем (sendResponse),
+  // иначе на стороне окна взводится lastError «порт закрыт» и страница ошибочно считается
+  // недоступной. Ответ на getHudState, toggleHud и stopPage — состояние вкладки (tabState).
+  // translatePage отвечает сразу: окно не закрывается, ход перевода приходит сообщениями pageState.
   // На своей странице расширения (приветствие) не слушаем: туда долетают все runtime.sendMessage
   // окна настроек, и наш ответ «true» мог бы опередить ответ background.
-  // lang — язык страницы из её разметки: окно готовит встроенному переводчику именно эту пару.
-  function tabState() {
-    return { ok: true, hud: !!hud, site: SITE, siteOff, lang: String(document.documentElement.lang || "").slice(0, 20) };
-  }
   if (!OWN_PAGE) {
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!msg || !msg.type) return;
       if (msg.type === "restoreAll") { restoreAll(); sendResponse(true); }
       else if (msg.type === "translatePage") { translatePage(msg.via, typeof msg.keys === "string" ? msg.keys : ""); sendResponse(true); }
+      else if (msg.type === "stopPage") { stopPage(); sendResponse(tabState()); }
       else if (msg.type === "toggleHud") { toggleHud(); sendResponse(tabState()); }
       else if (msg.type === "getHudState") { sendResponse(tabState()); }
       else if (msg.type === "say") { say(msg); sendResponse(true); }
@@ -1841,80 +2346,28 @@
   // Горячая клавиша вкл/выкл: значок покажет «off», но смотрят в этот момент на страницу.
   function say(msg) {
     const keys = typeof msg.keys === "string" && msg.keys ? msg.keys : "";
-    if (msg.what === "enabled") notice(HT_t("toggledOn"), 2500);
-    else if (msg.what === "disabled") notice(keys ? HT_t("toggledOffKeys", keys) : HT_t("toggledOff"), 3500);
+    if (msg.what === "enabled") notice("", 2500, { title: HT_t("csOnTitle"), icon: "ok" });
+    else if (msg.what === "disabled") notice(keys ? HT_t("csOffKeys", keys) : "", 3500, { title: HT_t("csOffTitle") });
   }
 
-  // ---- мини-HUD: смена целевого языка и действия прямо на странице ----
+  // ---- мини-панель: смена языка перевода и действия прямо на странице ----
+  // 48 px: ручка, значок, язык (список, выглядит как кнопка 32 со стрелкой), «Перевести страницу» (нажата,
+  // пока страница переведена), «Показать оригинал», «⋯» — меню с редким: «Выключить на этом сайте»,
+  // «Скрыть мини-панель». Внизу справа с отступом 16; можно перетащить за ручку.
   const HUD_MARGIN = 16;
-  const HUD_CSS = `
-    .bar {
-      box-sizing: border-box;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px;
-      border-radius: 10px;
-      background: #1f2430;
-      color: #f3f4f6;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
-      font: 13px/1.2 system-ui, -apple-system, sans-serif;
-    }
-    .grip {
-      width: 14px;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: rgba(255, 255, 255, .45);
-      cursor: grab;
-      user-select: none;
-      touch-action: none;
-    }
-    .grip:active { cursor: grabbing; }
-    select, button {
-      box-sizing: border-box;
-      margin: 0;
-      height: 28px;
-      border: 1px solid rgba(255, 255, 255, .18);
-      border-radius: 6px;
-      background: #2a3142;
-      color: #f3f4f6;
-      font: 13px/1.2 system-ui, -apple-system, sans-serif;
-      cursor: pointer;
-    }
-    select { max-width: 160px; padding: 0 6px; }
-    button {
-      width: 28px;
-      padding: 0;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      transition: background .12s, border-color .12s;
-    }
-    button:hover { background: #39435a; border-color: rgba(255, 255, 255, .35); }
-    select:focus-visible, button:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; }
-  `;
 
   function buildHud() {
-    const { host, root } = makeUiHost(HUD_CSS, Z_HUD);
-    const bar = document.createElement("div");
-    bar.className = "bar";
-
-    const grip = document.createElement("div");
-    grip.className = "grip";
-    grip.textContent = "⠿";
-    grip.title = HT_t("hudDrag");
-
-    const sel = document.createElement("select");
-    sel.title = HT_t("targetLangAria");
-    sel.setAttribute("aria-label", HT_t("targetLangAria"));
+    const { host, root } = makeUiHost(Z_HUD);
+    const grip = h("span", { class: "grip", title: HT_t("csHudDrag"), "aria-hidden": "true" }, icon("grip", 16));
+    const sel = h("select", { title: HT_t("targetLangAria"), "aria-label": HT_t("targetLangAria") });
     for (const [code, label] of LANGS) {
-      const o = document.createElement("option");
-      o.value = code; o.textContent = label;
+      const o = h("option", {}, label);
+      o.value = code;
       sel.appendChild(o);
     }
+    // Поле настраиваемого списка (Chrome 135+) показывает выбранное через <button><selectedcontent>: длинное название
+    // обрезается многоточием перед стрелкой. Без поддержки кнопка внутри select не рисуется.
+    sel.prepend(h("button", { type: "button" }, document.createElement("selectedcontent")));
     sel.value = settings.targetLang;
     // Панель живёт на странице, а запись действует на всех сайтах — пишем только настоящий выбор
     // пользователя и только значение из таблицы языков.
@@ -1922,49 +2375,64 @@
       if (!e.isTrusted || HT_valid("targetLang", sel.value) !== sel.value) return;
       chrome.storage.local.set({ targetLang: sel.value });
     });
-
-    bar.append(
-      grip, sel,
-      hudButton("page", HT_t("translatePage"), () => translatePage("popup")),
-      hudButton("undo", HT_t("showOriginalEsc"), () => restoreAll()),
-    );
-    if (SITE) bar.append(hudButton("ban", HT_t("hudSiteOff"), () => disableSiteFromHud()));
-    bar.append(hudButton("close", HT_t("hudHide"), () => setHudWanted(false)));
-    root.appendChild(bar);
+    // Нажата, пока страница переведена: повторное нажатие показывает оригинал.
+    const pageBtn = uiButton("h-btn", { "aria-pressed": "false" }, [icon("languages")], () => {
+      if (pageActive) restoreAll(); else translatePage("popup");
+    });
+    const origBtn = uiButton("h-btn", { title: HT_t("csShowOrigEsc"), "aria-label": HT_t("csShowOrig") }, [icon("undo")], () => restoreAll());
+    const moreBtn = uiButton("h-btn", { title: HT_t("csMore"), "aria-label": HT_t("csMore"), "aria-haspopup": "menu", "aria-expanded": "false" },
+      [icon("more")], (e) => { if (menuOpen()) closeMenu(false); else openMenu(e.detail === 0); });
+    const sep = () => h("span", { class: "h-sep", "aria-hidden": "true" });
+    const bar = h("div", { class: "hud", role: "toolbar", "aria-label": extName() },
+      grip, logo(20, "h-logo"), h("span", { class: "h-lang" }, sel, icon("chevDown", 14)), sep(), pageBtn, origBtn, sep(), moreBtn);
+    const menu = h("div", { class: "menu", role: "menu", "aria-label": HT_t("csMore"), hidden: true });
+    if (SITE) menu.appendChild(menuItem("ban", HT_t("csSiteOffMenu"), () => disableSiteFromHud()));
+    menu.appendChild(menuItem("x", HT_t("csHideHud"), () => setHudWanted(false)));
+    // Стрелки ходят по пунктам меню (Esc закрывает — см. escRestore).
+    menu.addEventListener("keydown", (e) => {
+      if (!e.isTrusted) return;
+      const items = Array.from(menu.querySelectorAll("button"));
+      const i = items.indexOf(root.activeElement);
+      const to = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : null;
+      if (to === null) return;
+      e.preventDefault();
+      items[(to + items.length) % items.length].focus();
+    });
+    const wrap = h("div", { class: "ui hud-wrap" }, bar, menu);
+    root.appendChild(wrap);
+    host.addEventListener("mouseenter", (e) => { if (e.isTrusted) themeHud(); });
     bindHudDrag(host, grip);
-    return { host, sel };
+    return { host, root, wrap, sel, pageBtn, moreBtn, menu };
   }
 
-  // Иконки панели — те же, что на кнопках окна расширения: контуры 24×24 цветом текста. Строим через
-  // DOM, а не разметкой: в нашем окне на странице не должно быть ни одной строки HTML.
-  const HUD_ICONS = {
-    page: ["m5 8 6 6", "m4 14 6-6 2-3", "M2 5h12", "M7 2h1", "m22 22-5-10-5 10", "M14 18h6"],
-    undo: ["M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"],
-    ban: ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0", "m4.9 4.9 14.2 14.2"],
-    close: ["M18 6 6 18", "m6 6 12 12"],
-  };
-  function hudIcon(name) {
-    const NS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(NS, "svg");
-    const attrs = { viewBox: "0 0 24 24", width: "16", height: "16", fill: "none", stroke: "currentColor",
-      "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" };
-    for (const k in attrs) svg.setAttribute(k, attrs[k]);
-    for (const d of HUD_ICONS[name]) {
-      const path = document.createElementNS(NS, "path");
-      path.setAttribute("d", d);
-      svg.appendChild(path);
-    }
-    return svg;
+  function menuItem(name, label, run) {
+    return uiButton("", { role: "menuitem" }, [icon(name, 16), label], () => { closeMenu(false); run(); });
   }
-  function hudButton(icon, title, onClick) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.appendChild(hudIcon(icon));
-    b.title = title;
-    b.setAttribute("aria-label", title);
-    b.addEventListener("click", (e) => { if (e.isTrusted) onClick(); });
-    return b;
+  function menuOpen() { return !!(hud && !hud.menu.hidden); }
+  // :open у select — с Chrome 133; раньше список системный, и Esc сюда не доходит.
+  function hudPickerOpen() {
+    try { return !!hud && hud.sel.matches(":open"); } catch (e) { return false; }
   }
+  // Меню — над панелью, а если над ней мало места (панель утащили наверх) — под ней.
+  function openMenu(byKeyboard) {
+    if (!hud) return;
+    themeHud();
+    const r = hud.host.getBoundingClientRect();
+    hud.menu.classList.toggle("down", r.top < 120);
+    hud.menu.hidden = false;
+    hud.moreBtn.setAttribute("aria-expanded", "true");
+    placeToast();                       // уведомление над панелью не должно закрыть меню
+    if (byKeyboard) { const first = hud.menu.querySelector("button"); if (first) first.focus(); }
+  }
+  function closeMenu(refocus) {
+    if (!hud || hud.menu.hidden) return;
+    hud.menu.hidden = true;
+    hud.moreBtn.setAttribute("aria-expanded", "false");
+    placeToast();
+    if (refocus) hud.moreBtn.focus();
+  }
+  // Цвета панели — по фону сайта (сайт мог сменить тему, пока панель на экране).
+  function themeHud() { if (hud) hud.wrap.classList.toggle("dk", siteDark()); }
 
   // Панель закреплена снизу справа и там закрывает контент страницы — даём её перетащить
   // за ручку. Позицию запоминаем в хранилище, когда панель отпустили (не на каждом шаге — каждая
@@ -1973,6 +2441,7 @@
     grip.addEventListener("pointerdown", (e) => {
       if (!e.isTrusted) return;
       e.preventDefault();
+      closeMenu(false);
       const r = host.getBoundingClientRect();
       const dx = e.clientX - r.left, dy = e.clientY - r.top;
       let last = null;
@@ -2008,8 +2477,22 @@
     if (hud && hudPos) placeHud(hud.host, hudPos.left, hudPos.top);
     placeToast();
   });
+  // Сайт следует теме системы — свои цвета вслед за ним.
+  try {
+    const mq = matchMedia("(prefers-color-scheme: dark)");
+    on(mq, "change", () => { themeHud(); if (currentToast) currentToast.retheme(); });
+  } catch (e) { /* без matchMedia — тема по фону при показе */ }
 
-  function syncHud() { if (hud) hud.sel.value = settings.targetLang; }
+  // Язык в списке и нажатая кнопка перевода — по настройкам и состоянию страницы.
+  function syncHud() {
+    if (!hud) return;
+    hud.sel.value = settings.targetLang;
+    const on = pageActive;
+    hud.pageBtn.setAttribute("aria-pressed", String(on));
+    const label = HT_t(on ? "csPageDone" : "translatePage");
+    hud.pageBtn.title = label;
+    hud.pageBtn.setAttribute("aria-label", label);
+  }
 
   // Панель только в верхнем фрейме сайта и не на выключенном сайте. Показана ли она — общее для всех
   // сайтов (hudWanted), поэтому при переходе на другую страницу она появляется снова.
@@ -2019,6 +2502,8 @@
     if (want && !hud) {
       if (!document.body) return;
       hud = buildHud();
+      themeHud();
+      syncHud();
       mountUi(hud.host);
       if (hudPos) placeHud(hud.host, hudPos.left, hudPos.top);
       else {
@@ -2036,6 +2521,7 @@
     hudWanted = v;
     chrome.storage.local.set({ hudShown: v }).catch(() => {});
     updateHud();
+    pushState();
   }
   // Кнопка в окне расширения. На выключенном сайте панель не показываем — окно объяснит почему.
   function toggleHud() { if (hudAllowed()) setHudWanted(!hud); }
@@ -2055,200 +2541,161 @@
     siteOff = true;
     siteChanged();
     setSiteOff(true).catch(() => {});
-    notice(HT_t("siteDisabled", SITE), 8000, {
-      closable: true,
+    notice(HT_t("csSiteDisabledText"), 8000, {
+      title: HT_t("csSiteDisabledTitle", SITE),
       actions: [{ label: HT_t("turnBackOn"), run: () => { setSiteOff(false).catch(() => {}); } }],
     });
   }
 
   // ---- уведомление ----
-  // Тоже через makeUiHost: это третье наше окно, и раньше единственное, оставшееся под правилами
-  // страницы (инлайновый стиль перебивается её !important).
-  // Два вида: ошибка (красная) и подсказка (тёмная, как карточка) — для шагов настройки, хода работы и
-  // результата («Переводить нечего» — не успех и не ошибка, поэтому без зелёного). Уведомление на
-  // экране одно: новое заменяет прежнее, иначе они ложились бы друг на друга.
-  // Кнопки действий и ✕ — в закрытом shadow root и срабатывают только от настоящего щелчка; такое
-  // уведомление принимает мышь и не исчезает, пока на нём курсор.
-  const TOAST_CSS = `
-    .toast {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      max-width: min(560px, 90vw);
-      padding: 9px 10px 9px 14px;
-      border-radius: 10px;
-      font: 13px/1.45 var(--ht-font-family);
-      text-align: left;
-      color: var(--ht-fg);
-      background: var(--ht-bg);
-      box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
-      opacity: 0;
-      transform: translateY(6px);
-      transition: opacity .15s, transform .15s;
-    }
-    .toast.show { opacity: 1; transform: none; }
-    .toast.err { color: #fff; background: #c62828; }
-    .main { flex: 1 1 auto; min-width: 0; padding: 1px 0; }
-    .title { margin-bottom: 2px; font-weight: 600; }
-    .detail { margin-top: 3px; font-size: 12px; opacity: .72; overflow-wrap: anywhere; }
-    .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .acts:empty { display: none; }
-    .act {
-      margin: 0;
-      padding: 5px 11px;
-      border: 0;
-      border-radius: 6px;
-      font: 600 12px/1.25 var(--ht-font-family);
-      color: #0b1220;
-      background: #8ab4ff;
-      cursor: pointer;
-    }
-    .act:hover { background: #a8c7ff; }
-    .err .act { color: #b71c1c; background: #fff; }
-    .err .act:hover { background: #ffe9e9; }
-    .x {
-      flex: none;
-      width: 24px;
-      height: 24px;
-      margin: -3px -3px 0 0;
-      padding: 0;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: inherit;
-      opacity: .7;
-      font: 15px/1 var(--ht-font-family);
-      cursor: pointer;
-    }
-    .x:hover { opacity: 1; background: rgba(255, 255, 255, .16); }
-    button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-    @media (prefers-reduced-motion: reduce) { .toast { transform: none; transition: none; } }
-  `;
-
-  // Показать уведомление. o: { message, kind: "info"|"err", ms (0 — пока не закроют), title (строка
-  // над текстом: на чужом сайте видно, чьё это окно), detail (мелко: код ответа, текст сервиса),
-  // actions: [{ label, run }], closable (✕) }. Возвращает { set(текст), update(o), close() }.
+  // 360 px, вверху справа с отступом 16. Если там оно закрыло бы абзац под курсором или тот, что
+  // переводится, — внизу справа над мини-панелью (bottom 72; без панели — 16; панель перетащили — не
+  // накрывает её). Значок расширения 20 — во всех уведомлениях (видно, что это не сайт); смысл —
+  // иконкой 16 в заголовке: ✓ зелёная, ! красная, курсор. Кнопки 32 (главная — синяя), ✕ 32, полоса
+  // загрузки 4. Уведомление на экране одно: новое заменяет прежнее.
+  // Кнопки и ✕ — в закрытом shadow root и срабатывают только от настоящего щелчка; пока на уведомлении
+  // курсор, оно не исчезает.
   let currentToast = null;
-  const TOAST_BOTTOM = 20, TOAST_GAP = 8;
+  const TOAST_EDGE = 16, TOAST_GAP = 8;
 
-  // Уведомление стоит внизу по центру, мини-панель по умолчанию — внизу справа: в узком окне они
-  // ложились друг на друга. Если пересекаются — уведомление поднимается над панелью (но не выше
-  // верхнего края окна). Панель не двигаем: её место выбрал человек.
-  function placeToast() {
+  // Пересекаются ли прямоугольники (DOMRect).
+  function cross(a, b) { return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; }
+
+  // Поставить уведомление. work — абзац, который только что начали переводить: если уведомление его
+  // закрывает, оно уходит вниз и остаётся там до закрытия (не прыгает туда-обратно).
+  function placeToast(work) {
     const t = currentToast;
     if (!t || !t.host.isConnected) return;
     const s = t.host.style;
-    s.setProperty("bottom", TOAST_BOTTOM + "px", "important");
-    if (!hud || !hud.host.isConnected) return;
-    const h = hud.host.getBoundingClientRect();
-    const r = t.host.getBoundingClientRect();
-    if (r.right <= h.left || r.left >= h.right || r.bottom <= h.top || r.top >= h.bottom) return;
-    // Нижний край окна — от самого уведомления: innerHeight включает горизонтальную полосу прокрутки,
-    // а bottom у fixed отсчитывается от края без неё.
-    const vb = r.bottom + TOAST_BOTTOM;
-    const lift = Math.min(vb - h.top + TOAST_GAP, vb - r.height);
-    s.setProperty("bottom", Math.round(Math.max(TOAST_BOTTOM, lift)) + "px", "important");
+    // Мини-панель вместе с открытым меню «⋯»: меню — внутри неё, а уведомление лежит слоем выше.
+    let hr = hud && hud.host.isConnected ? hud.host.getBoundingClientRect() : null;
+    if (hr && menuOpen()) {
+      const m = hud.menu.getBoundingClientRect();
+      hr = { left: Math.min(hr.left, m.left), top: Math.min(hr.top, m.top), right: Math.max(hr.right, m.right), bottom: Math.max(hr.bottom, m.bottom) };
+    }
+    const avoid = [t.anchor, hoverEl, work].filter((el) => el && el.nodeType === 1 && el.isConnected).map((el) => el.getBoundingClientRect());
+    const hits = (r) => avoid.some((a) => a.width && a.height && cross(r, a));
+    s.setProperty("right", TOAST_EDGE + "px", "important");
+    // Вверху справа (панель утащили наверх — под ней).
+    const atTop = () => {
+      s.removeProperty("bottom");
+      s.setProperty("top", TOAST_EDGE + "px", "important");
+      let r = t.host.getBoundingClientRect();
+      if (hr && cross(r, hr)) { s.setProperty("top", Math.round(hr.bottom + TOAST_GAP) + "px", "important"); r = t.host.getBoundingClientRect(); }
+      return r;
+    };
+    // Внизу справа, над мини-панелью, если она там. Нижний край окна — от самого уведомления: innerHeight
+    // включает горизонтальную полосу прокрутки, а bottom у fixed отсчитывается от края без неё.
+    const atLow = () => {
+      s.removeProperty("top");
+      s.setProperty("bottom", TOAST_EDGE + "px", "important");
+      let r = t.host.getBoundingClientRect();
+      if (hr && cross(r, hr)) {
+        const vb = r.bottom + TOAST_EDGE;
+        s.setProperty("bottom", Math.round(Math.min(vb - hr.top + TOAST_GAP, vb - r.height - TOAST_EDGE)) + "px", "important");
+        r = t.host.getBoundingClientRect();
+      }
+      return r;
+    };
+    let low = t.low;
+    if (!low && hits(atTop())) low = true;
+    if (low && hits(atLow()) && !hits(atTop())) low = false;
+    if (low) atLow(); else atTop();
+    t.low = low;
+    t.card.classList.toggle("low", low);
   }
 
+  // Показать уведомление. o: { title (жирная строка), icon: "ok" | "err" | "pointer", text (под заголовком —
+  // мельче и серым; без заголовка — основная строка), detail (ещё мельче: код ответа, текст сервиса),
+  // progress: "empty" | "indet" | 0–100 (полоса 4 px), actions: [{ label, run, primary }], esc (подсказка
+  // «или Esc» после кнопок), ms (0 — пока не закроют), kind: "err" (role=alert), anchor (элемент, который
+  // нельзя закрывать) }. Возвращает { host, update(o), close(), alive(), retheme() }.
   function showToast(o) {
     if (currentToast) currentToast.close();
-    const { host, root } = makeUiHost(TOAST_CSS, Z_TOAST);
+    const { host, root } = makeUiHost(Z_TOAST);
     const s = host.style;
-    s.setProperty("left", "50%", "important");
-    s.setProperty("bottom", TOAST_BOTTOM + "px", "important");
-    s.setProperty("transform", "translateX(-50%)", "important");
-    const card = document.createElement("div");
-    const main = document.createElement("div");
-    main.className = "main";
-    const title = document.createElement("div");
-    title.className = "title";
-    const body = document.createElement("div");
-    const detail = document.createElement("div");
-    detail.className = "detail";
-    const acts = document.createElement("div");
-    acts.className = "acts";
-    main.append(title, body, detail, acts);
-    const x = document.createElement("button");
-    x.type = "button";
-    x.className = "x";
-    x.textContent = "✕";
-    x.title = HT_t("close");
-    x.setAttribute("aria-label", HT_t("toastCloseAria"));
-    card.append(main, x);
+    s.setProperty("top", TOAST_EDGE + "px", "important");
+    s.setProperty("right", TOAST_EDGE + "px", "important");
+    const body = h("div", { class: "t-b" });
+    const x = uiButton("x-btn", { title: HT_t("csCloseTip"), "aria-label": HT_t("toastCloseAria") }, [icon("x", 16)], () => t.close());
+    const card = h("div", { class: "ui toast" }, logo(20, "t-ic"), body, x);
     root.appendChild(card);
 
     let timer = 0, ms = 0, closed = false, hovered = false;
     const t = {
-      host,
-      set(text) { body.textContent = text; placeToast(); },
+      host, card, anchor: o.anchor || null, low: false,
       close() {
         if (closed) return;
         closed = true;
         clearTimeout(timer);
         if (currentToast === t) currentToast = null;
+        if (downloadHint === t) downloadHint = null;
         card.classList.remove("show");
-        setTimeout(() => host.remove(), 250);
+        setTimeout(() => host.remove(), 200);
       },
-      // Сменить содержимое на месте (например, «Перевожу…» → «Готово»), если уведомление ещё на
-      // экране и его не заменило другое.
-      update(p) { if (!closed && currentToast === t) { fill(Object.assign({}, o, p)); placeToast(); } },
+      alive() { return !closed && currentToast === t; },
+      // Сменить содержимое на месте (например, «Щёлкните по тексту» → «Скачиваю переводчик»), если
+      // уведомление ещё на экране и его не заменило другое.
+      update(p) { if (t.alive()) { fill(Object.assign({}, o, p)); placeToast(); } },
+      retheme() { card.classList.toggle("dk", siteDark()); },
     };
     const arm = (delay) => { clearTimeout(timer); if (delay && !hovered) timer = setTimeout(t.close, delay); };
     function fill(p) {
       o = p;
-      card.className = "toast" + (p.kind ? " " + p.kind : "") + " show";
+      if (p.anchor) t.anchor = p.anchor;
       card.setAttribute("role", p.kind === "err" ? "alert" : "status");
-      title.textContent = p.title || "";
-      title.hidden = !p.title;
-      body.textContent = p.message;
-      detail.textContent = p.detail || "";
-      detail.hidden = !p.detail;
-      acts.textContent = "";
-      for (const a of p.actions || []) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "act";
-        b.textContent = a.label;
-        b.addEventListener("click", (ev) => { if (!ev.isTrusted) return; t.close(); a.run(); });
-        acts.appendChild(b);
+      const kids = [];
+      if (p.title) {
+        const ic = p.icon === "ok" ? h("span", { class: "ok" }, icon("checkCircle", 16))
+          : p.icon === "err" ? h("span", { class: "err" }, icon("alert", 16))
+            : p.icon === "pointer" ? icon("pointer", 16) : null;
+        kids.push(h("p", { class: "t-t" }, ic, h("span", {}, p.title)));
+        if (p.text) kids.push(h("p", { class: "t-d" }, p.text));
+      } else if (p.text) kids.push(h("p", { class: "t-m" }, p.text));
+      if (p.detail) kids.push(h("p", { class: "t-dt" }, p.detail));
+      if (p.progress != null) {
+        const pct = typeof p.progress === "number" ? Math.max(0, Math.min(100, p.progress)) : 0;
+        const bar = h("span", { class: "t-prog" + (p.progress === "indet" ? " indet" : ""), role: "progressbar",
+          "aria-valuemin": "0", "aria-valuemax": "100", "aria-label": p.title || p.text || "" }, h("span", {}));
+        if (typeof p.progress === "number") { bar.setAttribute("aria-valuenow", String(pct)); bar.firstChild.style.width = pct + "%"; }
+        kids.push(bar);
       }
-      x.hidden = !p.closable;
-      // Без кнопок уведомление «прозрачно» для мыши и не мешает щёлкать по странице под ним.
-      const interactive = !!(p.closable || (p.actions && p.actions.length));
-      s.setProperty("pointer-events", interactive ? "auto" : "none", "important");
+      const acts = (p.actions || []).map((a) => uiButton("t-btn" + (a.primary ? " pri" : ""), {}, [a.label], () => { t.close(); a.run(); }));
+      if (p.esc) acts.push(h("span", { class: "t-hint" }, HT_t("csOr"), h("span", { class: "t-kbd" }, "Esc")));
+      if (acts.length) kids.push(h("div", { class: "t-a" }, ...acts));
+      body.replaceChildren(...kids);
       ms = p.ms || 0;
       arm(ms);
     }
+    t.retheme();
+    themeHud();
     fill(o);
-    card.classList.remove("show");
-    x.addEventListener("click", (ev) => { if (ev.isTrusted) t.close(); });
     // Курсор на уведомлении — человек читает или тянется к кнопке: не убираем, пока он там.
     host.addEventListener("mouseenter", (ev) => { if (ev.isTrusted) { hovered = true; clearTimeout(timer); } });
     host.addEventListener("mouseleave", (ev) => { if (ev.isTrusted) { hovered = false; if (ms) arm(Math.min(ms, 3000)); } });
     mountUi(host);
+    currentToast = t;
+    placeToast();
     // Прозрачность анимируем на карточке, а не на хосте: у хоста opacity выставлен с !important,
     // чтобы правила страницы не могли нас спрятать.
     requestAnimationFrame(() => { if (!closed) card.classList.add("show"); });
-    currentToast = t;
-    placeToast();
     return t;
   }
 
-  // Результат действия или ошибка — не чаще раза в 3 с, чтобы серия сбоев не завалила страницу.
-  // Текст теперь длиннее кода ответа, поэтому простая ошибка держится 4 с.
-  function toast(message, kind, opts) {
+  // Ошибка — не чаще раза в 3 с, чтобы серия сбоев не завалила страницу.
+  function toast(o) {
     const now = Date.now();
     if (now - lastToastAt < 3000) return null;
     lastToastAt = now;
-    return showToast(Object.assign({ message, kind, ms: 4000 }, opts));
+    return showToast(o);
   }
 
   // Подсказка о настройке или о ходе работы. Частоту ограничивают вызывающие (раз на страницу или на
   // сессию), поэтому общий интервал её не глушит: иначе единственная подсказка терялась бы за ошибкой
   // секундой раньше.
-  function notice(message, ms, opts) {
-    return showToast(Object.assign({ message, kind: "info", ms: ms || 9000, title: extName() }, opts));
+  function notice(text, ms, opts) {
+    return showToast(Object.assign({ text, ms: ms == null ? 9000 : ms }, opts));
   }
-  // Короткое название — из сообщений (extShortName): полное, из manifest, для заголовка уведомления длинное.
+  // Короткое название — из сообщений (extShortName), в коде его не пишем.
   function extName() { return HT_t("extShortName"); }
 })();

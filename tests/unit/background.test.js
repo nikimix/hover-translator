@@ -165,7 +165,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const base = { type: "translateBatch", engine: "deepl", targetLang: "RU", sourceLang: "auto", formality: "default", noTranslate: "", by: "page-initiated" };
     for (let i = 0; i < 5; i++) {
       const r = await env.send(Object.assign({}, base, { items: [txt(5000, "nokey" + i)] }), sender(1, "https://a.example"));
-      assert.ok(!r.ok && /Не задан ключ DeepL — нажмите на значок расширения/.test(r.error) && r.code === "no-key", JSON.stringify(r));
+      assert.ok(!r.ok && /Не задан ключ DeepL — вставьте его в настройках расширения/.test(r.error) && r.code === "no-key", JSON.stringify(r));
     }
     env.local.apiKey = "k:fx";
     const r = await env.send(Object.assign({}, base, { items: [txt(5000, "withkey")] }), sender(1, "https://a.example"));
@@ -296,7 +296,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     env.local.llmProvider = "anthropic"; env.local.llmModel = "claude-wrong"; env.local.llmApiKey = "sk-ant-test";
     env.setFetch(() => jsonRes(404, { type: "error", error: { type: "not_found_error", message: "model: claude-wrong" } }));
     r = await env.send({ type: "checkLlm" });
-    assert.ok(!r.ok && r.code === "model" && r.error === "Anthropic не знает модель «claude-wrong» — проверьте название в окне расширения." && r.detail === "код ответа 404: model: claude-wrong", JSON.stringify(r));
+    assert.ok(!r.ok && r.code === "model" && r.error === "Anthropic не знает модель «claude-wrong» — проверьте название в настройках расширения." && r.detail === "код ответа 404: model: claude-wrong", JSON.stringify(r));
     ok("checkLlm: POST chat/completions (или messages) к выбранной модели, ошибка — с текстом провайдера");
   }
 

@@ -17,8 +17,10 @@
 <script>
   // Заглушка chrome.* для content.js (как в stub-builtin.html) + то, что нужно этапу 2б:
   // storage.get без колбэка возвращает Promise, сообщения не только translateBatch.
-  // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)
+  // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)  ?dark=1
   const q = new URLSearchParams(location.search);
+  // ?dark=1 — тёмный сайт (фон у <html>, у body своего фона нет)
+  if (q.get("dark")) document.documentElement.style.cssText = "background: #121316; color: #d7dade;";
   window.__calls = [];
   window.__sets = [];
   window.__noticed = {};
@@ -34,10 +36,11 @@
   const origAttach = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
   // Тексты наших уведомлений и карточек (закрытые shadow root перехвачены выше).
-  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? c.className.replace("toast", "").replace("show", "").trim() + ":" + c.querySelector(".main").textContent : null; }).filter(Boolean);
+  // «err:текст» / «info:текст»: ошибка — role=alert; текст — всё, что под значком (заголовок, описание, кнопки).
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? (c.getAttribute("role") === "alert" ? "err" : "info") + ":" + c.querySelector(".t-b").textContent : null; }).filter(Boolean);
   window.toastRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".toast")).pop() || null;
-  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".card"));
-  window.hudRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".bar")).pop() || null;
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
+  window.hudRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".hud")).pop() || null;
   // Середина элемента внутри закрытого root — в координатах страницы (для настоящих щелчков).
   window.uiPoint = (root, sel) => { const e = root.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
 

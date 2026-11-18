@@ -2,7 +2,7 @@
 // background-errors.test.js, без согласия по умолчанию). Проверяет: согласие на отправку текста (сверка, по сервису, проблема «no-consent», значок,
 // ни одного запроса без согласия, сохранённые переводы отдаются), проверку ключа без согласия (решение
 // этапа 3), модели ИИ из списка (добавки к запросу, запас на рассуждение, блок thinking у Anthropic),
-// подписи переводчиков и тексты окна без жаргона.
+// подписи переводчиков и тексты окна, настроек и приветствия без жаргона.
 const vm = require("vm");
 const fs = require("fs");
 const path = require("path");
@@ -108,7 +108,9 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(ctx.HT_provider("llm", "evil"), "openai", "провайдер сверяется с таблицей");
     const P = (engine, st, builtin = true) => ctx.HT_engineProblem(engine, st, builtin);
     assert.strictEqual(P("deepl", { apiKey: true, consent: {} }), "no-consent");
-    assert.strictEqual(P("deepl", { apiKey: false, consent: {} }), "no-deepl-key", "сначала ключ");
+    assert.strictEqual(P("deepl", { apiKey: false, consent: {} }), "no-consent", "сначала согласие, потом ключ — как шаги на странице настроек");
+    assert.strictEqual(P("deepl", { apiKey: false, consent: { deepl: true } }), "no-deepl-key");
+    assert.strictEqual(P("llm", { llmApiKey: false, llmProvider: "openai", consent: { openai: true } }), "no-llm-key");
     assert.strictEqual(P("deepl", { apiKey: true, consent: { deepl: true } }, false), null);
     assert.strictEqual(P("auto", { apiKey: true, consent: {} }), null, "«авто» без согласия — встроенный");
     assert.strictEqual(P("auto", { apiKey: true, consent: {} }, false), "no-consent", "…а без встроенного — нужно согласие");
@@ -168,10 +170,10 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const env = makeEnv({ engine: "deepl", apiKey: "k:fx", consent: {} });
     await sleep(30);
     assert.strictEqual(env.badge.text, "!");
-    assert.strictEqual(env.badge.title, "Переводчик при наведении — нужно ваше согласие на отправку текста");
+    assert.strictEqual(env.badge.title, "Hover Translator — нужно ваше согласие на отправку текста");
     await env.ctx.chrome.storage.local.set({ consent: { deepl: true } });
     await sleep(30);
-    assert.ok(env.badge.text === "" && env.badge.title === "Переводчик при наведении", JSON.stringify(env.badge));
+    assert.ok(env.badge.text === "" && env.badge.title === "Hover Translator", JSON.stringify(env.badge));
     await env.ctx.chrome.storage.local.set({ engine: "llm", llmApiKey: "sk-ant-x", llmProvider: "anthropic" });
     await sleep(30);
     assert.strictEqual(env.badge.text, "!", "согласие на DeepL не открывает Anthropic");
@@ -216,7 +218,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("модели ИИ: по умолчанию gpt-6-luna и claude-haiku-5-5; модели из списка — без рассуждения (reasoning_effort none / thinking disabled, у Sonnet 5.5 between_tools) и без запаса; вписанные вручную — без добавок, с запасом 4096; ответ Claude с блоком thinking читается");
   }
 
-  // ---- подписи и тексты окна без жаргона ----
+  // ---- подписи и тексты окна, настроек и приветствия без жаргона ----
   {
     const { ctx } = makeEnv();
     const labels = Object.fromEntries(ctx.HT_ENGINES.map((r) => [r[0], ctx.HT_engineLabel(r[0]) + " — " + ctx.HT_engineHint(r[0])]));
@@ -224,21 +226,27 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(labels.llm, "ИИ (ChatGPT / Claude) — по своему ключу, платно");
     assert.ok(labels.auto.startsWith("DeepL, а если не вышло — встроенный"));
     assert.strictEqual(ctx.HT_ENGINES.map((r) => r[0]).join(), "chrome,deepl,auto,llm", "встроенный — первым");
-    // окно: видимый текст разметки и строки popup.js; приветствие — тоже
-    const html = fs.readFileSync(path.join(EXT, "popup.html"), "utf8") + fs.readFileSync(path.join(EXT, "welcome.html"), "utf8");
+    // окно, страница настроек и приветствие: видимый текст разметки; их строки — в _locales/ru/messages.json
+    const PAGES = ["popup.html", "options.html", "welcome.html"];
+    const html = PAGES.map((f) => fs.readFileSync(path.join(EXT, f), "utf8")).join("\n");
     const visible = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]*(?<![-\w])(placeholder|aria-label|title)="([^"]*)"[^>]*>/g, " $2 ").replace(/<[^>]+>/g, " ");
-    // этап 4а: строки окна и приветствия — в _locales/ru/messages.json
     const RU = JSON.parse(fs.readFileSync(path.join(EXT, "_locales", "ru", "messages.json"), "utf8"));
     const strings = Object.values(RU).map((m) => JSON.stringify(m.message));
-    // Допустимо: «ключ API DeepL» в поле ключа (так он назван у DeepL), «API Keys» — название раздела на
-    // сайте DeepL, и адрес deepl.com/pro-api в ссылке.
-    const allowed = (s) => s.replace(/ключ API DeepL/g, "").replace(/«API Keys»/g, "").replace(/deepl\.com\/pro-api/g, "");
+    // Допустимо: «API Keys» — название раздела на сайте DeepL.
+    const allowed = (s) => s.replace(/«API Keys»/g, "");
     const badHtml = visible.split(/\s{2,}|\n/).map((x) => x.trim()).filter((x) => x && JARGON.test(allowed(x)));
     const badJs = strings.filter((x) => JARGON.test(allowed(x.replace(/\$\{[^}]*\}/g, ""))));
     assert.deepStrictEqual(badHtml, [], "жаргон в разметке: " + badHtml.join(" | "));
     assert.deepStrictEqual(badJs, [], "жаргон в строках: " + badJs.join(" | "));
-    assert.ok(/ключ API DeepL/.test(RU.deeplKeyPlaceholder.message) && /500\u00a0000 знаков/.test(RU.howtoFree.message) && /https:\/\/www\.deepl\.com\/pro-api/.test(html));
-    ok(`подписи переводчиков по таблице этапа 3; видимый текст окна и приветствия (${strings.length} строк js) — без «popup», «API», «LLM», «кэш», «движок», «on-device», «фолбэк», «formality», «поповер», «симв»`);
+    // Ключ DeepL вставляют на странице настроек (карточка DeepL): поле — «Ключ DeepL», без «API»; в описании
+    // карточки — бесплатный тариф, 500 000 знаков (с неразрывным пробелом: число не рвётся по строкам);
+    // под полем — ссылка «Как получить ключ» на страницу ключей в кабинете DeepL.
+    const opts = fs.readFileSync(path.join(EXT, "options.js"), "utf8");
+    const field = RU.opDeeplKey.message + " | " + RU.opDeeplKeyPh.message;
+    assert.ok(/^Ключ DeepL \| .*ключ DeepL/.test(field) && !/API/.test(field), field);
+    assert.ok(/бесплатно — 500\u00a0000 знаков в месяц/.test(RU.opEngDeeplD.message), RU.opEngDeeplD.message);
+    assert.ok(/"https:\/\/www\.deepl\.com\/your-account\/keys"/.test(opts) && /HT_t\("opHowGetKey"\)/.test(opts) && RU.opHowGetKey.message === "Как получить ключ");
+    ok(`подписи переводчиков по таблице этапа 3; видимый текст окна, настроек и приветствия и строки (${strings.length}) — без «popup», «API», «LLM», «кэш», «движок», «on-device», «фолбэк», «formality», «поповер», «симв»; в настройках — поле «Ключ DeepL», «бесплатно — 500 000 знаков в месяц», ссылка «Как получить ключ» на deepl.com/your-account/keys`);
   }
 
   console.log(`\nВсе проверки пройдены: ${pass}`);

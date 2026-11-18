@@ -29,6 +29,8 @@
       id: "test-extension-id",          // этап 2а: без id content считает контекст расширения пропавшим
       getURL: (p) => "chrome-extension://test-extension-id/" + p,
       sendMessage(msg) {
+        // Сообщения окну (pageState) — отдельно: __calls — только запросы перевода.
+        if (msg.type === "pageState") { (window.__states = window.__states || []).push(JSON.parse(JSON.stringify(msg.state))); return Promise.resolve(); }
         window.__calls.push(JSON.parse(JSON.stringify(msg)));
         return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
       },

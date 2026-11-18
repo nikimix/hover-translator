@@ -52,15 +52,18 @@ const NONE = {};
     assert.strictEqual(await calls(), 0, "ни одного translateBatch");
     assert.strictEqual(await text("#p1"), p1, "абзац не тронут");
     let ts = await toastsNow();
-    assert.ok(ts.length === 1 && /нужно ваше согласие на отправку текста/.test(ts[0]) && /Переключиться на встроенный/.test(ts[0]) && /Открыть настройки/.test(ts[0]), JSON.stringify(ts));
+    assert.ok(ts.length === 1 && /^err:Перевод не работает/.test(ts[0]) && /нужно ваше согласие на отправку текста/i.test(ts[0]) && /Переводить встроенным/.test(ts[0]) && /Открыть настройки/.test(ts[0]), JSON.stringify(ts));
     assert.deepStrictEqual(await ev("typeCalls('noticeOnce').map((c) => c.problem)"), ["no-consent"]);
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true"); await sleep(300);
     assert.strictEqual(await calls(), 0, "«Перевести страницу» тоже ничего не отправила");
-    assert.ok(/нужно ваше согласие/.test((await toastsNow()).join()), "и объяснила почему");
+    assert.ok(/нужно ваше согласие/i.test((await toastsNow()).join()), "и объяснила почему");
     // смена языка при уже показанном… здесь показанного нет; смена языка не должна ничего отправлять
     await ev("setStore({ targetLang: 'DE' }); true"); await sleep(600);
     assert.strictEqual(await calls(), 0);
-    ok("DeepL с ключом без согласия: клавиша, «Перевести страницу», смена языка — 0 запросов; одно уведомление «нужно ваше согласие» с кнопками");
+    // согласие дали — уведомление «Перевод не работает» больше не правда и закрывается
+    await ev("setStore({ consent: { deepl: true } }); true"); await sleep(300);
+    assert.deepStrictEqual(await toastsNow(), [], "причину устранили — уведомление закрыто");
+    ok("DeepL с ключом без согласия: клавиша, «Перевести страницу», смена языка — 0 запросов; одно уведомление «нужно ваше согласие» с кнопками; дали согласие — уведомление закрылось");
 
     // ---- 2. согласие на другой сервис не считается; мусор в согласии не считается ----
     await load({ engine: "llm", llmApiKey: "sk-x", llmProvider: "anthropic", consent: { openai: true, deepl: true } });
@@ -115,12 +118,13 @@ const NONE = {};
     assert.ok(/DeepL не принял ключ/.test((await toastsNow()).join()), JSON.stringify(await toastsNow()));
     ok("«авто» без ключа или согласия, встроенный не смог: показана настоящая причина («не умеет переводить эту пару»), а не «не задан ключ DeepL»; ошибка ключа DeepL — по-прежнему она");
 
-    // ---- 6. мини-панель: иконки — SVG с подписями ----
+    // ---- 6. мини-панель: иконки — SVG с подписями; редкое — в меню «⋯» ----
     await load({ engine: "chrome", hudShown: true });
-    const hud = await ev("(() => { const r = hudRoot(); return [...r.querySelectorAll('button')].map((b) => (b.querySelector('svg') ? 'svg' : b.textContent) + ':' + b.getAttribute('aria-label')); })()");
-    assert.deepStrictEqual(hud, ["svg:Перевести страницу", "svg:Вернуть оригинал (Esc)", "svg:Выключить перевод на этом сайте", "svg:Скрыть панель"]);
+    const hud = await ev("(() => { const r = hudRoot(); return [...r.querySelectorAll('button:not(select > button)')].map((b) => (b.querySelector('svg') ? 'svg' : '-') + ':' + (b.getAttribute('aria-label') || b.textContent)); })()");
+    assert.deepStrictEqual(hud, ["svg:Перевести страницу", "svg:Показать оригинал", "svg:Ещё", "svg:Выключить на этом сайте", "svg:Скрыть мини-панель"]);
     assert.strictEqual(await ev("hudRoot().querySelector('select').getAttribute('aria-label')"), "Язык перевода");
-    ok("мини-панель на странице: иконки как в окне (SVG), у каждой кнопки и у списка — подпись для чтения с экрана");
+    assert.strictEqual(await ev("hudRoot().querySelector('.menu').hidden"), true, "меню закрыто, пока не нажали «⋯»");
+    ok("мини-панель на странице: иконки как в окне (SVG), у каждой кнопки и у списка — подпись для чтения с экрана; «Выключить на этом сайте» и «Скрыть» — в меню «⋯»");
 
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);
