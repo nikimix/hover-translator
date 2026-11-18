@@ -14,11 +14,13 @@
 var HT_builtin = (function () {
   function hasApi() { return typeof self.Translator === "function"; }
 
-  // Состояние моделей: { api:false } или { api, src, tgt, pair, det }, где pair/det — ответ
-  // availability(): "available" | "downloadable" | "downloading" | "unavailable".
+  // Состояние моделей: { api:false }, { api, noLang } (встроенный не знает язык перевода) или
+  // { api, src, tgt, pair, det }, где pair/det — ответ availability(): "available" | "downloadable" |
+  // "downloading" | "unavailable".
   async function status(targetLang) {
     if (!hasApi()) return { api: false };
     const { src, tgt } = HT_prepPair(targetLang);
+    if (!tgt) return { api: true, noLang: true, target: targetLang };
     const pair = await Translator.availability({ sourceLanguage: src, targetLanguage: tgt }).catch(() => "unavailable");
     const det = typeof self.LanguageDetector === "function"
       ? await LanguageDetector.availability().catch(() => "unavailable") : "unavailable";
@@ -27,6 +29,10 @@ var HT_builtin = (function () {
 
   const needs = (a) => a === "downloadable" || a === "downloading";
   const pairLabel = (st) => `${HT_langLabel(st.src)} → ${HT_langLabel(st.tgt)}`;
+  // «А и Б» / «A and B» — по правилам языка интерфейса.
+  function listOf(items) {
+    try { return new Intl.ListFormat(HT_uiLang(), { type: "conjunction" }).format(items); } catch (e) { return items.join(", "); }
+  }
 
   // «!» на значке ставит background, а есть ли встроенный переводчик, знает только окно — сообщаем.
   function rememberApi(api) {
@@ -61,7 +67,8 @@ var HT_builtin = (function () {
   }
 
   // Блок «встроенный переводчик» в контейнере box. getTarget() — текущий язык перевода (код из
-  // таблицы), onState(состояние) — необязательно: "none" | "ready" | "need" | "pair-unavailable".
+  // таблицы), onState(состояние) — необязательно: "none" | "ready" | "need" | "pair-unavailable" |
+  // "no-lang" (встроенный не знает язык перевода).
   function mount(box, getTarget, onState) {
     box.textContent = "";
     const text = document.createElement("p");
@@ -76,7 +83,7 @@ var HT_builtin = (function () {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "btn bi-btn";
-    btn.textContent = "Подготовить переводчик";
+    btn.textContent = HT_t("biPrepare");
     btn.hidden = true;
     box.append(text, bar, btn);
 
@@ -88,32 +95,33 @@ var HT_builtin = (function () {
       bar.hidden = true;
       btn.hidden = true;
       if (!st.api) {
-        say("Встроенный переводчик недоступен в этом браузере: нужен Google Chrome 138 или новее на компьютере. Подключите DeepL по своему ключу.", "warn");
+        say(HT_t("biNone"), "warn");
         return tell("none");
       }
+      if (st.noLang) {
+        say(HT_t("biLangNo", HT_langLabel(st.target)), "warn");
+        return tell("no-lang");
+      }
       if (st.pair === "unavailable") {
-        say(`Встроенный переводчик не умеет переводить эту пару языков: ${pairLabel(st)}. Выберите другой язык или подключите DeepL.`, "warn");
+        say(HT_t("biPairNo", pairLabel(st)), "warn");
         return tell("pair-unavailable");
       }
       const missing = [];
       if (needs(st.pair)) missing.push(pairLabel(st));
-      if (needs(st.det)) missing.push("определение языка");
+      if (needs(st.det)) missing.push(HT_t("biDetector"));
       if (!missing.length) {
-        say(`✓ Готово: ${pairLabel(st)}. Перевод идёт на вашем компьютере.` +
-          (st.det === "unavailable" ? " Определение языка недоступно — укажите исходный язык в настройках." : ""), "ok");
+        say(HT_t(st.det === "unavailable" ? "biReadyNoDetector" : "biReady", pairLabel(st)), "ok");
         return tell("ready");
       }
       const going = st.pair === "downloading" || st.det === "downloading";
-      say(going
-        ? `Модели уже скачиваются (${missing.join(", ")}). Нажмите кнопку, чтобы видеть ход загрузки.`
-        : `Нужно один раз скачать языковые модели: ${missing.join(" и ")}. Это бесплатно, потом перевод работает и без интернета.`, "");
+      say(going ? HT_t("biGoing", missing.join(", ")) : HT_t("biNeed", listOf(missing)), "");
       btn.hidden = false;
       tell("need");
     }
 
     async function refresh() {
       const my = ++seq;
-      if (!busy) say("Проверяю встроенный переводчик…", "");
+      if (!busy) say(HT_t("biChecking"), "");
       const st = await status(getTarget());
       rememberApi(st.api);
       if (my === seq && !busy) render(st);
@@ -138,7 +146,7 @@ var HT_builtin = (function () {
         bar.classList.toggle("indeterminate", !known);
         const f = known ? parts.reduce((a, b) => a + b, 0) / (parts.length || 1) : 0;
         fill.style.width = known ? Math.round(f * 100) + "%" : "";
-        say(known ? `Скачиваю языковые модели… ${Math.round(f * 100)}%` : "Скачиваю языковые модели…", "");
+        say(known ? HT_t("biDownloadingPct", Math.round(f * 100)) : HT_t("biDownloading"), "");
       };
       show();
       const results = await Promise.allSettled(jobs.map(([api, opts], i) =>
@@ -150,10 +158,10 @@ var HT_builtin = (function () {
       bar.hidden = true;
       btn.hidden = false;
       if (failed.every((e) => e && e.name === "NotAllowedError")) {
-        say("Осталось совсем немного — нажмите кнопку ещё раз.", "");
+        say(HT_t("biOnceMore"), "");
       } else {
         const e = failed.find((x) => !x || x.name !== "NotAllowedError");
-        say(`Не удалось скачать модель${e && e.message ? ": " + e.message : ""}. Проверьте интернет и нажмите ещё раз.`, "err");
+        say(e && e.message ? HT_t("biFailedWhy", e.message) : HT_t("biFailed"), "err");
       }
     }
 

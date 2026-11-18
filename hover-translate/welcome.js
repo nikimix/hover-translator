@@ -1,6 +1,8 @@
 // welcome.js — страница приветствия. Открывается один раз, при установке (background.js,
 // runtime.onInstalled): язык перевода, подготовка встроенного переводчика, способ включения,
-// абзац для пробы. Всё сохраняется сразу в chrome.storage.local — как из окна расширения.
+// текст для пробы. Всё сохраняется сразу в chrome.storage.local — как из окна расширения.
+
+HT_localize(document);   // статический текст разметки — из сообщений (_locales)
 
 const $ = (id) => document.getElementById(id);
 const sel = $("targetLang");
@@ -8,56 +10,67 @@ const radios = Array.from(document.querySelectorAll('input[name="trigger"]'));
 const MAC = HT_isMac();
 
 let trigger = HT_DEFAULTS.trigger;
-let engine = HT_DEFAULTS.engine;
 let builtinState = "";
 let builtinUi = null;
+// Что нужно, чтобы понять, работает ли выбранный переводчик (HT_engineProblem): переводчик, ключи (только
+// факт), сервис ИИ, согласие, язык оригинала. Переводчик выбирают в окне расширения, а не здесь.
+const NET_KEYS = { engine: HT_DEFAULTS.engine, apiKey: "", llmApiKey: "", llmProvider: HT_DEFAULTS.llmProvider, consent: {}, sourceLang: HT_DEFAULTS.sourceLang };
+let net = Object.assign({}, NET_KEYS);
 
 HT_fillSelect(sel, HT_TARGET_LANGS);
-$("shiftName").textContent = "Клавишей " + HT_triggerKey("shift", MAC);
+$("shiftName").textContent = HT_t("shiftName", HT_triggerKey("shift", MAC));
 
-// Абзац для пробы — на английском, а если переводим на английский — на русском. Подсказка под ним
-// говорит, что сделать сейчас: подготовить переводчик или навести курсор выбранным способом.
+// Текст для пробы — на языке, с которого готовится встроенный переводчик (HT_prepPair): обычно на
+// английском, а если переводим на английский — на русском или испанском. Подсказка под ним говорит, что
+// сделать сейчас: подготовить переводчик, вставить ключ, согласиться или навести курсор выбранным способом.
 function renderTrainer() {
-  const toEnglish = HT_langBase(sel.value) === "en";
-  $("trainerEn").hidden = toEnglish;
-  $("trainerRu").hidden = !toEnglish;
+  const src = HT_prepPair(sel.value).src;
+  for (const p of document.querySelectorAll(".trainer")) p.hidden = p.lang !== src;
   for (const r of radios) r.checked = r.value === trigger;
 
   const key = HT_triggerKey(trigger, MAC);
-  const how = trigger === "dwell"
-    ? "Задержите курсор на абзаце выше. Уберёте курсор — вернётся оригинал."
-    : `Наведите курсор на абзац выше, нажмите и отпустите ${key}. Нажмёте ещё раз — вернётся оригинал.`;
+  const how = trigger === "dwell" ? HT_t("trainerDwell") : HT_t("trainerKey", key);
   // Подзаголовок — тем способом, который сейчас выбран (его могли сменить и в окне расширения).
-  $("heroText").textContent = (trigger === "dwell"
-    ? "Задержите курсор на абзаце — он переведётся прямо на странице."
-    : `Наведите курсор на абзац и нажмите ${key} — он переведётся прямо на странице.`) +
-    " Работает сразу: без ключей и регистрации.";
-  // Состояние встроенного переводчика важно, только если перевод идёт через него.
-  const usesBuiltin = HT_engine(engine).note;
-  let before = "";
-  if (usesBuiltin && builtinState === "need") before = "Сначала подготовьте переводчик (шаг 2). ";
-  else if (usesBuiltin && builtinState === "pair-unavailable") before = "Сначала выберите другой язык (шаг 1). ";
-  else if (usesBuiltin && builtinState === "none") before = "Встроенный переводчик в этом браузере недоступен — подключите DeepL (см. ниже). ";
-  $("trainerHint").textContent = before + how;
+  $("heroText").textContent = trigger === "dwell" ? HT_t("heroDwell") : HT_t("heroKey", key);
+
+  // Выбранный переводчик не может работать — сначала об этом; иначе, если переводит встроенный, —
+  // о его состоянии (скачать модели, нет пары языков).
+  const engine = HT_valid("engine", net.engine);
+  const st = {
+    apiKey: !!net.apiKey, llmApiKey: !!net.llmApiKey, llmProvider: net.llmProvider, consent: net.consent,
+    targetLang: sel.value, sourceLang: HT_valid("sourceLang", net.sourceLang),
+  };
+  const problem = HT_engineProblem(engine, st, HT_builtin.hasApi());
+  const e = HT_engine(engine);
+  const usesBuiltin = e.via === "local" || (e.fallback === "local" && !HT_canSend(engine, st));
+  let text = "";
+  if (problem === "no-deepl-key") text = HT_t("trainerNoDeeplKey", how);
+  else if (problem === "no-llm-key") text = HT_t("trainerNoLlmKey", how);
+  else if (problem === "no-consent") text = HT_t("trainerNoConsent", [HT_PROVIDER_NAMES[HT_provider(engine, st.llmProvider)], how]);
+  else if (problem === "no-builtin" || (usesBuiltin && builtinState === "none")) text = HT_t("trainerNoBuiltin", how);
+  else if (problem === "deepl-lang" || problem === "builtin-lang") text = HT_t("trainerLang", how);
+  else if (usesBuiltin && builtinState === "need") text = HT_t("trainerPrep", how);
+  else if (usesBuiltin && (builtinState === "pair-unavailable" || builtinState === "no-lang")) text = HT_t("trainerLang", how);
+  $("trainerHint").textContent = text || how;
 }
 
 // Горячие клавиши (их можно сменить на chrome://extensions/shortcuts) и Esc.
 function renderKeys(all) {
   const k = (name) => { const c = (all || []).find((x) => x.name === name); return (c && c.shortcut) || ""; };
-  const parts = ["Esc возвращает оригинал везде на странице."];
-  if (k("toggle-enabled")) parts.push(`${k("toggle-enabled")} — включить или выключить перевод.`);
-  if (k("translate-page")) parts.push(`${k("translate-page")} — перевести страницу целиком.`);
-  parts.push("Сочетания можно сменить на странице chrome://extensions/shortcuts.");
+  const parts = [HT_t("keysEscHint")];
+  if (k("toggle-enabled")) parts.push(HT_t("keysToggleHint", k("toggle-enabled")));
+  if (k("translate-page")) parts.push(HT_t("keysPageHint", k("translate-page")));
+  parts.push(HT_t("keysChangeHint"));
   $("keysHint").textContent = parts.join(" ");
 }
 renderKeys([]);
 if (chrome.commands && chrome.commands.getAll) chrome.commands.getAll().then(renderKeys).catch(() => {});
 
-chrome.storage.local.get({ targetLang: HT_DEFAULTS.targetLang, trigger: HT_DEFAULTS.trigger, engine: HT_DEFAULTS.engine }, (s) => {
+chrome.storage.local.get(Object.assign({ targetLang: HT_DEFAULTS.targetLang, trigger: HT_DEFAULTS.trigger }, NET_KEYS), (s) => {
   HT_validAll(s);
   sel.value = s.targetLang;
   trigger = s.trigger;
-  engine = s.engine;
+  for (const k in NET_KEYS) net[k] = s[k];
   builtinUi = HT_builtin.mount($("builtinBox"), () => sel.value, (state) => { builtinState = state; renderTrainer(); });
   renderTrainer();
 });
@@ -87,6 +100,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     changed = true;
   }
   if (changes.trigger) { trigger = HT_valid("trigger", changes.trigger.newValue); changed = true; }
-  if (changes.engine) { engine = HT_valid("engine", changes.engine.newValue); changed = true; }
+  for (const k in NET_KEYS) {
+    if (!changes[k]) continue;
+    net[k] = changes[k].newValue === undefined ? NET_KEYS[k] : changes[k].newValue;
+    changed = true;
+  }
   if (changed) renderTrainer();
 });

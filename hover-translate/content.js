@@ -81,8 +81,11 @@
   // Согласие на отправку текста сервисам (deepl/openai/anthropic) — пишет только окно расширения.
   // Без согласия выбранный DeepL или ИИ — то же, что без ключа: текст никуда не уходит.
   let consent = HT_consent(null);
-  // Состояние для HT_engineProblem/HT_canSend (shared.js): ключи как факт, провайдер ИИ, согласие.
-  function netState() { return Object.assign({ llmProvider: settings.llmProvider, consent }, keyPresent); }
+  // Состояние для HT_engineProblem/HT_canSend (shared.js): ключи как факт, провайдер ИИ, согласие, языки.
+  function netState() {
+    return Object.assign({ llmProvider: settings.llmProvider, consent,
+      targetLang: settings.targetLang, sourceLang: settings.sourceLang }, keyPresent);
+  }
 
   // Встроенный переводчик в этом окне: "none" — его нет в браузере (Chrome < 138, другие браузеры на
   // Chromium, телефон); "frame" — есть, но встроенному окну (iframe с другого адреса) его не
@@ -274,22 +277,23 @@
     }
     return true;
   }
-  // Объяснение с кнопками: без ключа или согласия — включить встроенный (если он есть) или открыть настройки.
+  // Объяснение с кнопками: без ключа или согласия, с языком, которого нет у DeepL, — включить встроенный
+  // (если он есть) или открыть настройки; встроенный недоступен или не знает язык — только настройки.
   function problemNotice(p) {
-    const actions = p === "no-builtin" ? [ACT.settings] : (BUILTIN === "ok" ? [ACT.builtin, ACT.settings] : [ACT.settings]);
-    notice(HT_PROBLEMS[p].page, 12000, { actions, closable: true });
+    const local = p === "no-builtin" || p === "builtin-lang" || BUILTIN !== "ok";
+    notice(HT_problemText(p, "page", netState()), 12000, { actions: local ? [ACT.settings] : [ACT.builtin, ACT.settings], closable: true });
   }
 
   // ---- кнопки в уведомлениях ----
   // Нажимаются только настоящим щелчком (проверка isTrusted — в showToast). Записываемое значение —
   // только из таблицы shared.js.
   const ACT = {
-    settings: { label: "Открыть настройки", run: () => { send({ type: "openSettings" }).catch(() => {}); } },
-    builtin: { label: "Переключиться на встроенный", run: useBuiltin },
+    settings: { label: HT_t("openSettings"), run: () => { send({ type: "openSettings" }).catch(() => {}); } },
+    builtin: { label: HT_t("switchToBuiltin"), run: useBuiltin },
   };
   function useBuiltin() {
     chrome.storage.local.set({ engine: HT_valid("engine", "chrome") })
-      .then(() => notice("Включён встроенный переводчик Chrome — он работает без ключа. Сменить можно в окне расширения.", 5000))
+      .then(() => notice(HT_t("builtinOn"), 5000))
       .catch(() => {});
   }
   // Какие кнопки предложить к ошибке перевода (коды ошибок — в background.js, failure()).
@@ -502,6 +506,8 @@
 
   function targetBase() { return HT_langBase(settings.targetLang || "RU").toUpperCase(); }
   function badgeText(src) { return `${src.toUpperCase()} → ${targetBase()}`; }
+  // Тот же ли это язык, что язык перевода (детектор называет язык своим кодом: "no", "iw", "zh").
+  function isTargetLang(code) { return HT_langKey(code) === HT_langKey(settings.targetLang || "RU"); }
 
   // Параметры перевода для background (движок/языки/формальность/исключения).
   function txOpts() {
@@ -536,7 +542,7 @@
       return doc.body ? doc.body.textContent : str;
     } catch (e) { return str; }
   }
-  const TX_FAIL = "Не удалось перевести текст.";
+  const TX_FAIL = HT_t("txFail");
   // Неудача из ответа background: текст, код (по нему — встроенный вместо DeepL и кнопки), подробности.
   function failOf(r) {
     return { error: (r && r.error) || TX_FAIL, code: (r && r.code) || "", detail: (r && r.detail) || "" };
@@ -560,11 +566,11 @@
   let downloadHint = null;
   function downloadNotice(what) {
     if (downloadHint) { downloadHint.close(); downloadHint = null; }
-    const t = showToast({ message: `Скачиваю ${what}…`, kind: "info", ms: 0, title: extName() });
+    const t = showToast({ message: HT_t("dlProgress", what), kind: "info", ms: 0, title: extName() });
     return {
       monitor(m) {
         m.addEventListener("downloadprogress", (e) => {
-          t.set(`Скачиваю ${what}… ${Math.round(100 * (e.total ? e.loaded / e.total : e.loaded))}%`);
+          t.set(HT_t("dlProgressPct", [what, Math.round(100 * (e.total ? e.loaded / e.total : e.loaded))]));
         });
       },
       done() { t.close(); },
@@ -607,7 +613,7 @@
     if (detector) return Promise.resolve({ inst: detector });
     if (!("LanguageDetector" in self)) return Promise.resolve({ kind: "unavailable" });
     if (!detectorPending) {
-      const p = createModel(LanguageDetector, {}, "модель определения языка", mayDownload)
+      const p = createModel(LanguageDetector, {}, HT_t("dlDetector"), mayDownload)
         .catch((e) => ({ kind: "fail", error: e }))
         .then((r) => {
           if (r.inst) detector = r.inst;
@@ -621,23 +627,25 @@
 
   async function isAlreadyTarget(text) {
     // Если источник задан вручную и совпадает с целью — переводить нечего.
-    if (settings.sourceLang && settings.sourceLang !== "auto" &&
-        HT_langBase(settings.sourceLang) === targetBase().toLowerCase()) return true;
+    if (settings.sourceLang && settings.sourceLang !== "auto" && isTargetLang(settings.sourceLang)) return true;
     const det = (await getDetector(false)).inst;
     if (!det) return false;
     try {
       const res = await det.detect(text);
       const top = res && res[0];
       if (!top || top.confidence < 0.5) return false;
-      return top.detectedLanguage.toLowerCase() === targetBase().toLowerCase();
+      return isTargetLang(top.detectedLanguage);
     } catch (e) {
       return false;
     }
   }
 
-  // Язык текста → { lang } либо { kind, state } (детектора нет / модель не скачана), либо {}.
+  // Язык текста → { lang } либо { kind, state } (детектора нет / модель не скачана), либо {}. Заданный
+  // вручную язык — кодом встроенного переводчика (NB → "no"), если встроенный его знает.
   async function detectLang(text, mayDownload) {
-    if (settings.sourceLang && settings.sourceLang !== "auto") return { lang: HT_langBase(settings.sourceLang) };
+    if (settings.sourceLang && settings.sourceLang !== "auto") {
+      return { lang: HT_builtinCode(settings.sourceLang) || HT_langBase(settings.sourceLang) };
+    }
     const d = await getDetector(mayDownload);
     if (!d.inst) return { kind: d.kind, state: d.state };
     try {
@@ -655,7 +663,7 @@
     const key = src + ">" + tgt;
     if (!translators.has(key)) {
       const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt },
-        `языковую модель (${HT_langLabel(src)} → ${HT_langLabel(tgt)})`, true)
+        HT_t("dlPair", [HT_langLabel(src), HT_langLabel(tgt)]), true)
         .catch((e) => ({ kind: "fail", error: e }))
         .then((r) => {
           if (!r.inst && translators.get(key) === p) translators.delete(key);
@@ -668,37 +676,37 @@
 
   // Модель не скачана: что сказать. key — что именно ждёт загрузки (одно уведомление на страницу).
   function needDownload(state, src, tgt) {
-    const what = src ? `языковую модель (${HT_langLabel(src)} → ${HT_langLabel(tgt)})` : "модель определения языка";
+    const what = src ? HT_t("dlPair", [HT_langLabel(src), HT_langLabel(tgt)]) : HT_t("dlDetector");
     // Детектор и пару «английский → язык перевода» готовит кнопка в окне расширения.
-    const prep = !src || src === HT_prepPair(settings.targetLang).src
-      ? " Или нажмите на значок расширения → «Подготовить переводчик»." : "";
+    const prep = !src || src === HT_prepPair(settings.targetLang).src;
     // Щелчок нужен потому, что одиночный Shift (и наведение) Chrome действием пользователя не считает.
     // После щелчка абзац под курсором переводится сам (см. обработчик click).
-    const error = state === "downloading"
-      ? `Встроенный переводчик скачивает ${what}. Подождите немного и попробуйте ещё раз.`
-      : `Встроенному переводчику нужно один раз скачать ${what}. Щёлкните мышью по абзацу — загрузка начнётся, и он переведётся.${prep}`;
+    const error = HT_t(state === "downloading" ? "dlWait" : prep ? "dlClickPrep" : "dlClick", what);
     return { ok: false, kind: "download", key: src ? src + ">" + tgt : "detector", error };
   }
 
   // Перевод по тексту (без HTML) встроенным движком. Возвращает src для бейджа.
+  // Язык перевода — кодом встроенного переводчика (ZH-HANT → "zh-Hant", NB → "no"); языка нет в его
+  // списке — честная причина (сюда это доходит только через «авто» после сбоя DeepL).
   async function chromeTranslate(text, targetLang) {
-    if (!("Translator" in self)) return { ok: false, error: HT_PROBLEMS["no-builtin"].page };
-    const tgt = HT_langBase(targetLang);
+    if (!("Translator" in self)) return { ok: false, error: HT_problemText("no-builtin", "page") };
+    const tgt = HT_builtinCode(targetLang);
+    if (!tgt) return { ok: false, code: "lang", error: HT_problemText("builtin-lang", "page", { targetLang }) };
     const d = await detectLang(text, true);
     if (d.kind === "download") return needDownload(d.state);
     const src = d.lang;
-    if (!src) return { ok: false, code: "lang", error: "Встроенный переводчик не смог определить язык текста — укажите исходный язык в окне расширения." };
-    if (src === tgt) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
+    if (!src) return { ok: false, code: "lang", error: HT_t("detectFail") };
+    if (HT_langKey(src) === HT_langKey(tgt)) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
     const t = await getTranslator(src, tgt);
     if (t.kind === "download") return needDownload(t.state, src, tgt);
     if (t.kind === "unavailable") {
-      return { ok: false, error: `Встроенный переводчик не умеет переводить эту пару языков: ${HT_langLabel(src)} → ${HT_langLabel(tgt)}.` };
+      return { ok: false, error: HT_t("pairUnavailable", [HT_langLabel(src), HT_langLabel(tgt)]) };
     }
     try {
       if (!t.inst) throw t.error;
       return { ok: true, value: await t.inst.translate(text), src };
     } catch (e) {
-      return { ok: false, error: "Встроенный переводчик не смог перевести текст.", detail: e && e.message ? e.message : String(e) };
+      return { ok: false, error: HT_t("builtinFailed"), detail: e && e.message ? e.message : String(e) };
     }
   }
 
@@ -722,17 +730,12 @@
   // сервис недоступен. Выбор переводчика в настройках не меняем — один раз говорим, что происходит.
   // Про лимит — раз за сессию браузера (он не вернётся до следующего месяца), про сеть — раз на
   // страницу (сеть может вернуться и пропасть снова).
-  const FALLBACK_SAY = {
-    quota: "Лимит DeepL на этот месяц закончился — перевожу встроенным переводчиком Chrome.",
-    network: "Нет связи с DeepL — перевожу встроенным переводчиком Chrome.",
-    timeout: "DeepL не отвечает — перевожу встроенным переводчиком Chrome.",
-    server: "DeepL сейчас недоступен — перевожу встроенным переводчиком Chrome.",
-  };
+  const FALLBACK_SAY = { quota: "fbQuota", network: "fbNetwork", timeout: "fbTimeout", server: "fbServer" };
   const fallbackTold = new Set();
   function fallbackSay(code) {
     if (fallbackTold.has(code)) return;
     fallbackTold.add(code);
-    const show = () => notice(FALLBACK_SAY[code], 9000, code === "quota" ? { actions: [ACT.builtin], closable: true } : { closable: true });
+    const show = () => notice(HT_t(FALLBACK_SAY[code]), 9000, code === "quota" ? { actions: [ACT.builtin], closable: true } : { closable: true });
     if (code !== "quota") { show(); return; }
     send({ type: "noticeOnce", problem: "deepl-quota" }).then((r) => { if (r && r.show && !dead) show(); }).catch(() => {});
   }
@@ -754,7 +757,8 @@
     if (!HT_canSend(e.code, netState())) {
       if (e.fallback === "local") return localResults(texts);
       const p = problem();
-      return { results: null, error: p ? HT_PROBLEMS[p].page : TX_FAIL, code: p === "no-consent" ? "no-consent" : "no-key", detail: "" };
+      return { results: null, error: p ? HT_problemText(p, "page", netState()) : TX_FAIL,
+        code: p === "no-consent" ? "no-consent" : p === "deepl-lang" ? "lang" : "no-key", detail: "" };
     }
     let resp;
     try {
@@ -1068,15 +1072,15 @@
     const card = document.createElement("div");
     card.className = "card";
     card.setAttribute("role", "dialog");
-    card.setAttribute("aria-label", "Перевод");
+    card.setAttribute("aria-label", HT_t("cardLabel"));
     const scroll = document.createElement("div");
     scroll.className = "scroll";
     const close = document.createElement("button");
     close.type = "button";
     close.className = "close";
     close.textContent = "✕";
-    close.title = "Закрыть (Esc)";
-    close.setAttribute("aria-label", "Закрыть перевод");
+    close.title = HT_t("cardClose");
+    close.setAttribute("aria-label", HT_t("cardCloseAria"));
     close.addEventListener("click", (ev) => { if (ev.isTrusted) removePopover(el, host); });
     card.append(scroll, close);
     root.appendChild(card);
@@ -1155,7 +1159,7 @@
       const text = owner.textContent;
       if (await isAlreadyTarget(text)) return;
       if (gen !== liveGen || !active() || !owner.isConnected || isShown(owner)) return;
-      const state = showPopover(owner, "Перевод…", null, "loading");
+      const state = showPopover(owner, HT_t("cardLoading"), null, "loading");
       const node = state.node;
       const out = await translateItems([text], HT_BY_PAGE);
       if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== state) {
@@ -1456,11 +1460,11 @@
   // один щелчок в окне расширения.
   async function translatePage(via, keys) {
     if (!settings.enabled) {
-      if (via === "command") notice("Перевод выключен." + (keys ? ` Включить: ${keys} или значок расширения.` : " Включить можно в окне расширения."), 5000);
+      if (via === "command") notice(keys ? HT_t("offViaKeys", keys) : HT_t("offViaWindow"), 5000);
       return;
     }
     if (siteOff) {
-      notice("На этом сайте перевод выключен. Включить можно в окне расширения: галочка «Переводить на сайте».", 7000, { closable: true });
+      notice(HT_t("siteOffPage"), 7000, { closable: true });
       return;
     }
     if (blocked(true)) return;
@@ -1470,7 +1474,7 @@
     // Молчать нельзя: раньше при пустом списке не было ни тоста, ни observer-а, и пользователь
     // жал кнопку снова и снова, не понимая, почему ничего не происходит. Это не успех и не ошибка —
     // поэтому нейтральная подсказка.
-    if (!fresh.length) { notice("Переводить нечего: на странице не нашлось текста для перевода.", 4000); return; }
+    if (!fresh.length) { notice(HT_t("nothingOnPage"), 4000); return; }
 
     const vh = innerHeight, vw = innerWidth;
     const inView = [], rest = [];
@@ -1480,18 +1484,18 @@
       (visible ? inView : rest).push(el);
     }
 
-    const t = pageToast = showToast({ message: "Перевожу страницу…", kind: "info", ms: 0, title: extName() });
+    const t = pageToast = showToast({ message: HT_t("translatingPage"), kind: "info", ms: 0, title: extName() });
     const done = await translatePageOwners(inView, gen); // видимое — сразу
     if (gen !== pageGen) { t.close(); return; }
     // Ошибку уже показали (она заняла место «Перевожу…») — «Готово» её бы спрятало.
     if (done.failed) { if (pageToast === t) pageToast = null; }
     else if (!done.wrote && !rest.length) {
-      t.update({ message: "Переводить нечего: текст на странице уже на нужном языке.", ms: 4000 });
+      t.update({ message: HT_t("alreadyInLang"), ms: 4000 });
       if (pageToast === t) pageToast = null;
     } else {
       t.update({
-        message: rest.length ? "Готово. Остальное переведётся, когда вы до него докрутите." : "Готово — страница переведена.",
-        actions: [{ label: "Вернуть оригинал", run: () => restoreAll() }],
+        message: HT_t(rest.length ? "doneScroll" : "donePage"),
+        actions: [{ label: HT_t("showOriginal"), run: () => restoreAll() }],
         closable: true, ms: 8000,
       });
     }
@@ -1766,8 +1770,8 @@
   // Горячая клавиша вкл/выкл: значок покажет «off», но смотрят в этот момент на страницу.
   function say(msg) {
     const keys = typeof msg.keys === "string" && msg.keys ? msg.keys : "";
-    if (msg.what === "enabled") notice("Перевод включён.", 2500);
-    else if (msg.what === "disabled") notice("Перевод выключен." + (keys ? ` Включить снова — ${keys}.` : ""), 3500);
+    if (msg.what === "enabled") notice(HT_t("toggledOn"), 2500);
+    else if (msg.what === "disabled") notice(keys ? HT_t("toggledOffKeys", keys) : HT_t("toggledOff"), 3500);
   }
 
   // ---- мини-HUD: смена целевого языка и действия прямо на странице ----
@@ -1830,11 +1834,11 @@
     const grip = document.createElement("div");
     grip.className = "grip";
     grip.textContent = "⠿";
-    grip.title = "Перетащить панель";
+    grip.title = HT_t("hudDrag");
 
     const sel = document.createElement("select");
-    sel.title = "Язык перевода";
-    sel.setAttribute("aria-label", "Язык перевода");
+    sel.title = HT_t("targetLangAria");
+    sel.setAttribute("aria-label", HT_t("targetLangAria"));
     for (const [code, label] of LANGS) {
       const o = document.createElement("option");
       o.value = code; o.textContent = label;
@@ -1850,11 +1854,11 @@
 
     bar.append(
       grip, sel,
-      hudButton("page", "Перевести страницу", () => translatePage("popup")),
-      hudButton("undo", "Вернуть оригинал (Esc)", () => restoreAll()),
+      hudButton("page", HT_t("translatePage"), () => translatePage("popup")),
+      hudButton("undo", HT_t("showOriginalEsc"), () => restoreAll()),
     );
-    if (SITE) bar.append(hudButton("ban", "Выключить перевод на этом сайте", () => disableSiteFromHud()));
-    bar.append(hudButton("close", "Скрыть панель", () => setHudWanted(false)));
+    if (SITE) bar.append(hudButton("ban", HT_t("hudSiteOff"), () => disableSiteFromHud()));
+    bar.append(hudButton("close", HT_t("hudHide"), () => setHudWanted(false)));
     root.appendChild(bar);
     bindHudDrag(host, grip);
     return { host, sel };
@@ -1974,9 +1978,9 @@
     siteOff = true;
     siteChanged();
     setSiteOff(true).catch(() => {});
-    notice(`Перевод на сайте ${SITE} выключен. Включить снова можно в окне расширения.`, 8000, {
+    notice(HT_t("siteDisabled", SITE), 8000, {
       closable: true,
-      actions: [{ label: "Включить снова", run: () => { setSiteOff(false).catch(() => {}); } }],
+      actions: [{ label: HT_t("turnBackOn"), run: () => { setSiteOff(false).catch(() => {}); } }],
     });
   }
 
@@ -2009,7 +2013,7 @@
     .toast.err { color: #fff; background: #c62828; }
     .main { flex: 1 1 auto; min-width: 0; padding: 1px 0; }
     .title { margin-bottom: 2px; font-weight: 600; }
-    .detail { margin-top: 3px; font-size: 11px; opacity: .72; overflow-wrap: anywhere; }
+    .detail { margin-top: 3px; font-size: 12px; opacity: .72; overflow-wrap: anywhere; }
     .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .acts:empty { display: none; }
     .act {
@@ -2070,8 +2074,8 @@
     x.type = "button";
     x.className = "x";
     x.textContent = "✕";
-    x.title = "Закрыть";
-    x.setAttribute("aria-label", "Закрыть уведомление");
+    x.title = HT_t("close");
+    x.setAttribute("aria-label", HT_t("toastCloseAria"));
     card.append(main, x);
     root.appendChild(card);
 
@@ -2145,7 +2149,6 @@
   function notice(message, ms, opts) {
     return showToast(Object.assign({ message, kind: "info", ms: ms || 9000, title: extName() }, opts));
   }
-  function extName() {
-    try { return chrome.runtime.getManifest().name; } catch (e) { return ""; }
-  }
+  // Короткое название — из сообщений (extShortName): полное, из manifest, для заголовка уведомления длинное.
+  function extName() { return HT_t("extShortName"); }
 })();

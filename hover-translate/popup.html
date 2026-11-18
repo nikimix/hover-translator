@@ -1,17 +1,19 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Cursor Translate — настройки</title>
+  <title data-i18n="popupTitle"></title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body class="popup">
   <!-- Порядок — по задачам: включить, на какой язык, как вызывать, что сделать со страницей. Выбор
        переводчика и редкие настройки свёрнуты: в обычном состоянии окно помещается в 600 px, больше
-       Chrome не показывает. -->
+       Chrome не показывает.
+       Тексты — в _locales/*/messages.json: data-i18n заполняет текст, data-i18n-title/-aria-label/
+       -placeholder — атрибуты (shared.js, HT_localize; $1 в них — короткое название расширения). -->
   <header class="appbar">
     <img class="logo" src="icons/48.png" alt="" width="20" height="20" />
-    <h1>Cursor Translate</h1>
+    <h1 data-i18n="extShortName"></h1>
   </header>
 
   <!-- Главный выключатель и сайт активной вкладки. Адрес вкладки окну не виден (нет разрешений
@@ -19,17 +21,17 @@
   <div class="power">
     <button id="enabled" type="button" class="switch" role="switch" aria-checked="true">
       <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-      <span id="enabledText" class="switch-text">Перевод включён</span>
+      <span id="enabledText" class="switch-text" data-i18n="enabledOn"></span>
     </button>
     <label class="cb site-row" id="siteRow" hidden>
       <input type="checkbox" id="siteOn" />
-      <span class="site-label">Переводить на этом сайте</span>
+      <span class="site-label" data-i18n="siteOn"></span>
       <span id="siteName" class="site-name"></span>
     </label>
   </div>
   <div class="page-row">
     <p id="pageMsg" class="status" role="status" aria-live="polite"></p>
-    <button id="reloadTab" type="button" class="btn-sec" hidden>Обновить вкладку</button>
+    <button id="reloadTab" type="button" class="btn-sec" data-i18n="reloadTab" hidden></button>
   </div>
 
   <!-- Выбранный переводчик не может работать (нет ключа или согласия, нет встроенного): что сделать.
@@ -49,31 +51,31 @@
 
   <!-- Списки языков заполняет popup.js из общих таблиц shared.js. -->
   <section class="sec">
-    <label class="sec-title" for="targetLang">Переводить на</label>
+    <label class="sec-title" for="targetLang" data-i18n="targetLang"></label>
     <select id="targetLang"></select>
     <div class="chips" id="recentLangs"></div>
   </section>
 
   <section class="sec">
     <fieldset class="seg-field">
-      <legend class="sec-title">Как включать</legend>
+      <legend class="sec-title" data-i18n="trigger"></legend>
       <div class="seg" id="trigger">
         <label><input type="radio" name="trigger" value="shift" /><span data-key="shift">Shift</span></label>
         <label><input type="radio" name="trigger" value="alt" /><span data-key="alt">Alt</span></label>
         <label><input type="radio" name="trigger" value="ctrl" /><span data-key="ctrl">Ctrl</span></label>
-        <label><input type="radio" name="trigger" value="dwell" /><span>Наведение</span></label>
+        <label><input type="radio" name="trigger" value="dwell" /><span data-i18n="triggerDwell"></span></label>
       </div>
     </fieldset>
     <p id="triggerHint" class="hint" aria-live="polite"></p>
     <div id="dwellField" class="dwell" hidden>
       <div class="dwell-head">
-        <label for="dwellMs">Задержка перед переводом</label>
+        <label for="dwellMs" data-i18n="dwellLabel"></label>
         <output id="dwellVal" for="dwellMs"></output>
       </div>
       <div class="range-row">
-        <span aria-hidden="true">быстрее</span>
+        <span aria-hidden="true" data-i18n="dwellFaster"></span>
         <input type="range" id="dwellMs" min="100" max="2000" step="50" />
-        <span aria-hidden="true">медленнее</span>
+        <span aria-hidden="true" data-i18n="dwellSlower"></span>
       </div>
     </div>
   </section>
@@ -82,15 +84,15 @@
   <div class="actions">
     <button id="translatePage" type="button" class="act">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-      <span>Перевести страницу</span>
+      <span data-i18n="translatePage"></span>
     </button>
     <button id="resetPage" type="button" class="act">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
-      <span>Вернуть оригинал</span>
+      <span data-i18n="showOriginal"></span>
     </button>
     <button id="hudBtn" type="button" class="act" aria-pressed="false">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="10" y="14" width="8" height="4" rx="1"/></svg>
-      <span>Мини-панель на странице</span>
+      <span data-i18n="hudBtn"></span>
     </button>
   </div>
 
@@ -98,7 +100,7 @@
   <section class="fold" id="qualityBlock">
     <h2 class="fold-h">
       <button type="button" class="fold-head" id="qualityHead" aria-expanded="false" aria-controls="qualityBody">
-        <span class="fold-title">Качество перевода</span>
+        <span class="fold-title" data-i18n="quality"></span>
         <span class="fold-sum" id="qualitySum"></span>
         <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </button>
@@ -106,7 +108,7 @@
     <div class="fold-body" id="qualityBody" hidden>
       <!-- Варианты строит popup.js из HT_ENGINES (shared.js): название и пояснение. -->
       <fieldset class="engines" id="engine">
-        <legend class="lbl">Переводчик</legend>
+        <legend class="lbl" data-i18n="engineLegend"></legend>
       </fieldset>
 
       <!-- Встроенный переводчик: скачаны ли модели, кнопка «Подготовить переводчик» (builtin.js). -->
@@ -116,62 +118,62 @@
            DeepL и ИИ не получают ни одного абзаца: так же, как без ключа. -->
       <div id="consentBox" class="consent" hidden>
         <p id="consentText" class="consent-text"></p>
-        <button id="consentOk" type="button" class="btn">Согласен</button>
+        <button id="consentOk" type="button" class="btn" data-i18n="agree"></button>
       </div>
 
       <!-- Согласие дано: что и куда уходит — видно всегда, и согласие можно отозвать. -->
       <p id="consentGiven" class="hint consent-given" hidden>
         <span id="consentGivenText"></span>
-        <button type="button" id="consentRevoke" class="linkbtn">Отозвать согласие</button>
+        <button type="button" id="consentRevoke" class="linkbtn" data-i18n="consentRevoke"></button>
       </p>
 
       <!-- Ключ DeepL -->
       <div class="keys" id="keyBlock">
-        <label class="lbl" for="apiKey">Ключ DeepL</label>
+        <label class="lbl" for="apiKey" data-i18n="deeplKey"></label>
         <div class="key-row">
-          <input type="password" id="apiKey" placeholder="ключ API DeepL" autocomplete="off" spellcheck="false" aria-describedby="status quota" />
-          <button type="button" id="toggleKey" class="icon-btn" title="Показать ключ" aria-label="Показать ключ" aria-pressed="false">
+          <input type="password" id="apiKey" data-i18n-placeholder="deeplKeyPlaceholder" autocomplete="off" spellcheck="false" aria-describedby="status quota" />
+          <button type="button" id="toggleKey" class="icon-btn" data-i18n-title="showKey" data-i18n-aria-label="showKey" aria-pressed="false">
             <svg class="eye" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
             <svg class="eye-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
           </button>
-          <button type="button" id="check" class="btn-sec">Проверить</button>
+          <button type="button" id="check" class="btn-sec" data-i18n="check"></button>
         </div>
         <p id="status" class="status" aria-live="polite"></p>
         <p id="quota" class="quota" aria-live="polite"></p>
         <details class="howto" id="deeplHowto">
-          <summary>Как получить ключ DeepL — бесплатно</summary>
+          <summary data-i18n="howtoSummary"></summary>
           <ol>
-            <li>Откройте <a href="https://www.deepl.com/pro-api" target="_blank" rel="noopener">deepl.com/pro-api</a> и выберите бесплатный тариф (Free).</li>
-            <li>Зарегистрируйтесь. DeepL попросит банковскую карту для проверки — за бесплатный тариф деньги не списываются.</li>
-            <li>В личном кабинете откройте раздел с ключами («API Keys») и скопируйте ключ — он оканчивается на «:fx».</li>
-            <li>Вставьте ключ в поле выше — расширение сразу его проверит.</li>
+            <li data-i18n="howto1"><a data-part="a" href="https://www.deepl.com/pro-api" target="_blank" rel="noopener"></a></li>
+            <li data-i18n="howto2"></li>
+            <li data-i18n="howto3"></li>
+            <li data-i18n="howto4"></li>
           </ol>
-          <p class="hint">Бесплатно — 500&nbsp;000 знаков в месяц. Остаток виден здесь же, под ключом.</p>
+          <p class="hint" data-i18n="howtoFree"></p>
         </details>
       </div>
 
       <!-- ИИ: сервис, ключ, модель -->
       <div class="keys" id="llmBlock">
-        <label class="lbl" for="llmProvider">Сервис</label>
+        <label class="lbl" for="llmProvider" data-i18n="llmService"></label>
         <select id="llmProvider">
           <option value="openai">OpenAI (ChatGPT)</option>
           <option value="anthropic">Anthropic (Claude)</option>
         </select>
-        <label class="lbl" for="llmApiKey" id="llmKeyLbl">Ключ</label>
+        <label class="lbl" for="llmApiKey" id="llmKeyLbl" data-i18n="llmKey"></label>
         <div class="key-row">
           <input type="password" id="llmApiKey" placeholder="sk-..." autocomplete="off" spellcheck="false" aria-describedby="llmStatus" />
-          <button type="button" id="toggleLlmKey" class="icon-btn" title="Показать ключ" aria-label="Показать ключ" aria-pressed="false">
+          <button type="button" id="toggleLlmKey" class="icon-btn" data-i18n-title="showKey" data-i18n-aria-label="showKey" aria-pressed="false">
             <svg class="eye" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
             <svg class="eye-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
           </button>
-          <button type="button" id="llmCheck" class="btn-sec">Проверить</button>
+          <button type="button" id="llmCheck" class="btn-sec" data-i18n="check"></button>
         </div>
-        <label class="lbl" for="llmModelSel">Модель</label>
+        <label class="lbl" for="llmModelSel" data-i18n="llmModel"></label>
         <!-- Варианты — из HT_LLM_MODELS (shared.js); пустое значение — модель по умолчанию. -->
         <select id="llmModelSel"></select>
-        <input type="text" id="llmModel" class="model-other" placeholder="точное название модели" autocomplete="off" spellcheck="false" aria-label="Название модели" hidden />
+        <input type="text" id="llmModel" class="model-other" data-i18n-placeholder="llmModelPlaceholder" autocomplete="off" spellcheck="false" data-i18n-aria-label="llmModelAria" hidden />
         <p id="llmStatus" class="status" aria-live="polite"></p>
-        <p class="hint">Ключ хранится только в этом браузере. ИИ лучше передаёт смысл и обороты речи, но переводит медленнее DeepL, и каждый перевод оплачивается с вашего счёта у сервиса.</p>
+        <p class="hint" data-i18n="llmNote"></p>
       </div>
 
     </div>
@@ -181,84 +183,84 @@
   <section class="fold" id="moreBlock">
     <h2 class="fold-h">
       <button type="button" class="fold-head" id="moreHead" aria-expanded="false" aria-controls="moreBody">
-        <span class="fold-title">Дополнительно</span>
+        <span class="fold-title" data-i18n="more"></span>
         <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </button>
     </h2>
     <div class="fold-body" id="moreBody" hidden>
       <div class="field">
-        <label class="lbl" for="sourceLang">Язык оригинала</label>
+        <label class="lbl" for="sourceLang" data-i18n="sourceLang"></label>
         <select id="sourceLang"></select>
       </div>
 
       <div class="field" id="formalityField">
-        <label class="lbl" for="formality">Обращение (только DeepL)</label>
+        <label class="lbl" for="formality" data-i18n="formality"></label>
         <select id="formality" aria-describedby="formalityNote">
-          <option value="default">Как решит переводчик</option>
-          <option value="more">На «вы»</option>
-          <option value="less">На «ты»</option>
+          <option value="default" data-i18n="formalityDefault"></option>
+          <option value="more" data-i18n="formalityMore"></option>
+          <option value="less" data-i18n="formalityLess"></option>
         </select>
-        <p id="formalityNote" class="hint">Работает не для всех языков: немецкий, французский, итальянский, испанский, нидерландский, польский, португальский, русский, японский. Для остальных не меняет ничего.</p>
+        <p id="formalityNote" class="hint" data-i18n="formalityNote"></p>
       </div>
 
       <div class="field">
-        <label class="lbl" for="displayMode">Как показывать перевод</label>
+        <label class="lbl" for="displayMode" data-i18n="displayMode"></label>
         <select id="displayMode">
-          <option value="replace">Вместо текста, на том же месте</option>
-          <option value="popover">Карточка рядом с текстом</option>
+          <option value="replace" data-i18n="displayReplace"></option>
+          <option value="popover" data-i18n="displayPopover"></option>
         </select>
-        <p id="displayNote" class="hint" hidden>Карточка — только для абзаца под курсором; «Перевести страницу» всегда заменяет текст.</p>
-        <label class="cb cb-row" id="badgeRow"><input type="checkbox" id="showLangBadge" /> Показывать в карточке язык оригинала (EN&nbsp;→&nbsp;RU)</label>
+        <p id="displayNote" class="hint" data-i18n="displayNote" hidden></p>
+        <label class="cb cb-row" id="badgeRow"><input type="checkbox" id="showLangBadge" /> <span data-i18n="showLangBadge"></span></label>
       </div>
 
       <div class="field">
-        <label class="lbl" for="dispMode">Подсветка переведённого</label>
+        <label class="lbl" for="dispMode" data-i18n="dispMode"></label>
         <select id="dispMode">
-          <option value="auto">Подстраивать под страницу</option>
-          <option value="custom">Свой цвет</option>
-          <option value="none">Без подсветки</option>
+          <option value="auto" data-i18n="dispAuto"></option>
+          <option value="custom" data-i18n="dispCustom"></option>
+          <option value="none" data-i18n="dispNone"></option>
         </select>
         <div id="dispCustom" class="disp-custom">
           <div class="control-row">
-            <input type="color" id="dispBg" aria-label="Цвет подсветки" />
-            <label class="sr-only" for="dispOpacity">Насыщенность подсветки</label>
+            <input type="color" id="dispBg" data-i18n-aria-label="dispColor" />
+            <label class="sr-only" for="dispOpacity" data-i18n="dispOpacity"></label>
             <input type="range" id="dispOpacity" min="0" max="100" step="1" />
             <output class="muted" id="dispOpacityVal" for="dispOpacity"></output>
           </div>
-          <label class="cb cb-row"><input type="checkbox" id="dispBorder" /> Рамка</label>
+          <label class="cb cb-row"><input type="checkbox" id="dispBorder" /> <span data-i18n="dispBorder"></span></label>
           <div class="control-row" id="borderControls">
-            <select id="dispBorderStyle" aria-label="Вид рамки">
-              <option value="solid">Сплошная</option>
-              <option value="dashed">Пунктир</option>
-              <option value="dotted">Точки</option>
-              <option value="double">Двойная</option>
+            <select id="dispBorderStyle" data-i18n-aria-label="dispBorderStyle">
+              <option value="solid" data-i18n="borderSolid"></option>
+              <option value="dashed" data-i18n="borderDashed"></option>
+              <option value="dotted" data-i18n="borderDotted"></option>
+              <option value="double" data-i18n="borderDouble"></option>
             </select>
-            <input type="color" id="dispBorderColor" aria-label="Цвет рамки" />
+            <input type="color" id="dispBorderColor" data-i18n-aria-label="dispBorderColor" />
           </div>
         </div>
       </div>
 
       <div class="field">
-        <label class="lbl" for="noTranslate">Не переводить эти слова</label>
+        <label class="lbl" for="noTranslate" data-i18n="noTranslate"></label>
         <textarea id="noTranslate" rows="2" placeholder="GitHub, Vue, nikimix" aria-describedby="noTrNote"></textarea>
-        <p id="noTrNote" class="hint">Через запятую или с новой строки: названия, термины. Встроенный переводчик так не умеет — только DeepL и ИИ.</p>
+        <p id="noTrNote" class="hint" data-i18n="noTranslateNote"></p>
       </div>
 
       <!-- Переводы DeepL и ИИ сохраняются на 14 дней: повторный перевод бесплатный и мгновенный. -->
       <div class="field" id="cacheRow">
-        <span class="lbl">Сохранённые переводы</span>
+        <span class="lbl" data-i18n="savedTranslations"></span>
         <p id="stats" class="hint" aria-live="polite"></p>
         <div class="row">
-          <button id="clearCache" type="button" class="btn-sec">Удалить сохранённые переводы</button>
+          <button id="clearCache" type="button" class="btn-sec" data-i18n="clearCache"></button>
           <span id="cacheMsg" class="hint" aria-live="polite"></span>
         </div>
       </div>
 
       <!-- Сочетания клавиш (chrome.commands): заполняет popup.js — их могли сменить или не назначить. -->
       <div class="field">
-        <span class="lbl">Горячие клавиши</span>
+        <span class="lbl" data-i18n="shortcuts"></span>
         <ul class="keys-list" id="keysText"></ul>
-        <button type="button" id="keysEdit" class="btn-sec">Сменить сочетания</button>
+        <button type="button" id="keysEdit" class="btn-sec" data-i18n="shortcutsEdit"></button>
       </div>
     </div>
   </section>

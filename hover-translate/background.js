@@ -249,12 +249,13 @@ function scopeOf(o) {
   return parts.join("|");
 }
 
-// Неудача для вызывающего: error — что сказать человеку простыми словами; code — вид сбоя (по нему
+// Неудача для вызывающего: error — что сказать человеку простыми словами (на языке интерфейса); code — вид сбоя (по нему
 // content решает, перевести ли встроенным переводчиком и какую кнопку предложить в уведомлении);
 // detail — код ответа и текст сервиса, их показываем мелко под сообщением.
 // Коды: no-key, no-consent (человек не разрешил отправлять текст этому сервису), bad-key, quota
 // (месячный лимит DeepL), money (на счёте ИИ нет денег), rate (429), server (5xx), network, timeout,
-// too-big, model, denied, cut, bad-response, limit (наш лимит), other.
+// too-big, model, denied, cut, refused (ИИ отказался переводить), bad-response, lang (переводчик не знает
+// выбранный язык), limit (наш лимит), other.
 function failure(code, error, detail) { return { ok: false, code, error, detail: detail || "" }; }
 
 // Retry-After: число секунд или HTTP-дата. Возвращает мс ожидания или fallback.
@@ -273,14 +274,6 @@ function retryAfterMs(header, fallback) {
 const DEEPL_TIMEOUT_MS = 15000;
 const LLM_TIMEOUT_MS = 25000;
 
-// Сигнал, который сам обрывает запрос через ms. Действует и на чтение тела (res.json()), не только
-// на заголовки. Таймер после успешного ответа не снимаем: обрыв уже завершённого запроса ничего
-// не делает. AbortSignal.timeout() не берём — его нет в Chrome 102 (minimum_chrome_version).
-function timeoutSignal(ms) {
-  const ctrl = new AbortController();
-  setTimeout(() => ctrl.abort(new DOMException(`нет ответа за ${ms / 1000} с`, "TimeoutError")), ms);
-  return ctrl.signal;
-}
 // Кроме тайм-аута запросы никто не обрывает, поэтому AbortError (старые версии Chrome отдают его
 // вместо причины обрыва) — тоже тайм-аут.
 function isTimeout(e) { return !!e && (e.name === "TimeoutError" || e.name === "AbortError"); }
@@ -294,7 +287,8 @@ async function fetchRetry(url, options, timeoutMs, maxRetries = 2) {
   for (let attempt = 0; ; attempt++) {
     let res;
     try {
-      res = await fetch(url, Object.assign({}, options, { signal: timeoutSignal(timeoutMs) }));
+      // Сигнал обрывает и чтение тела (res.json()), не только ожидание заголовков.
+      res = await fetch(url, Object.assign({}, options, { signal: AbortSignal.timeout(timeoutMs) }));
     } catch (e) {
       if (isTimeout(e) || attempt >= maxRetries) throw e; // пусть обработает вызывающий
       await new Promise((r) => setTimeout(r, 600 * Math.pow(2, attempt)));
@@ -358,13 +352,13 @@ function budgetTake(key, by, chars) {
   let b = budgets.get(k);
   if (!b || now - b.start > cfg.windowMs) { b = { start: now, chars: 0, reqs: 0 }; budgets.set(k, b); }
   if (b.reqs >= cfg.maxReqs || b.chars + chars > cfg.maxChars) {
-    return failure("limit", "На этой вкладке за минуту переведено слишком много — подождите минуту. Так расширение бережёт ваш ключ от перерасхода.");
+    return failure("limit", HT_t("limitMinute"));
   }
   if (kind === HT_BY_PAGE) {
     const day = new Date(now).toDateString();   // местные сутки: «до завтра» понятнее скользящих 24 ч
     if (pageDay.day !== day) pageDay = { day, chars: 0 };
     if (pageDay.chars + chars > PAGE_DAY_MAX) {
-      return failure("limit", "На сегодня исчерпан лимит перевода под курсором (100 000 знаков) — так расширение бережёт ваш ключ. «Перевести страницу» по-прежнему работает.");
+      return failure("limit", HT_plural("limitDay", PAGE_DAY_MAX));
     }
     pageDay.chars += chars;
     persistStats();
@@ -475,9 +469,11 @@ async function runChunks(texts, maxTexts, maxSize, sizeOf, fn) {
 }
 
 // ---- DeepL ----
+// Коды языков — из таблицы (shared.js): сейчас они совпадают с кодами настроек, но код настройки — наш, а
+// код DeepL — его. Языков, которых DeepL не знает, здесь нет: их отсекает translateMany.
 function deeplBody(texts, o) {
-  const body = { text: texts, target_lang: o.targetLang, tag_handling: "html" };
-  if (o.sourceLang && o.sourceLang !== "auto") body.source_lang = o.sourceLang;
+  const body = { text: texts, target_lang: HT_deeplCode(o.targetLang), tag_handling: "html" };
+  if (o.sourceLang && o.sourceLang !== "auto") body.source_lang = HT_deeplCode(o.sourceLang);
   if (o.formality && o.formality !== "default") body.formality = "prefer_" + o.formality; // more|less → prefer_more|prefer_less
   if (o.terms && o.terms.length) body.ignore_tags = ["x"];
   return body;
@@ -487,20 +483,20 @@ function deeplAuth(key) { return { "Authorization": `DeepL-Auth-Key ${key}` }; }
 
 // Ответ DeepL с ошибкой → неудача с понятным текстом (код ответа — мелко, в detail).
 function deeplFail(status) {
-  const d = "код ответа " + status;
-  if (status === 401 || status === 403) return failure("bad-key", "DeepL не принял ключ — проверьте его в окне расширения.", d);
-  if (status === 456) return failure("quota", "Лимит DeepL на этот месяц закончился.", d);
-  if (status === 429) return failure("rate", "Слишком много запросов к DeepL — подождите немного и попробуйте ещё раз.", d);
-  if (status === 413) return failure("too-big", "Слишком большой кусок текста для DeepL.", d);
-  if (status >= 500) return failure("server", "DeepL сейчас недоступен — попробуйте позже.", d);
-  return failure("other", "DeepL не смог перевести текст.", d);
+  const d = HT_t("respCode", status);
+  if (status === 401 || status === 403) return failure("bad-key", HT_t("deeplBadKey"), d);
+  if (status === 456) return failure("quota", HT_t("deeplQuota"), d);
+  if (status === 429) return failure("rate", HT_t("deeplRate"), d);
+  if (status === 413) return failure("too-big", HT_t("deeplTooBig"), d);
+  if (status >= 500) return failure("server", HT_t("deeplServer"), d);
+  return failure("other", HT_t("deeplOther"), d);
 }
 // Запрос не дошёл или не дождался ответа. fetch бросает TypeError без подробностей («Failed to
 // fetch»): нет сети, сайт сервиса недоступен или запрос заблокирован.
 function deeplThrown(e) {
   return isTimeout(e)
-    ? failure("timeout", `DeepL не ответил за ${DEEPL_TIMEOUT_MS / 1000} секунд — попробуйте ещё раз.`)
-    : failure("network", "Нет связи с DeepL — проверьте интернет.", e && e.message);
+    ? failure("timeout", HT_plural("deeplTimeout", DEEPL_TIMEOUT_MS / 1000))
+    : failure("network", HT_t("deeplNetwork"), e && e.message);
 }
 
 // DeepL принимает не более 50 параметров text И не более 128 KiB тела запроса. Узловой перевод
@@ -530,12 +526,12 @@ async function deeplTranslateMany(texts, o, apiKey) {
   if (!res.ok) return deeplFail(res.status);
   let data;
   try { data = await res.json(); } catch (e) {
-    return isTimeout(e) ? deeplThrown(e) : failure("bad-response", "DeepL прислал непонятный ответ — попробуйте ещё раз.");
+    return isTimeout(e) ? deeplThrown(e) : failure("bad-response", HT_t("deeplBadResponse"));
   }
   // Длину проверяем обязательно: короткий ответ сдвинул бы все последующие чанки и записал в L3
   // на 14 дней пары «исходник A ↔ перевод B». В LLM-ветке от этого защищает coerceArr.
   if (!data || !Array.isArray(data.translations) || data.translations.length !== texts.length) {
-    return failure("bad-response", "DeepL прислал непонятный ответ — попробуйте ещё раз.");
+    return failure("bad-response", HT_t("deeplBadResponse"));
   }
   // Снимаем обёртку <x> только если сами её ставили (есть термины) — иначе можно стереть
   // легитимные литералы <x>/</x> из исходного текста.
@@ -563,8 +559,8 @@ function llmName(provider) { return LLM_NAMES[provider] || LLM_NAMES.openai; }
 
 // Ответ ИИ с ошибкой → неудача с понятным текстом. По одному коду не всё понятно (нет такой
 // модели, кончились деньги на счёте, неподдерживаемый параметр), поэтому смотрим и в тело: оба
-// провайдера кладут туда error.message (а OpenAI ещё error.code). Текст сервиса — английский, он
-// идёт мелко в detail. Показывается он и на странице, поэтому всё, похожее на ключ, вырезаем:
+// провайдера кладут туда error.message (а OpenAI ещё error.code). Текст сервиса — английский при любом
+// языке интерфейса, он идёт мелко в detail. Показывается он и на странице, поэтому всё, похожее на ключ, вырезаем:
 // OpenAI в ответе на 401 повторяет начало и конец ключа.
 async function llmFail(res, provider, model) {
   let msg = "", kind = "";
@@ -576,24 +572,24 @@ async function llmFail(res, provider, model) {
   msg = msg.replace(/\bsk-[\w*.-]+/g, "sk-…").replace(/\s+/g, " ").trim().slice(0, 200);
   const who = llmName(provider);
   const s = res.status;
-  const d = "код ответа " + s + (msg ? ": " + msg : "");
-  if (s === 401) return failure("bad-key", `${who} не принял ключ — проверьте его в окне расширения.`, d);
+  const d = msg ? HT_t("respCodeMsg", [s, msg]) : HT_t("respCode", s);
+  if (s === 401) return failure("bad-key", HT_t("llmBadKey", who), d);
   if (/insufficient_quota|billing|credit balance/i.test(kind + " " + msg)) {
-    return failure("money", `На счёте ${who} закончились деньги — пополните его или выберите другой переводчик.`, d);
+    return failure("money", HT_t("llmMoney", who), d);
   }
   if (s === 404 || /model_not_found/.test(kind)) {
-    return failure("model", `${who} не знает модель «${String(model).slice(0, 60)}» — проверьте название в окне расширения.`, d);
+    return failure("model", HT_t("llmModelUnknown", [who, String(model).slice(0, 60)]), d);
   }
-  if (s === 403) return failure("denied", `${who} отказал в доступе — например, сервис не работает в вашей стране.`, d);
-  if (s === 429) return failure("rate", `Слишком много запросов к ${who} — подождите немного и попробуйте ещё раз.`, d);
-  if (s >= 500) return failure("server", `${who} сейчас недоступен или перегружен — попробуйте позже.`, d);
-  return failure("other", `${who} отклонил запрос.`, d);
+  if (s === 403) return failure("denied", HT_t("llmDenied", who), d);
+  if (s === 429) return failure("rate", HT_t("llmRate", who), d);
+  if (s >= 500) return failure("server", HT_t("llmServer", who), d);
+  return failure("other", HT_t("llmOther", who), d);
 }
 function llmThrown(e, provider) {
   const who = llmName(provider);
   return isTimeout(e)
-    ? failure("timeout", `${who} не ответил за ${LLM_TIMEOUT_MS / 1000} секунд — попробуйте ещё раз или выберите модель быстрее.`)
-    : failure("network", `Нет связи с ${who} — проверьте интернет.`, e && e.message);
+    ? failure("timeout", HT_plural("llmTimeout", LLM_TIMEOUT_MS / 1000, who))
+    : failure("network", HT_t("llmNetwork", who), e && e.message);
 }
 // Anthropic требует версию API и явное разрешение прямого доступа из браузерного контекста.
 function llmHeaders(provider, key) {
@@ -711,7 +707,7 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
   // распарсится: отказываем ДО вызова API, чтобы не платить за заведомо мусорный ответ.
   const want = Math.max(LLM_MIN_TOKENS, user.length);
   if (want > LLM_MAX_TOKENS) {
-    return failure("too-big", "Слишком большой кусок текста для ИИ — выберите DeepL или переводите частями.");
+    return failure("too-big", HT_t("llmTooBig"));
   }
   const anthropic = provider === "anthropic";
   const model_ = llmModelOf(provider, model);
@@ -741,15 +737,18 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
   } catch (e) {
     return llmThrown(e, provider);
   }
+  // Модель отказалась переводить (правила безопасности провайдера): у Anthropic — stop_reason "refusal", у
+  // OpenAI — поле refusal в ответе. Что-то вроде перевода в ответе при этом может быть, но верить ему нельзя.
+  const choice0 = !anthropic && d && d.choices && d.choices[0];
+  if (anthropic ? d && d.stop_reason === "refusal" : choice0 && choice0.message && choice0.message.refusal) {
+    return failure("refused", HT_t("llmRefused"));
+  }
   let arr = parseLlmJson(llmContent(d, anthropic) || "", texts.length);
   if (!arr) {
     // Упёрлись в потолок длины — говорим об этом прямо: у моделей с рассуждением это значит, что
     // рассуждение съело лимит, и «неожиданный формат» только запутал бы.
-    const choice = !anthropic && d && d.choices && d.choices[0];
-    const cut = anthropic ? d && d.stop_reason === "max_tokens" : choice && choice.finish_reason === "length";
-    return cut
-      ? failure("cut", "Ответ ИИ оборвался на пределе длины — переводите частями или выберите другую модель.")
-      : failure("bad-response", "ИИ ответил не в том виде, который нужен для перевода, — попробуйте ещё раз или выберите другую модель.");
+    const cut = anthropic ? d && d.stop_reason === "max_tokens" : choice0 && choice0.finish_reason === "length";
+    return cut ? failure("cut", HT_t("llmCut")) : failure("bad-response", HT_t("llmBadResponse"));
   }
   // Снимаем обёртку <x> только если сами её ставили (есть термины).
   if (o.terms && o.terms.length) arr = arr.map(stripNoTranslate);
@@ -765,7 +764,10 @@ async function translateMany(items, o, origin, budgetKey) {
   o.terms = parseTerms(o.noTranslate);
   o.origin = origin || "";
   const e = HT_engine(o.engine);
-  if (e.via === "local") return failure("other", "Встроенный переводчик работает только на странице.");
+  if (e.via === "local") return failure("other", HT_t("builtinPageOnly"));
+  // Язык, которого DeepL не знает: content сюда не шлёт (HT_canSend), «авто» переводит встроенным. Это
+  // страховка — ответ с понятной причиной, а не 400 от DeepL.
+  if (HT_langGap(e.via, o)) return failure("lang", HT_problemText("deepl-lang", "page", o));
 
   // Настройки, входящие в ключ кэша (для LLM — провайдер и модель), читаем ДО вычисления scope:
   // иначе смена модели 14 дней отдавала бы перевод прежней и настройка выглядела нерабочей.
@@ -815,13 +817,13 @@ async function translateMany(items, o, origin, budgetKey) {
     // Ключ проверяем ДО лимита: без ключа ничего не оплачивается, а наведения на первом запуске
     // (ключ ещё не вставлен) иначе съедали бы суточный лимит, который понадобится потом.
     if (!s) s = await getSettings();
-    if (e.keyField && !s[e.keyField]) return failure("no-key", HT_KEY_HINTS[e.keyField]);
+    if (e.keyField && !s[e.keyField]) return failure("no-key", HT_t(HT_KEY_HINTS[e.keyField]));
     // Главная защита согласия: content тоже не шлёт текст без него, но проверка здесь — последняя
     // перед сетью и не зависит от того, что прислала страница. Сохранённые переводы (выше) отдаём и
     // без согласия: они уже на компьютере и никуда не уходят.
     const provider = HT_provider(e.code, s.llmProvider);
     if (!HT_agreed(s.consent, provider)) {
-      return failure("no-consent", `Вы ещё не разрешили отправлять текст в ${HT_PROVIDER_NAMES[provider]} — нажмите на значок расширения.`);
+      return failure("no-consent", HT_t("bgNoConsent", HT_PROVIDER_NAMES[provider]));
     }
     await startupReady;                 // суточный счётчик лимита должен быть уже загружен
     const denied = budgetTake(budgetKey, o.by, missTexts.reduce((n, t) => n + t.length, 0));
@@ -885,9 +887,9 @@ async function clearCache() {
 // ключ или нажал «Проверить»). Текста страниц в этом запросе нет.
 async function checkUsage() {
   const { apiKey } = await getSettings();
-  if (!apiKey) return failure("no-key", "Ключ не вставлен.");
+  if (!apiKey) return failure("no-key", HT_t("noKeyEntered"));
   try {
-    const res = await fetch(`${deeplBase(apiKey)}/v2/usage`, { headers: deeplAuth(apiKey), signal: timeoutSignal(DEEPL_TIMEOUT_MS) });
+    const res = await fetch(`${deeplBase(apiKey)}/v2/usage`, { headers: deeplAuth(apiKey), signal: AbortSignal.timeout(DEEPL_TIMEOUT_MS) });
     if (!res.ok) return deeplFail(res.status);
     const d = await res.json();
     return { ok: true, used: d.character_count, limit: d.character_limit };
@@ -903,7 +905,7 @@ async function checkUsage() {
 // переводится слово «Hello» из самого расширения, а не текст страниц.
 async function checkLlm() {
   const { llmApiKey, llmProvider, llmModel } = await getSettings();
-  if (!llmApiKey) return failure("no-key", "Ключ не вставлен.");
+  if (!llmApiKey) return failure("no-key", HT_t("noKeyEntered"));
   const r = await llmTranslateChunk(["Hello"], { targetLang: HT_DEFAULTS.targetLang, terms: [] }, llmApiKey, llmProvider, llmModel);
   return r.ok ? { ok: true } : failure(r.code, r.error, r.detail);
 }
@@ -914,7 +916,7 @@ async function checkLlm() {
 function reply(promise, sendResponse) {
   promise
     .then(sendResponse)
-    .catch((e) => sendResponse(failure("other", "Внутренняя ошибка расширения — попробуйте ещё раз.", e && e.message)));
+    .catch((e) => sendResponse(failure("other", HT_t("internalError"), e && e.message)));
   return true;
 }
 
@@ -928,7 +930,7 @@ function originOf(sender) {
 // встроенного в браузере): content на страницах тогда ничего не делает, а объяснение — в подсказке
 // значка и в окне расширения. «off» — перевод выключен. Состояние значка браузер не сохраняет между
 // запусками, поэтому пересчитываем при каждом старте воркера, а дальше — по изменениям в хранилище.
-const BADGE_KEYS = ["enabled", "engine", "apiKey", "llmApiKey", "llmProvider", "consent", "htBuiltinApi"];
+const BADGE_KEYS = ["enabled", "engine", "apiKey", "llmApiKey", "llmProvider", "consent", "htBuiltinApi", "targetLang", "sourceLang"];
 const BADGE_OFF_COLOR = "#6b7280";
 const BADGE_PROBLEM_COLOR = "#d93025";
 
@@ -936,27 +938,35 @@ function problemNow() {
   return chrome.storage.local.get({
     enabled: HT_DEFAULTS.enabled, engine: HT_DEFAULTS.engine, apiKey: "", llmApiKey: "",
     llmProvider: HT_DEFAULTS.llmProvider, consent: {}, htBuiltinApi: null,
+    targetLang: HT_DEFAULTS.targetLang, sourceLang: HT_DEFAULTS.sourceLang,
   }).then((s) => {
     // Встроенный переводчик есть в service worker не во всех версиях Chrome, поэтому «нет» берём
     // только из записи окна (htBuiltinApi пишут popup, страница приветствия и content), а «есть» —
     // и отсюда. Пока никто не проверял — считаем, что есть: иначе «!» горел бы ни за что.
     const builtin = "Translator" in self || s.htBuiltinApi !== false;
-    const problem = HT_engineProblem(HT_valid("engine", s.engine),
-      { apiKey: !!s.apiKey, llmApiKey: !!s.llmApiKey, llmProvider: s.llmProvider, consent: s.consent }, builtin);
-    return { off: s.enabled === false, problem };
+    const st = { apiKey: !!s.apiKey, llmApiKey: !!s.llmApiKey, llmProvider: s.llmProvider, consent: s.consent,
+      targetLang: HT_valid("targetLang", s.targetLang), sourceLang: HT_valid("sourceLang", s.sourceLang) };
+    const problem = HT_engineProblem(HT_valid("engine", s.engine), st, builtin);
+    return { off: s.enabled === false, problem, st };
   });
+}
+
+// Подсказка значка: короткое название и что не так. Название — из сообщений (extShortName): полное
+// (manifest name) для подсказки слишком длинное.
+function badgeTitle(off, problem, st) {
+  const name = HT_t("extShortName");
+  return off ? HT_t("badgeOff", name) : problem ? HT_t("badgeProblem", [name, HT_problemText(problem, "short", st)]) : name;
 }
 
 async function updateBadge() {
   const a = chrome.action;
   if (!a || !a.setBadgeText) return;
   try {
-    const { off, problem } = await problemNow();
-    const name = chrome.runtime.getManifest().name;
+    const { off, problem, st } = await problemNow();
     const text = off ? "off" : problem ? "!" : "";
     if (text) await a.setBadgeBackgroundColor({ color: off ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
     await a.setBadgeText({ text });
-    await a.setTitle({ title: off ? `${name} — перевод выключен` : problem ? `${name} — ${HT_PROBLEMS[problem].short}` : name });
+    await a.setTitle({ title: badgeTitle(off, problem, st) });
     // Проблему решили — следующая (если появится) снова заслуживает уведомления на странице.
     if (!problem && sessionArea) sessionArea.remove(Object.keys(HT_PROBLEMS).map(noticeKey)).catch(() => {});
   } catch (e) { /* значок — не повод ронять воркер */ }
@@ -976,17 +986,16 @@ async function siteBadge(tabId, off) {
   const a = chrome.action;
   if (!a || !a.setBadgeText) return;
   try {
-    const name = chrome.runtime.getManifest().name;
     if (off) {
       await a.setBadgeBackgroundColor({ tabId, color: BADGE_OFF_COLOR });
       await a.setBadgeText({ tabId, text: "off" });
-      await a.setTitle({ tabId, title: `${name} — на этом сайте перевод выключен` });
+      await a.setTitle({ tabId, title: HT_t("badgeSiteOff", HT_t("extShortName")) });
       return;
     }
-    const { off: allOff, problem } = await problemNow();
+    const { off: allOff, problem, st } = await problemNow();
     await a.setBadgeText({ tabId, text: null });
     await a.setBadgeBackgroundColor({ tabId, color: allOff ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
-    await a.setTitle({ tabId, title: allOff ? `${name} — перевод выключен` : problem ? `${name} — ${HT_PROBLEMS[problem].short}` : name });
+    await a.setTitle({ tabId, title: badgeTitle(allOff, problem, st) });
   } catch (e) { /* вкладку закрыли — значок не нужен */ }
 }
 
