@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Store screenshot</title>
+  <!-- Скриншот магазина 1280×800: screens.html?n=1..5&lang=en|ru. Подписи — texts.js, снимки
+       настоящего расширения — shots/<lang>/ (их делает capture.js), значок — из расширения. -->
+  <link rel="stylesheet" href="store.css" />
+  <script src="texts.js"></script>
+</head>
+<body class="shot" data-wait>
+<script>
+const q = new URLSearchParams(location.search);
+const N = Number(q.get("n") || 1), LANG = q.get("lang") || "en";
+const T = TEXTS[LANG], SH = `shots/${LANG}/`;
+const HOST = { en: "garden.test", ru: "sad.test" }[LANG];
+const ICON16 = "../../hover-translate/icons/16.png";
+document.documentElement.lang = LANG;
+
+const el = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; };
+const add = (html) => document.body.appendChild(el(html));
+const keys = (s) => s.replace(/<k>(.*?)<\/k>/g, '<span class="k">$1</span>').replace(/<n>(.*?)<\/n>/g, '<span class="nw">$1</span>');
+const CURSOR = `<svg class="cursor" viewBox="0 0 26 38"><path d="M2 2 L2 30 L9 23.4 L13.8 34.4 L18.6 32.3 L13.9 21.6 L23.2 21.6 Z" fill="#111" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/></svg>`;
+
+// Окно браузера со снимком страницы: x, y — левый верхний угол, w — ширина, img — снимок, vw/vh — его
+// размер в CSS-пикселях. Возвращает масштаб и начало страницы — для курсора.
+function win({ x, y, w, img, vw, vh, icon = "", path = "" }) {
+  const s = w / vw, h = Math.round(vh * s);
+  add(`<div class="win" style="left:${x}px;top:${y}px;width:${w}px">
+    <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="addr">${HOST}${path}</span><span class="tb ${icon}"><img src="${ICON16}" alt=""></span></div>
+    <img class="page" src="${SH}${img}" width="${w}" height="${h}" alt="">
+  </div>`);
+  return { s, px: x, py: y + 36, h: h + 36 };
+}
+function cursorAt(x, y, extra = "") { const c = el(CURSOR); c.style.left = (x - 2) + "px"; c.style.top = (y - 2) + "px"; if (extra) c.style.cssText += extra; document.body.appendChild(c); }
+function caption(t) { return add(`<div class="cap"><h1>${keys(t.h)}</h1>${t.sub ? `<p>${keys(t.sub)}</p>` : ""}</div>`); }
+// Окно под подписью: по ширине не больше maxW, по высоте — до низа с полем.
+function fitWin(capEl, o) {
+  const top = capEl.getBoundingClientRect().bottom + 34, bottom = 800 - 30;
+  const w = Math.min(o.maxW, Math.floor((bottom - top - 36) * o.vw / o.vh));
+  return win(Object.assign({ x: Math.round((1280 - w) / 2), y: Math.round(top), w }, o));
+}
+// Размер снимка части окна расширения в CSS-пикселях (снято с плотностью 3).
+const dims = (src) => new Promise((r) => { const i = new Image(); i.onload = () => r({ w: i.naturalWidth / 3, h: i.naturalHeight / 3 }); i.src = SH + src; });
+
+const S = {
+  // 1. До и после: тот же фрагмент на языке оригинала и переведённый на месте
+  1() {
+    const cap = caption(T.s1);
+    const top = Math.round(cap.getBoundingClientRect().bottom + 44);
+    const w = 560, gap = 60, x1 = Math.round((1280 - 2 * w - gap) / 2), x2 = x1 + w + gap;
+    const vh = Math.min(540, Math.floor((800 - 26 - top - 36) * 600 / w));
+    // нижнюю часть снимка (начало картинки статьи) обрезаем: окно должно влезть
+    const a = win({ x: x1, y: top, w, img: "s1-before.png", vw: 600, vh: 540, path: "/tomates" });
+    const b = win({ x: x2, y: top, w, img: "s1-after.png", vw: 600, vh: 540, path: "/tomates" });
+    for (const node of document.querySelectorAll(".win")) node.style.height = Math.round(36 + vh * a.s) + "px";
+    add(`<div class="tag before" style="left:${x1 + w / 2}px;top:${top}px">${T.s1.before}</div>`);
+    add(`<div class="tag after" style="left:${x2 + w / 2}px;top:${top}px">${T.s1.after}</div>`);
+    add(`<div class="arrow" style="left:${x1 + w + gap / 2 - 27}px;top:${top + 36 + vh * a.s / 2 - 27}px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b2f2c" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></div>`);
+    // курсор — за концом абзаца, не поверх слов
+    const e = LAYOUT.s1.end, p1 = LAYOUT.s1.p1;
+    cursorAt(b.px + Math.min(e.x + 26, p1.x + p1.w - 24) * b.s, b.py + (e.y - 4) * b.s);
+  },
+  // 2. Карточка с переводом под текстом
+  2() {
+    const cap = caption(T.s2);
+    const b = fitWin(cap, { img: "s2-card.png", vw: 860, vh: 440, maxW: 1120, path: "/tomates" });
+    const e = LAYOUT.s2.end, p2 = LAYOUT.s2.p2;
+    cursorAt(b.px + Math.min(e.x + 30, p2.x + p2.w - 20) * b.s, b.py + (e.y - 6) * b.s);
+  },
+  // 3. Окно расширения у значка на панели
+  3() {
+    add(`<div class="side" style="width:450px"><h1>${keys(T.s3.h)}</h1><p>${keys(T.s3.sub)}</p></div>`);
+    const ps = 1.18, pw = Math.round(340 * ps), ph = Math.round(LAYOUT.s3.h * ps);
+    const x = 560, w = 690, wh = 36 + Math.round(540 * w / 600), y = Math.round((800 - Math.max(wh, 40 + ph + 6)) / 2);
+    const b = win({ x, y, w, img: "s1-before.png", vw: 600, vh: 540, path: "/tomates", icon: "on" });
+    // окно расширения выходит из значка на панели (справа в рамке)
+    add(`<div class="panel" style="left:${x + w - pw - 14}px;top:${y + 40}px;width:${pw}px;height:${ph}px"><img src="${SH}s3-popup.png" width="${pw}" height="${ph}" alt=""></div>`);
+  },
+  // 4. Перевести страницу
+  async 4() {
+    const cap = caption(T.s4);
+    const [vw, vh] = LAYOUT.s4.view;
+    const b = fitWin(cap, { img: "s4-page.png", vw, vh, maxW: 1120, path: "/tomates" });
+    // кнопка «Перевести страницу» из окна расширения — в шапке сайта, между его названием и мини-панелью;
+    // рамка вместо курсора: курсор закрыл бы подпись кнопки
+    const a = await dims("s4-actions.png");
+    const s = 1.12, aw = Math.round(a.w * s), ah = Math.round(a.h * s);   // снимок ряда кнопок с полями 6 px
+    const ax = Math.round(b.px + 362 * b.s - aw / 2), ay = Math.round(b.py - 36 + 8);
+    add(`<div class="panel" style="left:${ax}px;top:${ay}px;width:${aw}px;height:${ah}px;border-radius:12px"><img src="${SH}s4-actions.png" width="${aw}" height="${ah}" alt=""></div>`);
+    // рамка вокруг первой кнопки (три кнопки равной ширины с промежутками 8 px)
+    const bw = (a.w - 12 - 16) / 3, bh = a.h - 12;
+    add(`<div class="ring" style="left:${ax + 6 * s - 7}px;top:${ay + 6 * s - 7}px;width:${bw * s + 14}px;height:${bh * s + 14}px"></div>`);
+  },
+  // 5. Бесплатно и приватно
+  async 5() {
+    const ic = {
+      chip: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b2f2c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
+      key: `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0b2f2c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14.5 8.5l2 2"/></svg>`,
+    };
+    add(`<div class="side" style="width:560px"><h1>${keys(T.s5.h)}</h1><ul class="points">${T.s5.points.map(([i, t]) => `<li><span class="ic">${ic[i]}</span><span>${keys(t)}</span></li>`).join("")}</ul></div>`);
+    // выбор переводчика (встроенный выбран) и просьба о согласии, если выбрать DeepL
+    const E = await dims("s5-engines.png"), C = await dims("s5-consent.png");
+    const s = Math.min(1.26, (800 - 2 * 40 - 28 - 24 - 30) / (E.h + C.h));
+    const ew = Math.round(E.w * s), eh = Math.round(E.h * s), cw = Math.round(C.w * s), chh = Math.round(C.h * s);
+    const total = eh + 28 + 30 + chh + 24, ex = 1280 - 84 - ew, ey = Math.round((800 - total) / 2) + 14;
+    add(`<div class="panel" style="left:${ex - 14}px;top:${ey - 14}px;width:${ew + 28}px;height:${eh + 28}px;padding:14px"><img src="${SH}s5-engines.png" width="${ew}" height="${eh}" alt=""></div>`);
+    add(`<div class="panel" style="left:${ex - 64}px;top:${ey + eh + 14 + 30}px;width:${cw + 24}px;height:${chh + 24}px;padding:12px"><img src="${SH}s5-consent.png" width="${cw}" height="${chh}" alt=""></div>`);
+  },
+};
+
+const ls = document.createElement("script");
+ls.src = SH + "layout.js";
+ls.onload = async () => {
+  await S[N]();
+  const imgs = [...document.images];
+  Promise.all(imgs.map((i) => i.complete ? 0 : new Promise((r) => { i.onload = i.onerror = r; })))
+    .then(() => document.fonts.ready).then(() => { document.body.dataset.ready = "1"; });
+};
+document.head.appendChild(ls);
+</script>
+</body>
+</html>

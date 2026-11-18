@@ -1489,8 +1489,12 @@
     if (gen !== pageGen) { t.close(); return; }
     // Ошибку уже показали (она заняла место «Перевожу…») — «Готово» её бы спрятало.
     if (done.failed) { if (pageToast === t) pageToast = null; }
-    else if (!done.wrote && !rest.length) {
-      t.update({ message: HT_t("alreadyInLang"), ms: 4000 });
+    else if (!done.wrote) {
+      // Ничего не заменено — «Готово» было бы неправдой. Видимая часть уже на нужном языке (или на экране
+      // нет текста для перевода); остальное, если оно есть, переведётся по прокрутке.
+      t.update(rest.length
+        ? { message: HT_t(inView.length ? "visibleInLang" : "scrollToTranslate"), closable: true, ms: 6000 }
+        : { message: HT_t("alreadyInLang"), ms: 4000 });
       if (pageToast === t) pageToast = null;
     } else {
       t.update({

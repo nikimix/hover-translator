@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 210" role="img">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfe8f5"/><stop offset="1" stop-color="#f6efdc"/></linearGradient>
+    <linearGradient id="pot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9774a"/><stop offset="1" stop-color="#b85a33"/></linearGradient>
+  </defs>
+  <rect width="680" height="210" fill="url(#sky)"/>
+  <circle cx="575" cy="58" r="30" fill="#ffd769"/>
+  <path d="M0 150 C120 128 220 140 330 132 C450 124 560 138 680 128 V210 H0Z" fill="#e7dcc0"/>
+  <!-- перила балкона -->
+  <rect x="0" y="118" width="680" height="7" fill="#5b6b62"/>
+  <g fill="#6c7d73">
+    <rect x="20" y="125" width="5" height="85"/><rect x="70" y="125" width="5" height="85"/><rect x="120" y="125" width="5" height="85"/>
+    <rect x="170" y="125" width="5" height="85"/><rect x="420" y="125" width="5" height="85"/><rect x="470" y="125" width="5" height="85"/>
+    <rect x="520" y="125" width="5" height="85"/><rect x="570" y="125" width="5" height="85"/><rect x="620" y="125" width="5" height="85"/>
+  </g>
+  <!-- опора и стебли -->
+  <rect x="300" y="18" width="5" height="160" rx="2" fill="#b8925a"/>
+  <g fill="none" stroke="#3f8f3a" stroke-width="5" stroke-linecap="round">
+    <path d="M300 172 C296 130 312 96 300 30"/>
+    <path d="M300 120 C280 104 258 98 236 84"/>
+    <path d="M302 92 C322 80 344 76 366 60"/>
+    <path d="M300 146 C326 134 350 132 372 120"/>
+    <path d="M300 64 C284 54 270 50 256 36"/>
+  </g>
+  <g fill="#4ea34a">
+    <ellipse cx="236" cy="80" rx="20" ry="9" transform="rotate(-25 236 80)"/>
+    <ellipse cx="368" cy="56" rx="20" ry="9" transform="rotate(-20 368 56)"/>
+    <ellipse cx="256" cy="32" rx="16" ry="8" transform="rotate(-35 256 32)"/>
+    <ellipse cx="376" cy="116" rx="18" ry="8" transform="rotate(-15 376 116)"/>
+    <ellipse cx="318" cy="24" rx="14" ry="7" transform="rotate(25 318 24)"/>
+  </g>
+  <!-- томаты -->
+  <g>
+    <circle cx="262" cy="108" r="15" fill="#e2412f"/><circle cx="257" cy="103" r="4" fill="#fff" opacity=".45"/>
+    <circle cx="340" cy="92" r="13" fill="#e8553a"/><circle cx="336" cy="88" r="3.5" fill="#fff" opacity=".45"/>
+    <circle cx="358" cy="142" r="14" fill="#d9392a"/><circle cx="354" cy="137" r="3.5" fill="#fff" opacity=".45"/>
+    <circle cx="282" cy="60" r="11" fill="#f0a23a"/><circle cx="279" cy="57" r="3" fill="#fff" opacity=".45"/>
+  </g>
+  <!-- горшок -->
+  <path d="M248 168 H356 L346 210 H258Z" fill="url(#pot)"/>
+  <rect x="242" y="160" width="120" height="14" rx="4" fill="#cf6a3d"/>
+</svg>

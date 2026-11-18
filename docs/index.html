@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hover Translator</title>
+<meta name="description" content="Browser extension: point at any text and press Shift to translate it right on the page. Free and private with the translator built into Chrome.">
+<style>
+  :root { color-scheme: light dark; --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --accent: #0b62c4; --box: #f6f8fa; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --accent: #4493f8; --box: #151b23; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .3em; }
+  h2 { font-size: 1.2rem; margin: 2em 0 .5em; }
+  p, ul { margin: 0 0 1em; }
+  li { margin: .3em 0; }
+  a { color: var(--accent); }
+  .lead { font-size: 1.1rem; }
+  .links { list-style: none; padding: 0; display: grid; gap: 8px; }
+  .links a { display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--box); text-decoration: none; }
+  .links a:hover, .links a:focus-visible { border-color: var(--accent); }
+  section + section { margin-top: 2.5em; padding-top: 1.5em; border-top: 1px solid var(--line); }
+  footer { margin-top: 3em; color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <section lang="en">
+    <h1>Hover Translator</h1>
+    <p class="lead">A browser extension for Google Chrome™: point at any text and press Shift — it’s translated right on the page, with links and layout kept. Press again for the original; Esc brings back the whole page.</p>
+    <ul>
+      <li>Works right after installing: no account and no key. By default it uses the translator built into Chrome, which runs on your computer.</li>
+      <li>Optional: DeepL or AI (OpenAI, Anthropic) with your own key — text is sent only after you agree.</li>
+      <li>No server of its own, no analytics, no ads. Open source.</li>
+    </ul>
+    <ul class="links">
+      <li><a href="CHROME_WEB_STORE_URL">Install from the Chrome Web Store</a></li>
+      <li><a href="privacy.html">Privacy policy</a></li>
+      <li><a href="https://github.com/GITHUB_USER/hover-translator">Source code on GitHub</a></li>
+      <li><a href="https://github.com/GITHUB_USER/hover-translator/issues">Questions and bug reports</a></li>
+    </ul>
+    <p>Hover Translator’s use of user data complies with the Chrome Web Store User Data Policy, including the Limited Use requirements. Details are in the <a href="privacy.html">privacy policy</a>.</p>
+  </section>
+
+  <section lang="ru">
+    <h2>Переводчик при наведении</h2>
+    <p>Расширение для Google Chrome™: наведите курсор на текст и нажмите Shift — он переведётся прямо на странице, ссылки и вёрстка останутся на месте. Ещё раз — вернётся оригинал, Esc — вся страница.</p>
+    <ul>
+      <li>Работает сразу после установки: без учётной записи и без ключа. По умолчанию переводит встроенный в Chrome переводчик прямо на компьютере.</li>
+      <li>По желанию — DeepL или ИИ (OpenAI, Anthropic) по своему ключу: текст уходит туда только после вашего согласия.</li>
+      <li>Нет своего сервера, сбора сведений о пользователях и рекламы. Исходный код открыт.</li>
+    </ul>
+    <ul class="links">
+      <li><a href="CHROME_WEB_STORE_URL">Установить из магазина Chrome</a></li>
+      <li><a href="privacy-ru.html">Политика конфиденциальности</a></li>
+      <li><a href="https://github.com/GITHUB_USER/hover-translator/blob/main/README.ru.md">Исходный код и описание на GitHub</a></li>
+      <li><a href="https://github.com/GITHUB_USER/hover-translator/issues">Вопросы и сообщения об ошибках</a></li>
+    </ul>
+    <p>Расширение обращается с данными пользователей по правилам магазина Chrome Web Store о данных пользователей, включая требования об ограниченном использовании (Limited Use). Подробности — в <a href="privacy-ru.html">политике конфиденциальности</a>.</p>
+  </section>
+
+  <footer>
+    <p>Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trademarks of their owners; this extension is not affiliated with them.</p>
+  </footer>
+</main>
+</body>
+</html>

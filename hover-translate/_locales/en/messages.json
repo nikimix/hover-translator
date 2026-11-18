@@ -12,7 +12,7 @@
     "description": "Short extension name: manifest short_name, toolbar icon tooltip, extension window, welcome page, notification titles on pages. Change both names here (and in the other messages.json) — everything else takes them from here."
   },
   "extDescription": {
-    "message": "Translate the text under your cursor, in place or in a card. Chrome’s built-in translator, or DeepL and AI with your own key.",
+    "message": "Hover over any text and press Shift to translate it in place. Free and private with Chrome’s built-in translator, no sign-up.",
     "description": "Store and extensions page description, up to 132 characters."
   },
   "cmdToggle": {
@@ -1304,6 +1304,12 @@
   },
   "alreadyInLang": {
     "message": "Nothing to translate: the page is already in your language."
+  },
+  "visibleInLang": {
+    "message": "This part of the page is already in your language. The rest will be translated as you scroll to it."
+  },
+  "scrollToTranslate": {
+    "message": "There’s no text to translate on screen. The rest of the page will be translated as you scroll to it."
   },
   "doneScroll": {
     "message": "Done. The rest will be translated as you scroll to it."

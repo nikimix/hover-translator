@@ -12,7 +12,7 @@
     "description": "Short extension name: manifest short_name, toolbar icon tooltip, extension window, welcome page, notification titles on pages. Change both names here (and in the other messages.json) — everything else takes them from here."
   },
   "extDescription": {
-    "message": "Переводит текст под курсором — на месте или в карточке. Встроенный переводчик Chrome либо DeepL и ИИ (OpenAI, Anthropic) с ключом.",
+    "message": "Наведите курсор на текст и нажмите Shift — он переведётся прямо на странице. Бесплатно и без регистрации, DeepL и ИИ — по желанию.",
     "description": "Store and extensions page description, up to 132 characters."
   },
   "cmdToggle": {
@@ -1294,7 +1294,7 @@
     "message": "Перевод выключен. Включить можно в окне расширения."
   },
   "siteOffPage": {
-    "message": "На этом сайте перевод выключен. Включить можно в окне расширения: галочка «Переводить на сайте»."
+    "message": "На этом сайте перевод выключен. Включить можно в окне расширения: галочка «Переводить на этом сайте»."
   },
   "nothingOnPage": {
     "message": "Переводить нечего: на странице не нашлось текста для перевода."
@@ -1304,6 +1304,12 @@
   },
   "alreadyInLang": {
     "message": "Переводить нечего: текст на странице уже на нужном языке."
+  },
+  "visibleInLang": {
+    "message": "Эта часть страницы уже на нужном языке. Остальное переведётся, когда вы до него докрутите."
+  },
+  "scrollToTranslate": {
+    "message": "На экране нет текста для перевода. Остальная страница переведётся, когда вы до неё докрутите."
   },
   "doneScroll": {
     "message": "Готово. Остальное переведётся, когда вы до него докрутите."

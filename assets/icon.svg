@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Значок «Hover Translator» 128×128: рисунок 96×96 с прозрачными полями 16 px (рекомендация Chrome Web Store). Курсор над строками текста, одна строка (янтарная) уже переведена на месте. -->
+  <defs>
+  <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#1bb8a5"/>
+  <stop offset="1" stop-color="#0b877b"/>
+  </linearGradient>
+  <filter id="sh" x="-30%" y="-30%" width="160%" height="160%">
+  <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#04302c" flood-opacity="0.35"/>
+  </filter>
+  </defs>
+  <rect x="16" y="16" width="96" height="96" rx="22" fill="url(#g)"/>
+  <rect x="32" y="36" width="62" height="13" rx="6.5" fill="#fff" />
+  <rect x="32" y="58" width="44" height="13" rx="6.5" fill="#ffcf4a" />
+  <rect x="32" y="80" width="28" height="13" rx="6.5" fill="#fff" />
+  <g filter="url(#sh)">
+  <path d="M66.00 62.00 L66.00 101.52 L75.62 92.42 L82.38 107.24 L89.14 104.38 L82.64 89.82 L95.12 89.82Z" fill="#fff" stroke="#0b3f3b" stroke-width="6" stroke-linejoin="round" paint-order="stroke"/>
+  </g>
+</svg>

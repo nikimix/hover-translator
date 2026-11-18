@@ -1,0 +1,126 @@
+/* Общий стиль картинок магазина: бирюзовый фон значка, белые подписи, янтарные клавиши. */
+:root {
+  --teal-1: #138c7f;
+  --teal-2: #0b665e;
+  --teal-3: #074841;
+  --amber: #ffcf4a;
+  --amber-dark: #c99a17;
+  --ink: #0b2f2c;
+  --white-soft: rgba(255, 255, 255, 0.88);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  font-family: "Ubuntu Sans", "Noto Sans", "Segoe UI", system-ui, sans-serif;
+  background:
+    radial-gradient(900px 600px at 88% -12%, rgba(255, 255, 255, 0.16), transparent 62%),
+    radial-gradient(700px 500px at -8% 112%, rgba(0, 0, 0, 0.18), transparent 60%),
+    linear-gradient(160deg, var(--teal-1) 0%, var(--teal-2) 55%, var(--teal-3) 100%);
+}
+body.shot { width: 1280px; height: 800px; }
+
+
+
+/* Подпись сверху */
+.cap { position: absolute; left: 0; right: 0; top: 44px; padding: 0 90px; text-align: center; }
+.cap h1 { margin: 0; font-size: 46px; line-height: 1.16; font-weight: 750; letter-spacing: -0.6px; text-wrap: balance; }
+.cap p { margin: 12px 0 0; font-size: 25px; line-height: 1.3; font-weight: 450; color: var(--white-soft); }
+
+/* Клавиша */
+.k {
+  display: inline-block;
+  padding: 0.02em 0.34em 0.06em;
+  margin: 0 0.04em;
+  border-radius: 0.2em;
+  background: var(--amber);
+  color: var(--ink);
+  font-weight: 750;
+  line-height: 1.12;
+  box-shadow: 0 0.09em 0 var(--amber-dark), 0 0.14em 0.3em rgba(0, 0, 0, 0.25);
+  transform: translateY(-0.05em);
+}
+.cap p .k { font-size: 0.92em; }
+.nw { white-space: nowrap; }
+
+/* Окно браузера (нарисованная рамка; содержимое — настоящий снимок) */
+.win {
+  position: absolute;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.38), 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+.win .bar {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px 0 14px;
+  background: #e9edf0;
+  border-bottom: 1px solid #d6dce1;
+}
+.win .dot { width: 11px; height: 11px; border-radius: 50%; background: #c5ccd3; flex: none; }
+.win .addr {
+  flex: 1;
+  height: 24px;
+  margin: 0 10px 0 8px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: #fff;
+  color: #5c636b;
+  font: 13px/24px "Noto Sans", system-ui, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.win .tb { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.win .tb.on { background: #d3dade; }
+.win .tb img { width: 16px; height: 16px; image-rendering: auto; }
+.win img.page { display: block; }
+
+/* Бейдж «До/После» над окном */
+.tag {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 6px 18px;
+  border-radius: 20px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  z-index: 3;
+}
+.tag.before { background: #fff; color: var(--teal-2); }
+.tag.after { background: var(--amber); color: var(--ink); }
+
+/* Курсор мыши поверх снимка (сам Chrome без интерфейса курсор не рисует) */
+.cursor { position: absolute; width: 26px; height: 38px; z-index: 4; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); }
+.keyhint { position: absolute; z-index: 4; font-size: 20px; }
+
+/* Круглая стрелка между окнами */
+.arrow {
+  position: absolute;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--amber);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  z-index: 3;
+}
+
+/* Окно расширения и его части поверх страницы */
+.panel { position: absolute; background: #fff; border-radius: 14px; box-shadow: 0 26px 60px rgba(0, 0, 0, 0.4), 0 3px 10px rgba(0, 0, 0, 0.2); overflow: hidden; }
+.panel img { display: block; }
+.ring { position: absolute; border: 4px solid var(--amber); border-radius: 12px; box-shadow: 0 0 0 4px rgba(255, 207, 74, 0.35); z-index: 5; }
+
+/* Колонка текста слева (скриншоты 3 и 5) */
+.side { position: absolute; left: 70px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; }
+.side h1 { margin: 0; font-size: 50px; line-height: 1.12; font-weight: 750; letter-spacing: -0.7px; }
+.side p { margin: 18px 0 0; font-size: 26px; line-height: 1.32; color: var(--white-soft); }
+.points { list-style: none; margin: 34px 0 0; padding: 0; }
+.points li { display: flex; gap: 18px; align-items: flex-start; font-size: 25px; line-height: 1.32; margin-bottom: 26px; color: #fff; }
+.points .ic { flex: none; width: 50px; height: 50px; border-radius: 14px; background: var(--amber); display: grid; place-items: center; margin-top: 2px; }

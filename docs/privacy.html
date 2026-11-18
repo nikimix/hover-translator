@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Hover Translator</title>
+<meta name="description" content="What the Hover Translator browser extension does with your text, keys and settings.">
+<link rel="alternate" hreflang="ru" href="privacy-ru.html">
+<style>
+  :root { color-scheme: light dark; --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --accent: #0b62c4; --box: #f6f8fa; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --accent: #4493f8; --box: #151b23; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 4px; }
+  h2 { font-size: 1.25rem; margin: 2.2em 0 .5em; padding-top: .6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 1.4em 0 .4em; }
+  p, ul { margin: 0 0 1em; }
+  li { margin: .25em 0; }
+  a { color: var(--accent); }
+  code { font: .92em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--box); padding: .1em .3em; border-radius: 4px; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); margin-bottom: 1.5em; }
+  .summary { background: var(--box); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+  .summary ul { margin: 0; padding-left: 1.2em; }
+  .lang { float: right; margin-top: .4em; }
+  footer { margin-top: 3em; color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <a class="lang" href="privacy-ru.html" hreflang="ru" lang="ru">По-русски</a>
+  <h1>Privacy Policy</h1>
+  <p class="meta">Hover Translator — Translate Text In Place (browser extension for Google Chrome™)<br>
+    Last updated: November 18, 2026 (version 1.0.0)</p>
+
+  <div class="summary">
+    <ul>
+      <li>By default, text is translated <strong>on your computer</strong> by the translator built into Chrome. The extension doesn’t send it anywhere.</li>
+      <li>Text goes to <strong>DeepL, OpenAI or Anthropic</strong> only if you choose that service, paste your own key and click “I agree”. Only the text you ask to translate is sent, straight from your browser to that service. The page address is not sent.</li>
+      <li>The extension has <strong>no server of its own</strong>, no account, no analytics and no ads. The developer never receives your text, keys or settings.</li>
+      <li>Settings, keys and saved translations stay in your browser. Saved translations are deleted after 14 days, or right away with “Delete saved translations”.</li>
+    </ul>
+  </div>
+
+  <h2>1. What gets translated, and when</h2>
+  <p>The extension’s script runs on the pages you open so it can find the text under your cursor. It translates only when you ask:</p>
+  <ul>
+    <li>you point at some text and press the key you chose (Shift by default, or Alt or Ctrl);</li>
+    <li>you chose “Hover” mode and rest the cursor on some text;</li>
+    <li>you click “Translate page” or press its shortcut — the text on screen is translated, and the rest as you scroll to it;</li>
+    <li>you change the language or the translator while translations are shown — text that is already translated is translated again with the new settings.</li>
+  </ul>
+  <p>The script looks at the page only on your computer, to find the text to translate. It doesn’t record your mouse movements, key presses or the pages you visit.</p>
+  <p>Text that Chrome’s built-in language detection recognizes as already being in your language is skipped. The detection runs on your computer.</p>
+  <p>On sites where you turned translation off (“Translate on this site” in the extension window, or the button in the mini panel), the extension doesn’t translate anything, even if you click “Translate page”.</p>
+
+  <h2>2. The built-in translator (default)</h2>
+  <p>The translator built into Google Chrome works on your computer. When you use it, the extension sends nothing over the internet. The first time, Chrome itself downloads language models for the languages you need; your text is not part of that download. The extension doesn’t save these translations.</p>
+
+  <h2>3. DeepL, OpenAI and Anthropic (optional)</h2>
+  <p>These services work only with <strong>your own API key</strong>, and only the one you selected receives text. Before anything is sent, the extension window tells you where your text will go, and nothing is sent until you click <strong>“I agree”</strong>. You agree separately for each service. You can take your consent back at any time with “Withdraw consent” in the extension window — after that, nothing is sent to that service.</p>
+
+  <h3>What is sent</h3>
+  <p>Directly from your browser to the service you chose
+    (<code>api-free.deepl.com</code> or <code>api.deepl.com</code>, depending on your key; <code>api.openai.com</code>; <code>api.anthropic.com</code>):</p>
+  <ul>
+    <li>the text you asked to translate — as plain text, not the page’s HTML code;</li>
+    <li>the language to translate into and, if you set it, the original language; for DeepL, the formality setting;</li>
+    <li>your “Don’t translate these words” list, if you filled it in (DeepL gets these words marked in the text; AI gets the list in its instructions);</li>
+    <li>for AI: the model name and the instructions for translating;</li>
+    <li>your API key, which the service uses to recognize your account.</li>
+  </ul>
+
+  <h3>What is not sent</h3>
+  <p>The page address (URL), the page title, cookies, the rest of the page, your browsing history, or anything else about you. Like any request over the internet, the service can see your IP address.</p>
+
+  <h3>Checking a key</h3>
+  <p>When you paste a key or click “Check”, the extension checks it with the service that issued it. For DeepL, it asks how many characters you have left this month — no text is sent; once you have agreed to DeepL, this is also asked when you open the extension window. For AI, it asks the selected model to translate the word “Hello”. These requests contain no text from web pages.</p>
+
+  <h3>What the services do with your text</h3>
+  <p>That is up to each service and is covered by its own terms and privacy policy. Terms for free and paid plans may differ. Translations are counted against your plan or billed to your account with that service.</p>
+  <ul>
+    <li>DeepL: <a href="https://www.deepl.com/privacy">deepl.com/privacy</a></li>
+    <li>OpenAI: <a href="https://openai.com/policies/privacy-policy/">openai.com/policies/privacy-policy</a></li>
+    <li>Anthropic: <a href="https://www.anthropic.com/legal/privacy">anthropic.com/legal/privacy</a></li>
+  </ul>
+  <p>If DeepL is selected and can’t be reached (no connection, no response, service unavailable, or your monthly limit has run out), the text is translated by the built-in translator on your computer instead, if it’s available.</p>
+
+  <h2>4. What is stored on your computer</h2>
+  <p>Everything below is kept in the extension’s own storage in your Chrome profile. It isn’t synced to your Google account and isn’t sent to the developer. Web pages can’t read it. Removing the extension deletes all of it.</p>
+  <ul>
+    <li><strong>Settings:</strong> languages, how translation is turned on (key or hover, delay), how translations are shown and highlighted, the “Don’t translate these words” list, the chosen translator and AI model, recently used languages, whether the mini panel is shown and where.</li>
+    <li><strong>Your API keys</strong> for DeepL and AI, as you entered them. They are stored unencrypted, like other data in your browser profile, and used only to send requests to the service they belong to.</li>
+    <li><strong>Your consent</strong> for each service, and whether each key passed the check.</li>
+    <li><strong>Saved translations</strong> — only for DeepL and AI: the original text and its translation, so the same text isn’t sent and paid for twice. For AI, each entry also notes the site it came from (only the scheme and domain, like <code>https://example.com</code>), so a translation from one site is never reused on another. Saved translations are kept for <strong>14 days</strong> and up to about 4 MB; older ones are removed automatically. A copy kept for the current browser session is cleared when Chrome closes. To delete them now: extension window → “More settings” → “Saved translations” → <strong>“Delete saved translations”</strong> (this also resets the statistics; the section is shown while DeepL or AI is selected as the translator). Translations made by the built-in translator are not saved.</li>
+    <li><strong>Sites where you turned translation off</strong> — a list of site names (like <code>mail.example.com</code>).</li>
+    <li><strong>Statistics</strong> — how many characters were sent for translation and how many times saved translations were reused, plus today’s character count for the daily limit that protects your key. Numbers only, no text.</li>
+    <li><strong>Technical notes</strong> — whether the built-in translator is available, which notices were already shown (until Chrome closes), when expired translations were last cleaned up and how much space they take.</li>
+  </ul>
+
+  <h2>5. What the extension doesn’t do</h2>
+  <ul>
+    <li>It has no server of its own: your data has nowhere to go except the translation service you chose.</li>
+    <li>No account or sign-up.</li>
+    <li>No analytics, tracking or error reports.</li>
+    <li>No ads. Your data is not sold, not used for advertising, not used to decide on credit or loans, and not shared for any other purpose.</li>
+    <li>It doesn’t load or run code from the internet: all its code is in the package, and the source code is open.</li>
+  </ul>
+
+  <h2>6. Permissions</h2>
+  <ul>
+    <li><strong>Access to the sites you visit</strong> — to find the text under your cursor and replace it with the translation on any site. Only the text you translate is changed; Esc or reloading the page brings back the original.</li>
+    <li><strong>Access to <code>api-free.deepl.com</code>, <code>api.deepl.com</code>, <code>api.openai.com</code>, <code>api.anthropic.com</code></strong> — to send text to the service you chose, after your consent.</li>
+    <li><strong>Storage</strong> — to keep settings, keys and saved translations on your computer.</li>
+    <li><strong>Alarms</strong> — to remove expired saved translations on a schedule.</li>
+    <li><strong>Keyboard shortcuts</strong> — to turn translation on or off and to translate the page.</li>
+  </ul>
+
+  <h2>7. Chrome Web Store User Data Policy</h2>
+  <p>Hover Translator’s use of user data complies with the <a href="https://developer.chrome.com/docs/webstore/program-policies/policies">Chrome Web Store User Data Policy</a>, including the <a href="https://developer.chrome.com/docs/webstore/program-policies/limited-use">Limited Use requirements</a>. Text from web pages and your API keys are used only to translate the text you ask for. They are sent only to the translation service you chose, and only after your consent. The developer never receives or reads them. They are never sold, never used for advertising, never used to determine creditworthiness or for lending, and never transferred for any other purpose.</p>
+
+  <h2>8. Changes to this policy</h2>
+  <p>If this policy changes, the new version will be published on this page with a new date. Earlier versions are kept in the project’s <a href="https://github.com/GITHUB_USER/hover-translator/commits/main/docs/privacy.html">GitHub history</a>.</p>
+
+  <h2>9. Contact</h2>
+  <p>Questions or problems: <a href="https://github.com/GITHUB_USER/hover-translator/issues">open an issue on GitHub</a>. Issues are public, so please don’t post your API keys or private text there.</p>
+
+  <footer>
+    <p>Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trademarks of their owners. This extension is not affiliated with or endorsed by them.</p>
+    <p><a href="./">Hover Translator</a> · <a href="privacy-ru.html" hreflang="ru" lang="ru">Политика конфиденциальности по-русски</a></p>
+  </footer>
+</main>
+</body>
+</html>

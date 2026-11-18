@@ -1,0 +1,41 @@
+/* Демонстрационная статья для скриншотов магазина: обычный сайт с собственными шрифтами, ссылками
+   и выделением — чтобы было видно, что после перевода оформление остаётся прежним. Сайт выдуманный. */
+:root {
+  --ink: #23272b;
+  --muted: #5e656c;
+  --brand: #2e7d32;
+  --link: #1565c0;
+  --paper: #fbfaf6;
+  --rule: #e6e1d6;
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font: 19px/1.6 "Noto Serif", Georgia, "Times New Roman", serif;
+}
+header.site {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 13px 32px;
+  background: #fff;
+  border-bottom: 1px solid var(--rule);
+  font: 500 15px/1 "Ubuntu Sans", "Noto Sans", system-ui, sans-serif;
+}
+.logo { display: flex; align-items: center; gap: 8px; color: var(--brand); font-weight: 700; font-size: 18px; letter-spacing: -0.2px; }
+.logo svg { display: block; }
+main { max-width: 720px; margin: 0 auto; padding: 26px 32px 80px; }
+h1 { font: 700 34px/1.18 "Ubuntu Sans", "Noto Sans", system-ui, sans-serif; letter-spacing: -0.4px; margin: 10px 0 10px; }
+.meta { font: 14px/1.4 "Ubuntu Sans", "Noto Sans", system-ui, sans-serif; color: var(--muted); margin: 0 0 18px; }
+.lead { font-size: 21px; line-height: 1.5; color: #3a4046; margin: 0 0 16px; }
+p { margin: 0 0 16px; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+h2 { font: 700 24px/1.25 "Ubuntu Sans", "Noto Sans", system-ui, sans-serif; margin: 26px 0 8px; }
+figure { margin: 22px 0; }
+figure img { display: block; width: 100%; height: auto; border-radius: 10px; }
+figcaption { font: 14px/1.4 "Ubuntu Sans", "Noto Sans", system-ui, sans-serif; color: var(--muted); margin-top: 8px; }
+ul { margin: 0 0 16px; padding-left: 24px; }
+li { margin: 4px 0; }

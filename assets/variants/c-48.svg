@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <!-- Вариант C «Круг» (отклонён), 48×48. -->
+  <defs>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#7b6cf6"/>
+  <stop offset="1" stop-color="#5040d6"/>
+  </linearGradient>
+  </defs>
+  <circle cx="24" cy="24" r="23" fill="url(#g)"/>
+  <rect x="10.035714285714286" y="13.321428571428571" width="27.928571428571427" height="6.571428571428571" rx="3.2857142857142856" fill="#fff" />
+  <rect x="10.035714285714286" y="23.178571428571427" width="18.07142857142857" height="6.571428571428571" rx="3.2857142857142856" fill="#ffcf4a" />
+  <path d="M24.82 25.64 L24.82 41.87 L28.77 38.14 L31.55 44.22 L34.33 43.05 L31.66 37.07 L36.78 37.07Z" fill="#fff" stroke="#2a1f8f" stroke-width="2.6285714285714286" stroke-linejoin="round" paint-order="stroke"/>
+</svg>
