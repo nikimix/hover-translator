@@ -11,7 +11,7 @@
 // отметки «ключ проверен», недавние языки и согласие на отправку текста.
 const DEFAULTS = Object.assign({}, HT_DEFAULTS, {
   apiKey: "", keyVerified: false,
-  llmApiKey: "", llmVerified: false,
+  llmApiKey: "", llmVerified: false, llmKeyBy: {},
   recentLangs: [], consent: {},
 });
 
@@ -63,6 +63,7 @@ let builtinUi = null;                 // блок встроенного пер�
 let builtinState = "";                // "" — ещё проверяем; "ready" | "need" | "none" | "pair-unavailable" | "no-lang"
 let keyVerified = false, llmVerified = false;
 let builtinOnTop = false;             // блок встроенного переводчика перенесён наверх (нужно скачать модели)
+let tabLang = "";                     // язык страницы активной вкладки (атрибут lang), если известен
 let site = null;                      // { name, off } — сайт активной вкладки (от её content-скрипта)
 let savedSome = false;                // есть сохранённые переводы DeepL или ИИ (по счётчикам расхода)
 const keys = { toggle: "", page: "" };  // сочетания клавиш команд (chrome.commands)
@@ -305,7 +306,10 @@ els.consentOk.addEventListener("click", async () => {
 });
 els.consentRevoke.addEventListener("click", async () => {
   const prov = currentProvider();
-  if (prov && (await setConsent(prov, false))) els.consentOk.focus();
+  if (prov && (await setConsent(prov, false))) {
+    if (prov === "deepl") renderQuota(null);   // без согласия остаток не запрашиваем — и старый не показываем
+    els.consentOk.focus();
+  }
 });
 
 // ---- перевод не работает: что сделать ----
@@ -406,7 +410,9 @@ function updateQualitySum() {
   } else {
     const st = netState();
     if (!st[e.keyField]) { status = HT_t("sumNoKey"); kind = p ? "err" : "warn"; }
-    else if (!HT_canSend(v, st)) { status = HT_t("sumNoConsent"); kind = p ? "err" : "warn"; }
+    // Именно согласие, а не HT_canSend: тот отказывает и из-за языка, которого нет у DeepL, — и «Авто»
+    // с таким языком показывал «нет согласия» строкой выше «согласие дано» (встроенный при этом работает).
+    else if (!HT_agreed(st.consent, currentProvider())) { status = HT_t("sumNoConsent"); kind = p ? "err" : "warn"; }
     else if (e.via === "llm" ? llmVerified : keyVerified) kind = "ok";
   }
   els.qualitySum.textContent = status || name + (kind === "ok" ? " ✓" : "");
@@ -493,10 +499,18 @@ function updateDispVisibility() {
 }
 
 // ---- остаток DeepL и проверка ключей ----
+// Бесплатный ключ — «осталось N из 500 000». Платный без лимита (DeepL присылает 10^12) — сколько
+// переведено в этом месяце. Платный с лимитом, который владелец задал сам, — остаток с пояснением,
+// чтобы «из 1 000 000» не спорило со строкой про 500 000 бесплатного тарифа.
+const DEEPL_NO_LIMIT = 1e12;
 function renderQuota(r) {
-  if (!r || !r.ok || typeof r.limit !== "number") { setMsg(els.quota, "", ""); return; }
+  if (!r || !r.ok || typeof r.limit !== "number" || typeof r.used !== "number") { setMsg(els.quota, "", ""); return; }
+  if (!r.free && (r.limit <= 0 || r.limit >= DEEPL_NO_LIMIT)) {
+    setMsg(els.quota, HT_plural("quotaUsed", r.used), "");
+    return;
+  }
   const remaining = Math.max(0, r.limit - r.used);
-  setMsg(els.quota, HT_plural("quotaLeft", r.limit, HT_num(remaining)), remaining < r.limit * 0.1 ? "warn" : "");
+  setMsg(els.quota, HT_plural(r.free ? "quotaLeft" : "quotaLeftOwn", r.limit, HT_num(remaining)), remaining < r.limit * 0.1 ? "warn" : "");
 }
 // Ошибка проверки ключа. В самом окне «проверьте его в окне расширения» звучало бы странно.
 function checkError(r) {
@@ -662,6 +676,8 @@ chrome.storage.local.get(DEFAULTS, (s) => {
   els.noTranslate.value = s.noTranslate;
   els.llmProvider.value = s.llmProvider;
   els.llmApiKey.value = s.llmApiKey;
+  shownProvider = s.llmProvider;
+  llmKeyBy = Object.assign({}, s.llmKeyBy && typeof s.llmKeyBy === "object" ? s.llmKeyBy : {});
   setModelUI(s.llmProvider, typeof s.llmModel === "string" ? s.llmModel.trim() : "");
   if (keyVerified && s.apiKey) setStatus(HT_t("keyWorks"), "ok");
   if (llmVerified && s.llmApiKey) setLlmStatus(HT_t("keyWorks"), "ok");
@@ -680,7 +696,7 @@ chrome.storage.local.get(DEFAULTS, (s) => {
   builtinUi = HT_builtin.mount(els.builtinBox, () => els.targetLang.value, (state) => {
     builtinState = state;
     updateEngineVisibility();
-  });
+  }, () => tabLang);
   // Остаток DeepL — только для DeepL/«авто» и только после согласия: само по себе окно ничего не
   // отправляет, пока человек не разрешил (проверка ключа по его действию — можно и до согласия).
   if (HT_engine(s.engine).keyField === "apiKey" && s.apiKey && HT_agreed(consent, "deepl")) fetchQuota();
@@ -692,6 +708,8 @@ chrome.storage.local.get(DEFAULTS, (s) => {
 // сайта. Заодно узнаём, есть ли на вкладке content-скрипт: нет — сразу подсказываем обновить вкладку.
 function applyTabState(r) {
   setHudUI(r && r.hud);
+  const lang = r && typeof r.lang === "string" ? r.lang : "";
+  if (lang !== tabLang) { tabLang = lang; if (builtinUi) builtinUi.refresh(); }
   site = r && typeof r.site === "string" && HT_isSite(r.site) ? { name: r.site, off: !!r.siteOff } : null;
   els.siteRow.hidden = !site;            // страница без имени сайта (файл, служебная) — выключать нечего
   if (site) { els.siteName.textContent = site.name; els.siteName.title = site.name; els.siteOn.checked = !site.off; }
@@ -781,8 +799,17 @@ function onEngineChange() {
 }
 els.engine.addEventListener("change", onEngineChange);
 
+// Ключи ИИ — у каждого сервиса свой. В поле и в llmApiKey — ключ выбранного сервиса, ключ другого
+// ждёт в llmKeyBy: при смене сервиса поле не должно сохранять чужой ключ (он ушёл бы не тому сервису).
+let llmKeyBy = {};
+let shownProvider = "";
 els.llmProvider.addEventListener("change", () => {
   // Модель другого сервиса здесь не подойдёт — возвращаем «по умолчанию»; ключ — тоже другой.
+  const next = els.llmProvider.value;
+  if (shownProvider) llmKeyBy[shownProvider] = els.llmApiKey.value.trim();
+  els.llmApiKey.value = llmKeyBy[next] || "";
+  shownProvider = next;
+  chrome.storage.local.set({ llmKeyBy }).catch(() => {});
   setModelUI(els.llmProvider.value, "");
   llmVerified = false;
   setLlmStatus("", "");

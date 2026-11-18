@@ -96,7 +96,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
 (async () => {
   // ---- отказ модели ----
   {
-    const env = makeEnv({ engine: "llm", llmProvider: "anthropic", llmApiKey: "sk-ant", consent: { anthropic: true } });
+    const env = makeEnv({ engine: "llm", llmProvider: "anthropic", llmApiKey: "sk-ant-x", consent: { anthropic: true } });
     env.setFetch(() => jsonRes(200, { stop_reason: "refusal", content: [{ type: "text", text: "{\"translations\": [\"x\"]}" }] }));
     const r = await env.send(msg("Some text"), sender(1));
     assert.ok(!r.ok && r.code === "refused" && r.error === "ИИ отказался переводить этот текст.", JSON.stringify(r));
@@ -165,7 +165,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.ok(/\(100,000 characters\)/.test(day), day);
     const ru = makeEnv({}).ctx.HT_plural("limitDay", 100000);
     assert.ok(/\(100\s000 знаков\)/.test(ru), ru);
-    const env3 = makeEnv({ engine: "llm", llmProvider: "anthropic", llmApiKey: "sk", consent: { anthropic: true } }, "en");
+    const env3 = makeEnv({ engine: "llm", llmProvider: "anthropic", llmApiKey: "sk-ant-x", consent: { anthropic: true } }, "en");
     env3.setFetch(() => jsonRes(404, { error: { type: "not_found_error", message: "model: x" } }));
     const r3 = await env3.send(msg("Hi there"), sender(1));
     assert.ok(r3.code === "model" && /^Anthropic doesn’t know the model “claude-haiku-5-5”/.test(r3.error) && r3.detail === "response code 404: model: x", JSON.stringify(r3));

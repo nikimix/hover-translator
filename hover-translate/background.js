@@ -494,6 +494,7 @@ function deeplFail(status) {
 // Запрос не дошёл или не дождался ответа. fetch бросает TypeError без подробностей («Failed to
 // fetch»): нет сети, сайт сервиса недоступен или запрос заблокирован.
 function deeplThrown(e) {
+  if (isBadJson(e)) return failure("bad-response", HT_t("deeplBadResponse"));
   return isTimeout(e)
     ? failure("timeout", HT_plural("deeplTimeout", DEEPL_TIMEOUT_MS / 1000))
     : failure("network", HT_t("deeplNetwork"), e && e.message);
@@ -587,10 +588,22 @@ async function llmFail(res, provider, model) {
 }
 function llmThrown(e, provider) {
   const who = llmName(provider);
+  if (isBadJson(e)) return failure("bad-response", HT_t("llmBadResponse"));
   return isTimeout(e)
     ? failure("timeout", HT_plural("llmTimeout", LLM_TIMEOUT_MS / 1000, who))
     : failure("network", HT_t("llmNetwork", who), e && e.message);
 }
+// Ответ пришёл, но это не JSON (страница-заглушка прокси, обрезанный ответ): связь есть, сервис ответил
+// не тем. Без этой проверки res.json() попадал в «нет связи — проверьте интернет» с «Unexpected token '<'».
+function isBadJson(e) { return !!e && e.name === "SyntaxError"; }
+
+// Ключ не того сервиса не отправляем вовсе: ключи Anthropic начинаются с «sk-ant-», у OpenAI такого
+// начала не бывает. Иначе после смены сервиса в окне ключ OpenAI уходил бы в Anthropic, и наоборот.
+function llmKeyMismatch(provider, key) {
+  const ant = /^sk-ant-/.test(String(key || "").trim());
+  return provider === "anthropic" ? !ant : ant;
+}
+
 // Anthropic требует версию API и явное разрешение прямого доступа из браузерного контекста.
 function llmHeaders(provider, key) {
   return provider === "anthropic"
@@ -710,6 +723,7 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
     return failure("too-big", HT_t("llmTooBig"));
   }
   const anthropic = provider === "anthropic";
+  if (llmKeyMismatch(provider, key)) return failure("bad-key", HT_t("llmWrongKey", llmName(provider)));
   const model_ = llmModelOf(provider, model);
   const known = HT_llmModelRow(provider, model_);
   const cap = want + (!known && mayReason(provider, model_) ? LLM_REASONING_TOKENS : 0);
@@ -825,12 +839,15 @@ async function translateMany(items, o, origin, budgetKey) {
     if (!HT_agreed(s.consent, provider)) {
       return failure("no-consent", HT_t("bgNoConsent", HT_PROVIDER_NAMES[provider]));
     }
+    // Ключ, который DeepL уже отклонил, не шлём с каждым абзацем заново — до смены ключа.
+    if (e.via !== "llm" && s.apiKey && s.apiKey === deeplRejectedKey) return failure("bad-key", HT_t("deeplBadKey"));
     await startupReady;                 // суточный счётчик лимита должен быть уже загружен
     const denied = budgetTake(budgetKey, o.by, missTexts.reduce((n, t) => n + t.length, 0));
     if (denied) return denied;
     const r = e.via === "llm"
       ? await llmTranslateMany(missTexts, o, s.llmApiKey, s.llmProvider, s.llmModel)
       : await deeplTranslateChunked(missTexts, o, s.apiKey);
+    if (e.via !== "llm") noteDeeplKey(s.apiKey, r);
     // Пришедшие переводы раскладываем всегда, даже если часть чанков упала: они уже оплачены.
     if (Array.isArray(r.texts) && r.texts.length) {
       store(missTexts.slice(0, r.texts.length), r, keys, need, results, srcOut);
@@ -839,6 +856,15 @@ async function translateMany(items, o, origin, budgetKey) {
   }
 
   return { ok: true, texts: results, srcLangs: srcOut };
+}
+
+// Ключ DeepL, который сервис отклонил (401/403). Пока в настройках он же, перевод сразу отвечает
+// «ключ не подошёл» без запроса: в режиме «авто» иначе каждое наведение стучалось бы в DeepL впустую.
+// Новый ключ или успешный ответ снимают отметку; после перезапуска воркера — один лишний запрос.
+let deeplRejectedKey = "";
+function noteDeeplKey(key, r) {
+  if (r && r.ok) { if (deeplRejectedKey === key) deeplRejectedKey = ""; }
+  else if (r && r.code === "bad-key") deeplRejectedKey = key;
 }
 
 // Раскладываем ответ движка по кэшу и по слотам результата, считая фактический расход.
@@ -890,9 +916,12 @@ async function checkUsage() {
   if (!apiKey) return failure("no-key", HT_t("noKeyEntered"));
   try {
     const res = await fetch(`${deeplBase(apiKey)}/v2/usage`, { headers: deeplAuth(apiKey), signal: AbortSignal.timeout(DEEPL_TIMEOUT_MS) });
-    if (!res.ok) return deeplFail(res.status);
+    if (!res.ok) { const f = deeplFail(res.status); noteDeeplKey(apiKey, f); return f; }
     const d = await res.json();
-    return { ok: true, used: d.character_count, limit: d.character_limit };
+    noteDeeplKey(apiKey, { ok: true });
+    // free — ключ бесплатного тарифа: только у него лимит — 500 000 знаков. У платного лимит задаёт сам
+    // владелец ключа в DeepL, а без лимита DeepL присылает 1 000 000 000 000.
+    return { ok: true, used: d.character_count, limit: d.character_limit, free: apiKey.trim().endsWith(":fx") };
   } catch (e) {
     return deeplThrown(e);
   }
@@ -1003,7 +1032,7 @@ async function siteBadge(tabId, off) {
 // каждой вкладке: дальше о проблеме напоминает «!» на значке. Так же — сообщение «лимит DeepL на
 // месяц закончился, перевожу встроенным»: лимит не вернётся до следующего месяца, и повторять его
 // на каждой странице незачем.
-const ONCE_KEYS = new Set(Object.keys(HT_PROBLEMS).concat(["deepl-quota"]));
+const ONCE_KEYS = new Set(Object.keys(HT_PROBLEMS).concat(["deepl-quota", "deepl-bad-key"]));
 const noticed = new Set();
 function noticeKey(problem) { return "htNoticed:" + problem; }
 async function noticeOnce(problem) {

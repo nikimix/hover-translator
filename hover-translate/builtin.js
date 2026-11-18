@@ -17,9 +17,9 @@ var HT_builtin = (function () {
   // Состояние моделей: { api:false }, { api, noLang } (встроенный не знает язык перевода) или
   // { api, src, tgt, pair, det }, где pair/det — ответ availability(): "available" | "downloadable" |
   // "downloading" | "unavailable".
-  async function status(targetLang) {
+  async function status(targetLang, pageLang) {
     if (!hasApi()) return { api: false };
-    const { src, tgt } = HT_prepPair(targetLang);
+    const { src, tgt } = HT_prepPair(targetLang, pageLang);
     if (!tgt) return { api: true, noLang: true, target: targetLang };
     const pair = await Translator.availability({ sourceLanguage: src, targetLanguage: tgt }).catch(() => "unavailable");
     const det = typeof self.LanguageDetector === "function"
@@ -69,7 +69,9 @@ var HT_builtin = (function () {
   // Блок «встроенный переводчик» в контейнере box. getTarget() — текущий язык перевода (код из
   // таблицы), onState(состояние) — необязательно: "none" | "ready" | "need" | "pair-unavailable" |
   // "no-lang" (встроенный не знает язык перевода).
-  function mount(box, getTarget, onState) {
+  // getSource() — язык открытой вкладки, если известен (окно расширения); без него — пара по умолчанию.
+  function mount(box, getTarget, onState, getSource) {
+    const pageLang = () => (getSource ? getSource() : "");
     box.textContent = "";
     const text = document.createElement("p");
     text.className = "bi-text";
@@ -122,7 +124,7 @@ var HT_builtin = (function () {
     async function refresh() {
       const my = ++seq;
       if (!busy) say(HT_t("biChecking"), "");
-      const st = await status(getTarget());
+      const st = await status(getTarget(), pageLang());
       rememberApi(st.api);
       if (my === seq && !busy) render(st);
       return st;
@@ -135,11 +137,13 @@ var HT_builtin = (function () {
       if (busy) return;
       busy = true;
       btn.disabled = true;
-      const st = await status(getTarget());
+      const st = await status(getTarget(), pageLang());
       const jobs = [];
       if (needs(st.pair)) jobs.push([Translator, { sourceLanguage: st.src, targetLanguage: st.tgt }]);
       if (needs(st.det)) jobs.push([LanguageDetector, {}]);
-      const parts = jobs.map(() => 0);
+      // null — сколько скачано, ещё неизвестно: до первого ненулевого прогресса показываем «Скачиваю…» с
+      // бегущей полосой. Раньше сразу писалось «0%», и при долгом старте загрузки казалось, что всё зависло.
+      const parts = jobs.map(() => null);
       const show = () => {
         const known = parts.every((p) => p !== null);
         bar.hidden = false;
@@ -150,7 +154,7 @@ var HT_builtin = (function () {
       };
       show();
       const results = await Promise.allSettled(jobs.map(([api, opts], i) =>
-        download(api, opts, (f) => { parts[i] = f; show(); })));
+        download(api, opts, (f) => { if (f > 0 || parts[i] !== null) { parts[i] = f; show(); } })));
       busy = false;
       btn.disabled = false;
       const failed = results.filter((r) => r.status === "rejected").map((r) => r.reason);

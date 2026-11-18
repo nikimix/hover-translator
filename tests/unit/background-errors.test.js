@@ -117,6 +117,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     let i = 0;
     for (const [status, code, re] of cases) {
       env.setFetch(() => jsonRes(status, {}, { "Retry-After": "0" }));
+      env.local.apiKey = "k" + i + ":fx";   // отклонённый ключ запоминается (ниже) — у каждого случая свой
       const r = await env.send(msg("t" + i++), sender(1));
       assert.ok(!r.ok && r.code === code && re.test(r.error) && r.detail === "код ответа " + status, status + " " + JSON.stringify(r));
       assert.ok(!JARGON.test(r.error) && !/^\d/.test(r.error), r.error);
@@ -132,6 +133,30 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const ru = await env.send({ type: "checkUsage" });
     assert.ok(!ru.ok && ru.code === "bad-key", JSON.stringify(ru));
     ok("DeepL: 401/403 ключ, 456 лимит на месяц, 429, 413, 5xx, прочее, сеть, непонятный ответ — простыми словами, код ответа мелко (detail)");
+
+    // отклонённый ключ не отправляется с каждым абзацем заново — до смены ключа
+    let hits = 0;
+    env.local.apiKey = "bad:fx";
+    env.setFetch(() => { hits++; return jsonRes(403, {}); });
+    const r1 = await env.send(msg("x1"), sender(1));
+    const r2 = await env.send(msg("x2"), sender(1));
+    assert.ok(r1.code === "bad-key" && r2.code === "bad-key", JSON.stringify([r1, r2]));
+    assert.strictEqual(hits, 1, "второй раз с тем же ключом в DeepL не ходили");
+    env.local.apiKey = "good:fx";
+    env.setFetch(() => { hits++; return jsonRes(200, { translations: [{ text: "x", detected_source_language: "EN" }] }); });
+    const r3 = await env.send(msg("x3"), sender(1));
+    assert.ok(r3.ok && hits === 2, JSON.stringify(r3));
+    // остаток: бесплатный ли ключ — для окна; ответ не JSON — «непонятный ответ», а не «нет связи»
+    env.setFetch(() => jsonRes(200, { character_count: 5, character_limit: 1e12 }));
+    const rf = await env.send({ type: "checkUsage" });
+    assert.ok(rf.ok && rf.free === true && rf.used === 5, JSON.stringify(rf));
+    env.local.apiKey = "pro-key";
+    const rp = await env.send({ type: "checkUsage" });
+    assert.ok(rp.ok && rp.free === false && rp.limit === 1e12, JSON.stringify(rp));
+    env.setFetch(() => Promise.resolve({ ok: true, status: 200, headers: { get: () => null }, json: () => Promise.reject(new SyntaxError("Unexpected token '<'")) }));
+    const rj = await env.send({ type: "checkUsage" });
+    assert.ok(!rj.ok && rj.code === "bad-response" && !/Unexpected|интернет/.test(rj.error + rj.detail), JSON.stringify(rj));
+    ok("DeepL: отклонённый ключ не отправляется повторно до смены; остаток знает, бесплатный ли ключ; ответ не JSON — «непонятный ответ», а не «нет связи»");
   }
 
   // ---- ошибки ИИ ----
@@ -152,7 +177,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
       const r = await env.send(msg("x" + i++), sender(1));
       assert.ok(!r.ok && r.code === code && re.test(r.error) && !JARGON.test(r.error), code + " " + JSON.stringify(r));
     }
-    const env2 = makeEnv({ llmApiKey: "sk-x", llmProvider: "anthropic", llmModel: "" });
+    const env2 = makeEnv({ llmApiKey: "sk-ant-x", llmProvider: "anthropic", llmModel: "" });
     env2.setFetch(() => jsonRes(400, { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API." } }));
     const r2 = await env2.send(msg("y"), sender(1));
     assert.ok(r2.code === "money" && /^На счёте Anthropic закончились деньги/.test(r2.error) && /credit balance/.test(r2.detail), JSON.stringify(r2));
@@ -164,7 +189,16 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const r4 = await env3.send(msg("k"), sender(1));
     assert.ok(r4.code === "no-key" && r4.error === "Не задан ключ ИИ — нажмите на значок расширения и вставьте ключ.", JSON.stringify(r4));
     assert.ok(!JARGON.test(env3.ctx.HT_t(env3.ctx.HT_KEY_HINTS.apiKey)) && !JARGON.test(env3.ctx.HT_t(env3.ctx.HT_KEY_HINTS.llmApiKey)));
-    ok("ИИ: нет денег на счёте (OpenAI 429 insufficient_quota, Anthropic 400 credit balance), 429, 403, 404 модель, 5xx/529, сеть, нет ключа — простыми словами");
+    // ключ не того сервиса не отправляется вовсе (раньше после смены сервиса ключ OpenAI уходил в Anthropic)
+    let sent = 0;
+    const env5 = makeEnv({ llmApiKey: "sk-proj-abc", llmProvider: "anthropic", llmModel: "" });
+    env5.setFetch(() => { sent++; return jsonRes(200, {}); });
+    const r5 = await env5.send(msg("w"), sender(1));
+    assert.ok(r5.code === "bad-key" && /ключ другого сервиса/.test(r5.error) && sent === 0, JSON.stringify(r5));
+    env5.local.llmProvider = "openai"; env5.local.llmApiKey = "sk-ant-abc";
+    const r6 = await env5.send(msg("w2"), sender(1));
+    assert.ok(r6.code === "bad-key" && sent === 0, JSON.stringify(r6));
+    ok("ИИ: нет денег на счёте (OpenAI 429 insufficient_quota, Anthropic 400 credit balance), 429, 403, 404 модель, 5xx/529, сеть, нет ключа, ключ другого сервиса (не отправляется) — простыми словами");
   }
 
   // ---- нижняя граница потолка ответа ИИ ----

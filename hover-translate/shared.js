@@ -276,9 +276,21 @@ function HT_targetFromLocale(locale) {
 // абзаца для пробы на приветствии: английский → язык перевода; а если переводят на английский — с языка
 // интерфейса (русского), при английском интерфейсе — с испанского. Остальные пары скачиваются на сайте
 // при первом переводе. tgt пустой — встроенный не знает язык перевода.
-function HT_prepPair(targetLang) {
+// pageLang — язык открытой вкладки (атрибут lang страницы), если окно его знает: тогда готовим именно
+// его → язык перевода. Иначе на испанской странице готовилась пара «английский → русский», окно писало
+// «Готово», а на странице всё равно начиналась загрузка испанской модели.
+function HT_prepPair(targetLang, pageLang) {
   const tgt = HT_builtinCode(targetLang);
+  const page = HT_builtinOf(pageLang);
+  if (tgt && page && HT_langKey(page) !== HT_langKey(tgt)) return { src: page, tgt };
   return { src: HT_langKey(tgt) !== "en" ? "en" : HT_uiLang() === "ru" ? "ru" : "es", tgt };
+}
+// Код встроенного переводчика для языка из атрибута lang («es-ES» → «es»); "" — не знаем такого.
+function HT_builtinOf(lang) {
+  const key = HT_langKey(lang);
+  if (!key || !/^[a-z]{2,3}$/.test(key)) return "";
+  const row = HT_LANGS.find((r) => r[4] && HT_langKey(r[4]) === key);
+  return row ? row[4] : "";
 }
 
 // ---- движки ----

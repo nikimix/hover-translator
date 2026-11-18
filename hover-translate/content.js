@@ -63,6 +63,8 @@
   let hudPos = null;                  // где стоит мини-панель (общее для всех сайтов, storage.local.hudPos)
   let hudWanted = false;              // показана ли мини-панель (общее для всех сайтов, storage.local.hudShown)
   let siteOff = false;                // этот сайт в списке «выключено на этом сайте»
+  let lastOverTarget = null;          // последний элемент под курсором — и при выключенном переводе
+  let pageActive = false;             // страницу переводили целиком, и оригинал с тех пор не возвращали
   let pageToast = null;               // уведомление «Перевожу… / Готово» перевода страницы
   let retranslateTimer = null;
 
@@ -750,13 +752,19 @@
   // Про лимит — раз за сессию браузера (он не вернётся до следующего месяца), про сеть — раз на
   // страницу (сеть может вернуться и пропасть снова).
   const FALLBACK_SAY = { quota: "fbQuota", network: "fbNetwork", timeout: "fbTimeout", server: "fbServer" };
+  // О чём сказать, когда перевели встроенным: сбои выше и — для «авто» — отклонённый ключ. Без этого
+  // «авто» с неверным ключом молча переводил встроенным, и человек думал, что работает DeepL.
+  const FALLBACK_TELL = Object.assign({ "bad-key": "fbBadKey" }, FALLBACK_SAY);
+  const FALLBACK_ONCE = { quota: "deepl-quota", "bad-key": "deepl-bad-key" };
   const fallbackTold = new Set();
   function fallbackSay(code) {
-    if (fallbackTold.has(code)) return;
+    if (!FALLBACK_TELL[code] || fallbackTold.has(code)) return;
     fallbackTold.add(code);
-    const show = () => notice(HT_t(FALLBACK_SAY[code]), 9000, code === "quota" ? { actions: [ACT.builtin], closable: true } : { closable: true });
-    if (code !== "quota") { show(); return; }
-    send({ type: "noticeOnce", problem: "deepl-quota" }).then((r) => { if (r && r.show && !dead) show(); }).catch(() => {});
+    const opts = code === "quota" ? { actions: [ACT.builtin], closable: true }
+      : code === "bad-key" ? { actions: [ACT.settings], closable: true } : { closable: true };
+    const show = () => notice(HT_t(FALLBACK_TELL[code]), 9000, opts);
+    if (!FALLBACK_ONCE[code]) { show(); return; }
+    send({ type: "noticeOnce", problem: FALLBACK_ONCE[code] }).then((r) => { if (r && r.show && !dead) show(); }).catch(() => {});
   }
 
   // ЕДИНСТВЕННЫЙ путь к движку → { results:[{ok,value,src}] } либо { results:null, error[, kind] }.
@@ -805,7 +813,10 @@
       (e.keyField === "apiKey" && BUILTIN === "ok" && Object.prototype.hasOwnProperty.call(FALLBACK_SAY, fail.code));
     if (!viaLocal) return Object.assign({ results: null }, fail);
     const out = await localResults(texts, fail);
-    if (out.results && (e.fallback !== "local" || fail.code === "quota")) fallbackSay(fail.code);
+    // Выбран именно DeepL, а встроенный сразу не смог (модель не скачана, пара не поддерживается):
+    // говорим о сбое DeepL — подсказка «скачиваю модель» без слова о DeepL только путала.
+    if (!out.results && e.fallback !== "local") return Object.assign({ results: null }, fail);
+    if (out.results && (e.fallback !== "local" || fail.code === "quota" || fail.code === "bad-key")) fallbackSay(fail.code);
     return out;
   }
 
@@ -816,9 +827,11 @@
   // закрывается ✕; простая — исчезает сама.
   const downloadTold = new Set();
   let retryOnClick = false;
-  function showFail(owner, out) {
+  let retryPage = false;              // повторить после щелчка перевод всей страницы, а не абзаца
+  function showFail(owner, out, fromPage) {
     if (out.kind === "download") {
       retryOnClick = true;
+      retryPage = !!fromPage;
       if (!downloadTold.has(out.key)) { downloadTold.add(out.key); downloadHint = notice(out.error, 12000, { closable: true }); }
       return;
     }
@@ -1336,6 +1349,7 @@
   }
 
   function restoreAll() {
+    pageActive = false;
     stopPageObserver();
     liveGen++; // отменяем переводы «в полёте»
     for (const line of Array.from(lines)) restoreLine(line);
@@ -1458,6 +1472,10 @@
     return out;
   }
 
+  function tellAlreadyTranslated() {
+    notice(HT_t("pageAlready"), 6000, { closable: true, actions: [{ label: HT_t("showOriginal"), run: () => restoreAll() }] });
+  }
+
   function stopPageObserver() {
     pageGen++; // отменяем всё, что в полёте по переводу страницы
     if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
@@ -1487,9 +1505,19 @@
       return;
     }
     if (blocked(true)) return;
+    // Страница уже переведена. Горячая клавиша работает как переключатель — возвращает оригинал, как
+    // и ожидают от повторного нажатия. Кнопка окна переводит то, что появилось нового, а если нового
+    // нет — говорит, что страница уже переведена (раньше: «уже на нужном языке» — неправда и тупик).
+    const wasActive = pageActive && lines.size > 0;
+    if (wasActive && via === "command") {
+      restoreAll();
+      notice(HT_t("originalBack"), 3000);
+      return;
+    }
     stopPageObserver();          // сбрасывает прошлый прогон и инкрементит pageGen
     const gen = pageGen;
     const fresh = collectCandidates();
+    if (!fresh.length && wasActive) { pageActive = true; tellAlreadyTranslated(); return; }
     // Молчать нельзя: раньше при пустом списке не было ни тоста, ни observer-а, и пользователь
     // жал кнопку снова и снова, не понимая, почему ничего не происходит. Это не успех и не ошибка —
     // поэтому нейтральная подсказка.
@@ -1503,12 +1531,17 @@
       (visible ? inView : rest).push(el);
     }
 
+    pageActive = true;
     const t = pageToast = showToast({ message: HT_t("translatingPage"), kind: "info", ms: 0, title: extName() });
     const done = await translatePageOwners(inView, gen); // видимое — сразу
     if (gen !== pageGen) { t.close(); return; }
     // Ошибку уже показали (она заняла место «Перевожу…») — «Готово» её бы спрятало.
     if (done.failed) { if (pageToast === t) pageToast = null; }
-    else if (!done.wrote) {
+    else if (!done.wrote && wasActive) {
+      t.close();
+      if (pageToast === t) pageToast = null;
+      tellAlreadyTranslated();
+    } else if (!done.wrote) {
       // Ничего не заменено — «Готово» было бы неправдой. Видимая часть уже на нужном языке (или на экране
       // нет текста для перевода); остальное, если оно есть, переведётся по прокрутке.
       t.update(rest.length
@@ -1589,7 +1622,7 @@
     const cancelled = gen !== pageGen;
     if (cancelled || out.error || !results) {
       for (const line of lineObjs) { inFlight.delete(line.owner); dropLine(line); }
-      if (out.error && !cancelled) { showFail(null, out); return { wrote: 0, failed: true }; }
+      if (out.error && !cancelled) { showFail(null, out, true); return { wrote: 0, failed: true }; }
       return none;
     }
 
@@ -1622,6 +1655,7 @@
 
   on(document, "mouseover", (e) => {
     if (!e.isTrusted) return;
+    lastOverTarget = e.target;            // и при выключенном переводе: см. keydown
     if (!active() || !alive()) return;
     const target = pickTarget(e.target);
     hoverEl = (target && isTextTarget(target)) ? target : null;
@@ -1689,7 +1723,7 @@
     dwellFor = null;
     // Курсор ушёл из окна (или из этого фрейма): элемента под курсором больше нет. Иначе нажатие
     // клавиши-триггера потом переводило бы абзац, с которого курсор давно ушёл.
-    if (!e.relatedTarget) hoverEl = null;
+    if (!e.relatedTarget) { hoverEl = null; lastOverTarget = null; }
     if (settings.trigger !== "dwell") return; // в режиме клавиши перевод остаётся
     const owner = pickTarget(e.target);
     if (!owner) return;
@@ -1724,6 +1758,12 @@
     if (e.key === "Escape") { escRestore(); return; }
     if (!active() || settings.trigger === "dwell" || !alive()) return;
     if (!isTriggerKey(e) || !soloMod(e)) return;
+    // Перевод только что включили (Alt+Shift+O, галочка сайта), а курсор с тех пор не двигался: пока
+    // перевод был выключен, mouseover элемент не запоминал — берём его из последнего наведения.
+    if (lastOverTarget && (!hoverEl || !hoverEl.contains(lastOverTarget))) {
+      const t = lastOverTarget.isConnected ? pickTarget(lastOverTarget) : null;
+      hoverEl = t && isTextTarget(t) ? t : null;
+    }
     if (!hoverEl || modBusy() || typingFocus()) return;
     modPress = { key: e.key, el: hoverEl }; // …а одиночный модификатор над текстом начинает новое
   }, true);
@@ -1744,7 +1784,10 @@
   // Esc для поля (закрыть подсказки поиска), переводы не трогаем. Встроенные окна вкладки (у
   // каждого свой скрипт и свои переводы) откатывает background по нашей просьбе.
   function escRestore() {
-    if (typingFocus() || !anythingShown()) return;
+    if (typingFocus()) return;
+    // Esc закрывает и уведомление расширения на странице (раньше оно висело до таймера или ✕).
+    if (currentToast) currentToast.close();
+    if (!anythingShown()) return;
     restoreAll();
     if (!TOP || document.querySelector("iframe, frame")) send({ type: "restoreTab" }).catch(() => {});
   }
@@ -1765,19 +1808,24 @@
   on(window, "click", (e) => {
     if (!e.isTrusted || !retryOnClick || !active() || !alive()) return;
     retryOnClick = false;
+    // Просили перевести страницу (кнопка, Alt+Shift+G) — после щелчка переводим страницу, а не только абзац.
+    if (retryPage) { retryPage = false; translatePage("popup"); return; }
     if (hoverEl && hoverEl.isConnected && !isBusy(hoverEl)) startHover(hoverEl);
   }, true);
 
   // Окно потеряло фокус (Alt+Tab, клик в адресную строку): отпускание клавиши придёт уже не нам,
   // а элемент под курсором неизвестен до следующего движения мыши.
-  on(window, "blur", () => { hoverEl = null; modPress = null; clearTimeout(dwellTimer); dwellFor = null; });
+  on(window, "blur", () => { hoverEl = null; lastOverTarget = null; modPress = null; clearTimeout(dwellTimer); dwellFor = null; });
 
   // Команды из popup и от горячих клавиш (через background). Обязательно отвечаем (sendResponse),
   // иначе на стороне popup взводится lastError «порт закрыт» и страница ошибочно считается
   // недоступной. Ответ на getHudState — заодно и состояние сайта для переключателя в окне.
   // На своей странице расширения (приветствие) не слушаем: туда долетают все runtime.sendMessage
   // окна настроек, и наш ответ «true» мог бы опередить ответ background.
-  function tabState() { return { ok: true, hud: !!hud, site: SITE, siteOff }; }
+  // lang — язык страницы из её разметки: окно готовит встроенному переводчику именно эту пару.
+  function tabState() {
+    return { ok: true, hud: !!hud, site: SITE, siteOff, lang: String(document.documentElement.lang || "").slice(0, 20) };
+  }
   if (!OWN_PAGE) {
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!msg || !msg.type) return;

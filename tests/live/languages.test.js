@@ -23,7 +23,7 @@ const until = async (fn, ms = 10000, step = 150) => {
 // Английские слова, допустимые в русском интерфейсе: сервисы, модели, клавиши, адреса, название.
 const RU_ALLOWED = new Set(["DeepL", "OpenAI", "Anthropic", "ChatGPT", "Claude", "Chrome", "Google", "GPT", "Luna", "Terra",
   "Haiku", "Sonnet", "gpt", "Shift", "Alt", "Ctrl", "Esc", "Option", "Cmd", "API", "Keys", "Free", "fx", "deepl", "com", "pro", "api",
-  "chrome", "extensions", "shortcuts", "EN", "RU", "GitHub", "Vue", "nikimix", "sk"]);
+  "chrome", "extensions", "shortcuts", "EN", "RU", "GitHub", "Vue", "Kubernetes", "sk"]);
 // Переводится любой текстовый блок, поэтому «абзац» / «paragraph» в интерфейсе не встречается.
 function langProblems(lang, texts) {
   const words = texts.filter((t) => /абзац|paragraph/i.test(t));
@@ -244,7 +244,7 @@ async function runLang(lang) {
     const hDwell = await snap("dwell", "setRadio('trigger', 'dwell'); updateTrigger()");
     await store({ engine: "deepl", apiKey: "00000000-0000-0000-0000-000000000000:fx", consent: {} });
     const hConsent = await snap("consent");
-    await snap("quality-deepl", "setFold(els.qualityHead, els.qualityBody, true); document.querySelector('#deeplHowto').open = true; renderQuota({ ok: true, used: 87650, limit: 500000 })");
+    await snap("quality-deepl", "setFold(els.qualityHead, els.qualityBody, true); document.querySelector('#deeplHowto').open = true; renderQuota({ ok: true, used: 87650, limit: 500000, free: true })");
     await store({ engine: "llm", llmProvider: "openai", llmApiKey: "sk-demo", llmModel: "", consent: { openai: true }, llmVerified: true });
     await snap("quality-llm", "setFold(els.qualityHead, els.qualityBody, true); setLlmStatus(checkError({ code: 'model', error: HT_t('llmModelUnknown', ['OpenAI', 'gpt-x']), detail: HT_t('respCode', 404) }), 'err')");
     await store({ engine: "chrome", targetLang: "TT" });   // татарский: встроенный его не знает

@@ -334,7 +334,7 @@ const SHIFT = 8;
 
     // ---- 9. Выключить на этом сайте ----
     await load({ trigger: "shift", disabledSites: ["127.0.0.1", 5, "<script>"], hudShown: true });
-    assert.deepStrictEqual(await ev("sendCmd('getHudState')"), { ok: true, hud: false, site: "127.0.0.1", siteOff: true });
+    assert.deepStrictEqual(await ev("sendCmd('getHudState')"), { ok: true, hud: false, site: "127.0.0.1", siteOff: true, lang: "en" });
     await hover("#p1"); await tapShift();
     assert.strictEqual(await calls(), 0, "клавиша не переводит");
     await ev("setStore({ trigger: 'dwell', dwellMs: 100 }); true");

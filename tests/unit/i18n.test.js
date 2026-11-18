@@ -92,7 +92,7 @@ const addRef = (k, where) => { if (!refs.has(k)) refs.set(k, where); };
   // Ключи в таблицах (подписи и тексты выбираются по коду): значения-строки этих объектов и массивов.
   const tables = [
     ["shared.js", /var HT_ENGINES = \[([\s\S]*?)\n\];/], ["shared.js", /var HT_KEY_HINTS = \{([\s\S]*?)\};/],
-    ["shared.js", /var HT_PROBLEMS = \{([\s\S]*?)\n\};/], ["content.js", /const FALLBACK_SAY = \{([\s\S]*?)\};/],
+    ["shared.js", /var HT_PROBLEMS = \{([\s\S]*?)\n\};/], ["content.js", /const FALLBACK_SAY = \{([\s\S]*?)\};/], ["content.js", /const FALLBACK_TELL = Object\.assign\(\{([\s\S]*?)\}/],
     ["popup.js", /const SETUP_GO = \{([\s\S]*?)\};/], ["popup.js", /const SETUP_FIX = \{([\s\S]*?)\};/],
     ["popup.js", /const key = deepl \?([\s\S]*?);\n/],
   ];

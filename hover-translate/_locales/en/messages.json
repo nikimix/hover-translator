@@ -58,7 +58,7 @@
     "message": "DeepL"
   },
   "engDeeplHint": {
-    "message": "more accurate; uses your key, 500,000 characters a month free"
+    "message": "more accurate; uses your key, 500,000 characters a month on the free plan"
   },
   "engAuto": {
     "message": "DeepL, with built-in as backup"
@@ -278,7 +278,7 @@
     "message": "Paste the key into the field above — the extension checks it right away."
   },
   "howtoFree": {
-    "message": "Free: 500,000 characters a month. You’ll see how much is left right here, under the key."
+    "message": "The free plan includes 500,000 characters a month. You’ll see how much is left right here, under the key."
   },
   "llmService": {
     "message": "Service"
@@ -699,6 +699,94 @@
       "left": {
         "content": "$2",
         "example": "412,350"
+      }
+    }
+  },
+  "quotaUsed_one": {
+    "message": "This month: $n$ character translated. No limit is set for this key.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaUsed_few": {
+    "message": "This month: $n$ characters translated. No limit is set for this key.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaUsed_many": {
+    "message": "This month: $n$ characters translated. No limit is set for this key.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaUsed_other": {
+    "message": "This month: $n$ characters translated. No limit is set for this key.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaLeftOwn_one": {
+    "message": "$left$ of $limit$ character left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
+      }
+    }
+  },
+  "quotaLeftOwn_few": {
+    "message": "$left$ of $limit$ characters left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
+      }
+    }
+  },
+  "quotaLeftOwn_many": {
+    "message": "$left$ of $limit$ characters left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
+      }
+    }
+  },
+  "quotaLeftOwn_other": {
+    "message": "$left$ of $limit$ characters left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
       }
     }
   },
@@ -1270,6 +1358,9 @@
   "fbQuota": {
     "message": "Your DeepL limit for this month has run out — translating with Chrome’s built-in translator."
   },
+  "fbBadKey": {
+    "message": "DeepL didn’t accept your key — translating with Chrome’s built-in translator for now. Check the key in settings."
+  },
   "fbNetwork": {
     "message": "Can’t reach DeepL — translating with Chrome’s built-in translator."
   },
@@ -1317,6 +1408,12 @@
   },
   "alreadyInLang": {
     "message": "Nothing to translate: the page is already in your language."
+  },
+  "pageAlready": {
+    "message": "This page is already translated."
+  },
+  "originalBack": {
+    "message": "Original text restored."
   },
   "visibleInLang": {
     "message": "This part of the page is already in your language. The rest will be translated as you scroll to it."
@@ -1496,6 +1593,15 @@
       "service": {
         "content": "$1",
         "example": "DeepL"
+      }
+    }
+  },
+  "llmWrongKey": {
+    "message": "This looks like a key for a different service. Paste your $service$ key.",
+    "placeholders": {
+      "service": {
+        "content": "$1",
+        "example": "Anthropic"
       }
     }
   },

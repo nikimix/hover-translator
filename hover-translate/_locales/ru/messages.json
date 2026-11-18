@@ -58,7 +58,7 @@
     "message": "DeepL"
   },
   "engDeeplHint": {
-    "message": "точнее; по своему ключу, бесплатно 500 000 знаков в месяц"
+    "message": "точнее; по своему ключу, на бесплатном тарифе 500 000 знаков в месяц"
   },
   "engAuto": {
     "message": "DeepL, а если не вышло — встроенный"
@@ -278,7 +278,7 @@
     "message": "Вставьте ключ в поле выше — расширение сразу его проверит."
   },
   "howtoFree": {
-    "message": "Бесплатно — 500 000 знаков в месяц. Остаток виден здесь же, под ключом."
+    "message": "На бесплатном тарифе — 500 000 знаков в месяц. Остаток виден здесь же, под ключом."
   },
   "llmService": {
     "message": "Сервис"
@@ -699,6 +699,94 @@
       "left": {
         "content": "$2",
         "example": "412,350"
+      }
+    }
+  },
+  "quotaUsed_one": {
+    "message": "В этом месяце переведён $n$ знак. Лимит для ключа не задан.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaUsed_few": {
+    "message": "В этом месяце переведено $n$ знака. Лимит для ключа не задан.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaUsed_many": {
+    "message": "В этом месяце переведено $n$ знаков. Лимит для ключа не задан.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaUsed_other": {
+    "message": "В этом месяце переведено $n$ знака. Лимит для ключа не задан.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "87,650"
+      }
+    }
+  },
+  "quotaLeftOwn_one": {
+    "message": "Осталось $left$ из $limit$ знака — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
+      }
+    }
+  },
+  "quotaLeftOwn_few": {
+    "message": "Осталось $left$ из $limit$ знаков — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
+      }
+    }
+  },
+  "quotaLeftOwn_many": {
+    "message": "Осталось $left$ из $limit$ знаков — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
+      }
+    }
+  },
+  "quotaLeftOwn_other": {
+    "message": "Осталось $left$ из $limit$ знака — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "limit": {
+        "content": "$1",
+        "example": "1,000,000"
+      },
+      "left": {
+        "content": "$2",
+        "example": "912,350"
       }
     }
   },
@@ -1270,6 +1358,9 @@
   "fbQuota": {
     "message": "Лимит DeepL на этот месяц закончился — перевожу встроенным переводчиком Chrome."
   },
+  "fbBadKey": {
+    "message": "DeepL не принял ключ — пока перевожу встроенным переводчиком Chrome. Проверьте ключ в настройках."
+  },
   "fbNetwork": {
     "message": "Нет связи с DeepL — перевожу встроенным переводчиком Chrome."
   },
@@ -1317,6 +1408,12 @@
   },
   "alreadyInLang": {
     "message": "Переводить нечего: текст на странице уже на нужном языке."
+  },
+  "pageAlready": {
+    "message": "Страница уже переведена."
+  },
+  "originalBack": {
+    "message": "Вернул оригинал."
   },
   "visibleInLang": {
     "message": "Эта часть страницы уже на нужном языке. Остальное переведётся, когда вы до него докрутите."
@@ -1496,6 +1593,15 @@
       "service": {
         "content": "$1",
         "example": "DeepL"
+      }
+    }
+  },
+  "llmWrongKey": {
+    "message": "Похоже, это ключ другого сервиса. Вставьте ключ $service$.",
+    "placeholders": {
+      "service": {
+        "content": "$1",
+        "example": "Anthropic"
       }
     }
   },

@@ -122,7 +122,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
 
   // ---- background: без согласия — ни одного запроса ----
   {
-    const env = makeEnv({ apiKey: "k:fx", llmApiKey: "sk-x", llmProvider: "anthropic", consent: { openai: true } });
+    const env = makeEnv({ apiKey: "k:fx", llmApiKey: "sk-ant-x", llmProvider: "anthropic", consent: { openai: true } });
     env.setFetch(deeplOk);
     let r = await env.send(msg("deepl", ["Hello world"]), sender(1));
     assert.ok(!r.ok && r.code === "no-consent" && /не разрешили отправлять текст в DeepL/.test(r.error), JSON.stringify(r));
@@ -172,7 +172,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await env.ctx.chrome.storage.local.set({ consent: { deepl: true } });
     await sleep(30);
     assert.ok(env.badge.text === "" && env.badge.title === "Переводчик при наведении", JSON.stringify(env.badge));
-    await env.ctx.chrome.storage.local.set({ engine: "llm", llmApiKey: "sk", llmProvider: "anthropic" });
+    await env.ctx.chrome.storage.local.set({ engine: "llm", llmApiKey: "sk-ant-x", llmProvider: "anthropic" });
     await sleep(30);
     assert.strictEqual(env.badge.text, "!", "согласие на DeepL не открывает Anthropic");
     await env.ctx.chrome.storage.local.set({ llmProvider: "openai", consent: { deepl: true, openai: true } });
@@ -187,6 +187,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     env.setFetch(llmOk);
     const body = async (provider, model) => {
       env.local.llmProvider = provider; env.local.llmModel = model;
+      env.local.llmApiKey = provider === "anthropic" ? "sk-ant-x" : "sk-x";   // у каждого сервиса свой ключ
       const r = await env.send(msg("llm", ["text " + Math.random()], "user-initiated"), sender(1));
       assert.ok(r.ok && r.texts[0] === "Привет", provider + "/" + model + ": " + JSON.stringify(r));
       return env.fetches[env.fetches.length - 1].body;

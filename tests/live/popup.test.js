@@ -245,6 +245,9 @@ const FAKE_KEY = "00000000-0000-0000-0000-000000000000:fx";
     assert.deepStrictEqual(JSON.parse(await pt.ev("chrome.storage.local.get('consent').then((s) => JSON.stringify(s.consent))")), { deepl: true, openai: false, anthropic: false });
     assert.strictEqual(await pt.ev("chrome.action.getBadgeText({})"), "", "согласились — «!» снят");
     assert.ok(await pt.ev("els.setup.hidden && !els.consentGiven.hidden && /отправляется в DeepL/.test(els.consentGivenText.textContent)"));
+    // Проверка ключа выше получила 403, а отклонённый ключ background больше не отправляет (до смены ключа) —
+    // поэтому, чтобы увидеть, что согласие открывает отправку, — другой выдуманный ключ.
+    await store({ apiKey: FAKE_KEY.replace(/^0/, "1") }); await sleep(300);
     await web.cmd("Page.bringToFront"); await sleep(200);
     await hover("#p2"); await tapShift();
     const sent = await until(async () => (await net()).some((u) => /\/v2\/translate$/.test(u)), 20000);
@@ -275,7 +278,7 @@ const FAKE_KEY = "00000000-0000-0000-0000-000000000000:fx";
 
     // ---- скриншоты остальных состояний ----
     await store({ engine: "deepl", apiKey: FAKE_KEY, consent: { deepl: true }, keyVerified: true });
-    await snap("quality-deepl", "setFold(els.qualityHead, els.qualityBody, true); document.querySelector('#deeplHowto').open = true; renderQuota({ ok: true, used: 87650, limit: 500000 })");
+    await snap("quality-deepl", "setFold(els.qualityHead, els.qualityBody, true); document.querySelector('#deeplHowto').open = true; renderQuota({ ok: true, used: 87650, limit: 500000, free: true })");
     await store({ engine: "llm", llmProvider: "openai", llmApiKey: "sk-demo", llmModel: "", consent: { deepl: true, openai: true }, llmVerified: true });
     await snap("quality-llm", "setFold(els.qualityHead, els.qualityBody, true)");
     await snap("quality-llm-other", "setFold(els.qualityHead, els.qualityBody, true); els.llmModelSel.value = 'other'; els.llmModelSel.dispatchEvent(new Event('change')); els.llmModel.value = 'gpt-5.5'");
