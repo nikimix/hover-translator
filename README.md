@@ -27,11 +27,11 @@ with your own key.
 
 ## Install
 
-**From the Chrome Web Store:** [Hover Translator](CHROME_WEB_STORE_URL)
+**From the Chrome Web Store:** coming soon (under review).
 
 **From source:**
 
-1. Download the code: `git clone https://github.com/GITHUB_USER/hover-translator.git` (or “Code → Download ZIP”
+1. Download the code: `git clone https://github.com/nikimix/hover-translator.git` (or “Code → Download ZIP”
    and unpack it).
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select the `hover-translate` folder inside the repository.
@@ -79,7 +79,7 @@ loads later.
   14 days; “More settings → Delete saved translations” removes them at once.
 - No server of our own, no analytics, no ads.
 
-Full details: [privacy policy](https://GITHUB_USER.github.io/hover-translator/privacy.html)
+Full details: [privacy policy](https://nikimix.github.io/hover-translator/privacy.html)
 ([source](docs/privacy.html)).
 
 ## Project structure
@@ -150,7 +150,7 @@ Store texts and answers for the Developer Dashboard are in `store/` (`listing-en
 
 ## Contributing and support
 
-Questions, bugs and ideas: [GitHub Issues](https://github.com/GITHUB_USER/hover-translator/issues). Please don’t post
+Questions, bugs and ideas: [GitHub Issues](https://github.com/nikimix/hover-translator/issues). Please don’t post
 your API keys there — issues are public.
 
 ## License

@@ -95,6 +95,6 @@ Google Chrome — товарный знак Google LLC. DeepL, OpenAI и Anthrop
 ## Ссылки
 
 Те же, что у английской страницы (поля общие): домашняя страница
-`https://GITHUB_USER.github.io/hover-translator/`, поддержка `https://github.com/GITHUB_USER/hover-translator/issues`,
-политика конфиденциальности `https://GITHUB_USER.github.io/hover-translator/privacy.html` (русская версия —
+`https://nikimix.github.io/hover-translator/`, поддержка `https://github.com/nikimix/hover-translator/issues`,
+политика конфиденциальности `https://nikimix.github.io/hover-translator/privacy.html` (русская версия —
 `privacy-ru.html`, ссылка на неё есть на странице).

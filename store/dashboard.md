@@ -92,7 +92,7 @@ send anything.” + **I agree**; consent is stored per service and can be withdr
 ## Privacy policy URL
 
 ```text
-https://GITHUB_USER.github.io/hover-translator/privacy.html
+https://nikimix.github.io/hover-translator/privacy.html
 ```
 
 (Russian version: `…/privacy-ru.html`, linked from the English page.) The same URL goes into the developer account
@@ -123,5 +123,5 @@ Note: extensions don't run on chrome:// pages or the Chrome Web Store. If the bu
 
 - **Mature content:** No.
 - **Payments / in-app purchases:** none — the extension is free; DeepL and AI are paid to those services directly, if the user chooses them.
-- **Homepage URL:** `https://GITHUB_USER.github.io/hover-translator/`
-- **Support URL:** `https://github.com/GITHUB_USER/hover-translator/issues`
+- **Homepage URL:** `https://nikimix.github.io/hover-translator/`
+- **Support URL:** `https://github.com/nikimix/hover-translator/issues`

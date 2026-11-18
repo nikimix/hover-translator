@@ -27,11 +27,11 @@
 
 ## Установка
 
-**Из магазина Chrome:** [Переводчик при наведении](CHROME_WEB_STORE_URL)
+**Из магазина Chrome:** скоро (расширение на проверке).
 
 **Из исходного кода:**
 
-1. Скачайте код: `git clone https://github.com/GITHUB_USER/hover-translator.git` (или «Code → Download ZIP» и
+1. Скачайте код: `git clone https://github.com/nikimix/hover-translator.git` (или «Code → Download ZIP» и
    распакуйте).
 2. Откройте `chrome://extensions` и включите **Режим разработчика** (справа вверху).
 3. Нажмите **«Загрузить распакованное расширение»** и выберите папку `hover-translate` внутри скачанного.
@@ -81,7 +81,7 @@
   хранятся 14 дней; «Дополнительно → Удалить сохранённые переводы» удаляет их сразу.
 - Нет своего сервера, сбора сведений о пользователях и рекламы.
 
-Подробно — в [политике конфиденциальности](https://GITHUB_USER.github.io/hover-translator/privacy-ru.html)
+Подробно — в [политике конфиденциальности](https://nikimix.github.io/hover-translator/privacy-ru.html)
 ([исходник](docs/privacy-ru.html)).
 
 ## Из чего состоит
@@ -150,7 +150,7 @@ bash scripts/pack.sh
 
 ## Вопросы и ошибки
 
-Пишите в [GitHub Issues](https://github.com/GITHUB_USER/hover-translator/issues). Не публикуйте там свои ключи —
+Пишите в [GitHub Issues](https://github.com/nikimix/hover-translator/issues). Не публикуйте там свои ключи —
 обращения видны всем.
 
 ## Лицензия

@@ -98,9 +98,9 @@ Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trad
 
 | Field | Value |
 |---|---|
-| Homepage URL | `https://GITHUB_USER.github.io/hover-translator/` |
-| Support URL | `https://github.com/GITHUB_USER/hover-translator/issues` |
-| Privacy policy (Privacy practices tab) | `https://GITHUB_USER.github.io/hover-translator/privacy.html` |
+| Homepage URL | `https://nikimix.github.io/hover-translator/` |
+| Support URL | `https://github.com/nikimix/hover-translator/issues` |
+| Privacy policy (Privacy practices tab) | `https://nikimix.github.io/hover-translator/privacy.html` |
 | Official URL | leave empty (needs a site verified in Google Search Console) |
 
-Replace `GITHUB_USER` once the repository exists.
+Replace `nikimix` once the repository exists.
