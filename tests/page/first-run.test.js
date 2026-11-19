@@ -303,6 +303,56 @@ const until = async (fn, ms = 4000, step = 50) => {
     assert.ok(!(await ev("toasts()")).some((t) => /Скачиваю|Щёлкните/.test(t)), JSON.stringify(await ev("toasts()")));
     ok("язык страницы не известен: догадка по короткой подписи переводит только уже скачанной моделью, загрузок нет");
 
+    // 10в. Детектор Chrome путает близкие языки: русский абзац Хабра → bg 0,55, ru 0,4. При переводе на русский текст
+    //      шёл в перевод «с болгарского» («Страница переведена · Болгарский → русский»), при переводе на английский
+    //      Chrome качал модель bg → en. Язык перевода или страницы среди вероятных у детектора — это он. __tr.asked —
+    //      о каких парах спрашивали Chrome; уверенный болгарский (bg 0,9) остаётся болгарским.
+    const RU10 = "Мы переписали сборку проекта и почти вдвое сократили время проверки изменений.";
+    const BG10 = "Новата версия на програмата вече е достъпна за всички потребители.";
+    const kinMis = `__tr.asked = []; __tr.downloads = []; __tr.ready = ['en>ru', 'ru>en'];
+      Translator.availability = async (o) => { const p = o.sourceLanguage + '>' + o.targetLanguage; __tr.asked.push(p);
+        return __tr.ready.includes(p) ? 'available' : 'downloadable'; };
+      Translator.create = async (o) => { const p = o.sourceLanguage + '>' + o.targetLanguage;
+        if (!__tr.ready.includes(p)) { __tr.downloads.push(p); __tr.ready.push(p); }
+        return { translate: async (s) => '[' + p + '] ' + s }; };
+      LanguageDetector.create = async () => ({ detect: async (t) => !/[а-яё]/i.test(t) ? [{ detectedLanguage: 'en', confidence: 0.99 }]
+        : /^\\s*Новата/.test(t) ? [{ detectedLanguage: 'bg', confidence: 0.9 }, { detectedLanguage: 'ru', confidence: 0.05 }]
+        : [{ detectedLanguage: 'bg', confidence: 0.55 }, { detectedLanguage: 'ru', confidence: 0.4 }] });
+      document.body.insertAdjacentHTML('beforeend', '<p id="ru10">${RU10}</p>'); true`;
+    const noBg = async () => !(await ev("toasts()")).some((t) => /Скачиваю|Щёлкните|болгарск/i.test(t));
+    // перевод на русский: русский абзац не трогаем, ни клавишей, ни «Перевести страницу» (после щелчка — качать можно)
+    await load("fake", { engine: "chrome" });
+    await ev(kinMis);
+    await hover("#ru10"); await tapShift(); await sleep(300);
+    assert.strictEqual(await text("#ru10"), RU10, "клавишей — не переводится");
+    assert.deepStrictEqual(await ev("__tr.asked"), [], "ни одной пары не спрашивали");
+    assert.ok(await noBg(), JSON.stringify(await ev("toasts()")));
+    await hover("#p1"); await click("#p1"); await sleep(50);
+    await ev("sendCmd('translatePage'); true");
+    assert.ok(await until(async () => (await text("#p1")).startsWith("[en>ru] ")), await text("#p1"));
+    await sleep(300);
+    assert.strictEqual(await text("#ru10"), RU10, "«Перевести страницу» — не переводится");
+    assert.ok(!(await ev("__tr.asked")).some((p) => p.startsWith("bg>")), JSON.stringify(await ev("__tr.asked")));
+    assert.deepStrictEqual(await ev("__tr.downloads"), [], "ни одной загрузки модели");
+    assert.ok(await noBg(), JSON.stringify(await ev("toasts()")));
+    await ev(`sendCmd('restoreAll'); __tr.asked = []; document.body.insertAdjacentHTML('beforeend', '<p id="bg10">${BG10}</p>'); true`);
+    await hover("#bg10"); await tapShift(); await sleep(300);
+    assert.deepStrictEqual(await ev("__tr.asked"), ["bg>ru"], "уверенный болгарский — с болгарского");
+    ok("близкие языки: русский абзац с bg 0,55 / ru 0,4 при переводе на русский не переводится, модель bg не качается; уверенный болгарский — болгарский");
+    // перевод на английский, <html lang="ru">: с русского, модель bg → en не нужна
+    await load("fake", { engine: "chrome", targetLang: "EN-US" });
+    await ev(`document.documentElement.lang = 'ru'; ${kinMis}`);
+    await hover("#ru10"); await tapShift(); await sleep(300);
+    assert.strictEqual(await text("#ru10"), "[ru>en] " + RU10, "клавишей — с русского");
+    await ev("sendCmd('restoreAll'); true");
+    await ev("sendCmd('translatePage'); true");
+    assert.ok(await until(async () => (await text("#ru10")).startsWith("[ru>en] ") && (await ev("toasts()")).some((t) => /Русский → английский/.test(t))),
+      JSON.stringify([await text("#ru10"), await ev("toasts()")]));
+    assert.deepStrictEqual(await ev("__tr.asked.filter((p) => p !== 'ru>en')"), [], "только пара ru → en");
+    assert.deepStrictEqual(await ev("__tr.downloads"), []);
+    assert.ok(await noBg(), JSON.stringify(await ev("toasts()")));
+    ok("близкие языки: при переводе на английский на странице lang=ru — с русского (Русский → английский), не с болгарского");
+
     // 11. Точки на плавающей кнопке — те же условия, что у уведомлений: «Щёлкните по тексту» — янтарная (warn),
     //     «Перевод не работает» — красная (err); причину устранили — точки нет. Одновременно — не больше одной.
     const dotShot = (name) => ev("(() => { const r = fabRoot().host.getBoundingClientRect(); return { x: Math.max(0, r.right - 300), y: Math.max(0, r.bottom - 150) }; })()")

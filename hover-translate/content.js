@@ -738,15 +738,38 @@
       const res = await det.detect(text);
       const top = res && res[0];
       if (!top || top.confidence < 0.5) return false;
-      return isTargetLang(top.detectedLanguage);
+      return isTargetLang((await pickLang(res)).detectedLanguage);
     } catch (e) {
       return false;
     }
   }
 
+  // Детектор Chrome путает близкие языки: русский абзац Хабра → bg 0,55, ru 0,4. Русский текст при переводе на
+  // русский шёл в перевод «с болгарского», а при переводе на английский Chrome качал модель «болгарский →
+  // английский». Поэтому язык из ответа детектора выбираем так: первым назван язык, близкий к языку страницы или
+  // перевода, а тот тоже в числе вероятных (≥ 0,2), — значит, он. Язык страницы — первым (<html lang="ru">, а
+  // детектор колеблется между bg и ru — верим странице); страница сама на названном первым языке — его и берём.
+  // Порог уверенности по-прежнему у первого варианта: здесь выбираем только, какой из близких языков.
+  // page — язык страницы, если уже известен (иначе спросим pageLang; для неё самой — "").
+  const KIN = [["ru", "uk", "be", "bg", "mk", "sr"], ["hr", "bs", "sr", "sl"], ["cs", "sk"], ["da", "no", "sv"], ["id", "ms"], ["gl", "pt", "es"]];
+  const KIN_MIN = 0.2;
+  async function pickLang(res, page) {
+    const top = res[0];
+    const k0 = HT_langKey(top.detectedLanguage);
+    if (!KIN.some((g) => g.includes(k0))) return top;
+    page = HT_langKey(page == null ? await pageLang() : page);
+    if (page === k0) return top;
+    for (const e of [page, HT_langKey(settings.targetLang || "RU")]) {
+      if (!e || !KIN.some((g) => g.includes(k0) && g.includes(e))) continue;
+      const alt = res.find((r) => HT_langKey(r.detectedLanguage) === e && r.confidence >= KIN_MIN);
+      if (alt) return alt;
+    }
+    return top;
+  }
+
   // Язык текста → { lang } либо { kind, state } (детектора нет / модель не скачана), либо {}. Заданный
-  // вручную язык — кодом встроенного переводчика (NB → "no"), если встроенный его знает.
-  async function detectLang(text, mayDownload) {
+  // вручную язык — кодом встроенного переводчика (NB → "no"), если встроенный его знает. Близкие языки — см. pickLang.
+  async function detectLang(text, mayDownload, page) {
     if (settings.sourceLang && settings.sourceLang !== "auto") {
       return { lang: HT_builtinCode(settings.sourceLang) || HT_langBase(settings.sourceLang) };
     }
@@ -755,7 +778,7 @@
     try {
       const res = await d.inst.detect(text);
       const top = res && res[0];
-      if (top && top.confidence >= 0.4) return { lang: top.detectedLanguage.toLowerCase() };
+      if (top && top.confidence >= 0.4) return { lang: (await pickLang(res, page)).detectedLanguage.toLowerCase() };
     } catch (e) { /* не определили */ }
     return {};
   }
@@ -779,20 +802,21 @@
   // быть наш же перевод на странице: тогда <html lang>, если он есть. Считаем раз на адрес (без #); детектор
   // не ответил (ещё не скачан) — спросим снова через 5 с, а пока <html lang>.
   let pageLangMemo = null;            // { url, until, det } — det: обещание языка по тексту страницы ("" — нет)
+  // Из близких языков (см. pickLang) детектор по тексту страницы выбирает тот, что в <html lang>.
   async function pageLang() {
     const url = location.href.split("#")[0];
+    const html = HT_langKey(document.documentElement.lang || "");
+    const own = /^[a-z]{2,3}$/.test(html) ? html : "";
     if (!pageLangMemo || pageLangMemo.url !== url || pageLangMemo.until < Date.now()) {
       const sample = String((document.body && document.body.innerText) || "").replace(/\s+/g, " ").slice(0, 5000);
       const memo = { url, until: Infinity, det: null };
-      memo.det = (shortText(sample) ? Promise.resolve({}) : detectLang(sample, true)).then((d) => {
+      memo.det = (shortText(sample) ? Promise.resolve({}) : detectLang(sample, true, own)).then((d) => {
         if (!d.lang) memo.until = Date.now() + 5000;
         return d.lang || "";
       });
       pageLangMemo = memo;
     }
     const det = await pageLangMemo.det;
-    const html = HT_langKey(document.documentElement.lang || "");
-    const own = /^[a-z]{2,3}$/.test(html) ? html : "";
     return det && (!isTargetLang(det) || !own) ? det : own;
   }
 
