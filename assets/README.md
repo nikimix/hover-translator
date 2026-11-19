@@ -9,10 +9,8 @@
 |---|---|
 | `icon.svg` | Значок 128×128: рисунок 96×96 с прозрачными полями 16 px (так советует магазин) |
 | `icon-16.svg`, `icon-32.svg`, `icon-48.svg` | Тот же значок для мелких размеров: своя сетка, курсор в 16 и 32 px нарисован по пикселям |
-| `icon-96.svg` | Рисунок `icon.svg` с полями как у 48 px — для экранов высокой плотности (приветствие и окно берут его вместо 48 px) |
-| `icon-variants.png` | Сравнение трёх вариантов значка (выбран A); `variants/` — отклонённые B и C |
 | `store/capture.js` | Съёмка настоящего расширения в Chrome без интерфейса → `store/shots/<lang>/` |
-| `store/build.js` | HTML/SVG → PNG: значки, скриншоты, промо-плитки, лист вариантов |
+| `store/build.js` | HTML/SVG → PNG: значки, скриншоты, промо-плитки |
 | `store/screens.html` | Скриншоты 1280×800 (`?n=1..5&lang=en\|ru`) |
 | `store/promo.html` | Промо-плитки 440×280 и 1400×560 (`?size=small\|marquee&lang=en\|ru`) |
 | `store/texts.js` | Подписи на картинках (английский и русский) |
@@ -25,8 +23,7 @@
 
 ```bash
 # 1. Значок: после правки assets/icon*.svg
-node assets/store/build.js icons            # → hover-translate/icons/16, 32, 48, 96, 128.png
-node assets/store/build.js variants         # → assets/icon-variants.png
+node assets/store/build.js icons            # → hover-translate/icons/16, 32, 48, 128.png
 
 # 2. Снимки настоящего расширения (если менялся интерфейс или демо-статья)
 node assets/store/capture.js en ru          # → assets/store/shots/en, shots/ru

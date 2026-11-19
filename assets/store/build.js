@@ -1,11 +1,10 @@
 // Отрисовка картинок магазина из HTML/SVG в PNG через Chrome без интерфейса (расширение не нужно).
 //
-//   node assets/store/build.js [screens] [promo] [icons] [variants]   (без аргументов — всё)
+//   node assets/store/build.js [screens] [promo] [icons]   (без аргументов — всё)
 //
 // screens  — store/images/<lang>/screenshot-1..5.png (1280×800) из screens.html и снимков shots/<lang>/;
 // promo    — store/images/<lang>/promo-small-440x280.png и promo-marquee-1400x560.png из promo.html;
-// icons    — hover-translate/icons/16, 32, 48, 96, 128.png из assets/icon-*.svg и assets/icon.svg;
-// variants — assets/icon-variants.png (сравнение вариантов значка) и PNG вариантов в assets/variants/.
+// icons    — hover-translate/icons/16, 32, 48, 128.png из assets/icon-*.svg и assets/icon.svg.
 // Картинки магазина без прозрачности (фон страницы непрозрачный — Chrome пишет PNG без альфа-канала).
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -71,16 +70,10 @@ async function chrome() {
   const b = await chrome();
   try {
     if (want("icons")) {
-      for (const s of [16, 32, 48, 96, 128]) {
+      for (const s of [16, 32, 48, 128]) {
         const src = path.join(ASSETS, s === 128 ? "icon.svg" : `icon-${s}.svg`);
         await b.render(src, "", s, s, path.join(ROOT, "hover-translate/icons", `${s}.png`), { transparent: true });
       }
-    }
-    if (want("variants")) {
-      for (const v of ["b", "c"]) for (const s of [16, 32, 48, 128]) {
-        await b.render(path.join(ASSETS, "variants", `${v}-${s}.svg`), "", s, s, path.join(ASSETS, "variants", `${v}-${s}.png`), { transparent: true });
-      }
-      await b.render(path.join(HERE, "icon-variants.html"), "", 1600, 1000, path.join(ASSETS, "icon-variants.png"));
     }
     for (const lang of ["en", "ru"]) {
       const out = path.join(ROOT, "store/images", lang);
