@@ -2194,7 +2194,7 @@
     const src = pageSrc || (/^[a-z]{2,3}$/.test(lang) && !isTargetLang(lang) ? lang : "");
     const text = src ? pairText(src, tgt) : HT_t("intoLang", HT_langLabel(HT_langBase(tgt)));
     if (pageToast) pageToast.close();
-    pageToast = notice(text, 8000, {
+    pageToast = notice(text, 3000, {
       title: HT_t("csPageDone"), icon: "ok", esc: true,
       actions: [{ label: HT_t("csShowOrig"), run: () => restoreAll() }],
     });

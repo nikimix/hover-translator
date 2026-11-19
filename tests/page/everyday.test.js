@@ -375,6 +375,26 @@ const SHIFT = 8;
     await t.cmd("Emulation.setEmulatedMedia", { features: [] });
     await sleep(500);
     ok("«Перевести страницу»: без «Перевожу…», пульс у переводимых блоков (светлый на тёмном, без движения при reduced-motion); «Страница переведена / Английский → русский / Показать оригинал или Esc» (работает); блоки без заливки");
+    // «Страница переведена» висит 3 с; курсор над уведомлением — не закрывается, увели — закрывается через 3 с
+    const pageDone = async () => { await ev("sendCmd('restoreAll'); sendCmd({ type: 'translatePage', via: 'popup' }); true");
+      return until(async () => /Страница переведена/.test((await toastsNow()).join()), 3000); };
+    await ev("window.__bgDelay = 0; true"); await move(5, 790); await sleep(100);
+    assert.ok(await pageDone());
+    let t0 = Date.now();
+    assert.ok(await until(async () => !(await toastsNow()).length, 5000, 100), "закрылось само");
+    const life = Date.now() - t0;
+    assert.ok(life > 2700 && life < 4000, "живёт 3 с (и 200 мс на исчезание): " + life);
+    assert.ok(await pageDone());
+    const tb = await ev("uiPoint(toastRoot(), '.t-b')");
+    await move(tb.x, tb.y);
+    await sleep(3600);
+    assert.strictEqual((await toastsNow()).length, 1, "курсор над уведомлением — не закрывается");
+    await move(5, 790);
+    t0 = Date.now();
+    assert.ok(await until(async () => !(await toastsNow()).length, 5000, 100), "увели курсор — закрылось");
+    const after = Date.now() - t0;
+    assert.ok(after > 2700 && after < 4000, "через 3 с после ухода курсора: " + after);
+    ok(`«Страница переведена» живёт 3 с (${life} мс); курсор над ним — не закрывается (3,6 с), увели — закрылось через ${after} мс`);
     // нечего переводить — нейтрально, без значка
     await ev("window.__bgDelay = 0; sendCmd('restoreAll'); document.querySelectorAll('p, button, [role], nav').forEach((e) => e.setAttribute('translate', 'no')); true");
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true"); await sleep(150);
