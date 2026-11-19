@@ -545,9 +545,15 @@
     while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
     if (!el || el.nodeType !== 1) return false;
     if (el.tagName === "INPUT") return !NO_TYPING_INPUTS.test(el.type);
-    // OPTION — пункт открытого списка (настраиваемый select Chrome 135+ раскрывается прямо на странице, и клавиши
-    // доходят сюда; системный список забирал их себе).
-    return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.tagName === "OPTION";
+    // Закрытый выпадающий список текст не принимает (как флажок): выбрали пункт — Shift снова переводит. Раскрытый
+    // и OPTION — пункт открытого списка (настраиваемый select Chrome 135+ раскрывается прямо на странице, и клавиши
+    // доходят сюда; системный список забирал их себе) — клавиши для списка.
+    if (el.tagName === "SELECT") return selectOpen(el);
+    return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "OPTION";
+  }
+  // :open у select — с Chrome 133; раньше список системный, и клавиши до страницы не доходят.
+  function selectOpen(sel) {
+    try { return sel.matches(":open"); } catch (e) { return false; }
   }
 
   // Запустить/снять перевод owner-а под курсором (по клавише-триггеру).
@@ -2913,10 +2919,8 @@
   }
 
   function menuOpen() { return !!(fab && fab.open); }
-  // :open у select — с Chrome 133; раньше список системный, и Esc сюда не доходит.
-  function pickerOpen() {
-    try { return !!fab && fab.sel.matches(":open"); } catch (e) { return false; }
-  }
+  // Раскрыт список языка в меню (до Chrome 133 список системный, и Esc сюда не доходит).
+  function pickerOpen() { return !!fab && selectOpen(fab.sel); }
   function openMenu(mode, byKeyboard) {
     if (!fab) return;
     clearTimeout(fab.timers.open);

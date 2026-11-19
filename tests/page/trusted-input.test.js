@@ -119,6 +119,31 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("фокус в input / contenteditable — нажатие не переводит; после снятия фокуса — переводит");
     await reset();
 
+    // 7б. Выпадающий список сайта: закрытый — не поле ввода, Shift переводит; раскрытый (настраиваемый select
+    //     раскрывается прямо на странице, клавиши доходят до неё; фокус на нём или на пункте) — не переводит.
+    await ev(`(() => { const st = document.createElement("style"); st.id = "selcss"; st.textContent = "#sel, #sel::picker(select) { appearance: base-select; }";
+      document.head.appendChild(st); const s = document.createElement("select"); s.id = "sel"; s.innerHTML = "<option>One</option><option>Two</option>";
+      s.style.cssText = "position: fixed; top: 8px; right: 8px"; document.body.appendChild(s); return true; })()`);
+    await ev("document.querySelector('#sel').focus(); true");
+    await hover("#p1");
+    await tapShift(); await sleep(100);
+    assert.strictEqual(await text("#p1"), "[RU] " + P1, "фокус на закрытом <select> — Shift переводит");
+    await reset();
+    const sc = await ev("(() => { const r = document.querySelector('#sel').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()");
+    await move(sc.x, sc.y);
+    await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: sc.x, y: sc.y, button: "left", clickCount: 1 });
+    await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: sc.x, y: sc.y, button: "left", clickCount: 1 });
+    await sleep(200);
+    const selOpen = await ev("(() => { const a = document.activeElement; return { open: document.querySelector('#sel').matches(':open'), focus: a && a.tagName }; })()");
+    assert.ok(selOpen.open && /^(SELECT|OPTION)$/.test(selOpen.focus), "список раскрыт, фокус в нём: " + JSON.stringify(selOpen));
+    await hover("#p1");
+    await tapShift(); await sleep(100);
+    assert.strictEqual(await calls(), 0, "раскрытый список — Shift не переводит");
+    assert.strictEqual(await text("#p1"), P1);
+    await ev("document.querySelector('#sel').remove(); document.querySelector('#selcss').remove(); true");
+    ok(`<select>: закрытый (фокус на нём) — Shift переводит; раскрытый (фокус: ${selOpen.focus}) — не переводит`);
+    await reset();
+
     // 8. Держу Shift и веду курсор: переводится и стартовый абзац, и пройденный; отпускание ничего не откатывает
     const P2 = await text("#p2");
     await hover("#p1");
