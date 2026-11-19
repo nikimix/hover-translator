@@ -856,7 +856,7 @@
       const res = await det.detect(text);
       const top = res && res[0];
       if (!top || top.confidence < 0.5) return false;
-      return isTargetLang((await pickLang(res)).detectedLanguage);
+      return isTargetLang((await pickLang(res, text)).detectedLanguage);
     } catch (e) {
       return false;
     }
@@ -868,21 +868,48 @@
   // перевода, а тот тоже в числе вероятных (≥ 0,2), — значит, он. Язык страницы — первым (<html lang="ru">, а
   // детектор колеблется между bg и ru — верим странице); страница сама на названном первым языке — его и берём.
   // Порог уверенности по-прежнему у первого варианта: здесь выбираем только, какой из близких языков.
+  // Бывает, что детектор и уверен в ошибке: подпись на ленте Хабра «Забирайте записи воркшопов по ИИ» → bg 0,95, ru 0,03
+  // (отдельно — bg 0,99, русского среди вероятных нет). Поэтому кусок на странице с кириллицей, который по буквам может
+  // быть написан на языке страницы (см. onPageAlphabet), — на языке страницы. Для текста самой страницы (page передан) —
+  // нет: шаблон с <html lang="ru"> на болгарском сайте не делает его русским.
   // page — язык страницы, если уже известен (иначе спросим pageLang; для неё самой — "").
   const KIN = [["ru", "uk", "be", "bg", "mk", "sr"], ["hr", "bs", "sr", "sl"], ["cs", "sk"], ["da", "no", "sv"], ["id", "ms"], ["gl", "pt", "es"]];
   const KIN_MIN = 0.2;
-  async function pickLang(res, page) {
+  async function pickLang(res, text, page) {
     const top = res[0];
     const k0 = HT_langKey(top.detectedLanguage);
     if (!KIN.some((g) => g.includes(k0))) return top;
-    page = HT_langKey(page == null ? await pageLang() : page);
+    const piece = page == null;
+    page = HT_langKey(piece ? await pageLang() : page);
     if (page === k0) return top;
+    if (piece && KIN[0].includes(k0) && onPageAlphabet(text, page)) return { detectedLanguage: page, confidence: top.confidence };
     for (const e of [page, HT_langKey(settings.targetLang || "RU")]) {
       if (!e || !KIN.some((g) => g.includes(k0) && g.includes(e))) continue;
       const alt = res.find((r) => HT_langKey(r.detectedLanguage) === e && r.confidence >= KIN_MIN);
       if (alt) return alt;
     }
     return top;
+  }
+
+  // Может ли текст быть написан на языке страницы: все буквы кириллицы — из её алфавита (украинский с «і», «ї», «є» —
+  // не русский; русский с «ы», «э», «ё» — не болгарский). Болгарский алфавит — часть русского, и по буквам их не
+  // различить; но в русском «ъ» бывает только перед е, ё, ю, я, а в болгарском это гласная («съм», «достъпна»).
+  // Цена: болгарская фраза без такого «ъ» («Прочетете повече за проекта») на русской странице — русская.
+  // Строчные буквы алфавитов кодами (кириллица в строках кода — только в сообщениях): а–я — U+0430–U+044F, ё — 0451.
+  const CYR_ABC = {
+    ru: /[\u0430-\u044f\u0451]/,                                              // а–я, ё
+    uk: /[\u0430-\u0449\u044c\u044e\u044f\u0454\u0456\u0457\u0491]/,             // а–щ, ь, ю, я, є, і, ї, ґ
+    be: /[\u0430-\u0437\u0439-\u0448\u044b-\u044f\u0451\u0456\u045e]/,            // без и, щ, ъ; ё, і, ў
+    bg: /[\u0430-\u044a\u044c\u044e\u044f\u045d]/,                               // а–ъ, ь, ю, я, ѝ
+    mk: /[\u0430-\u0438\u043a-\u0448\u0450\u0453\u0455\u0458-\u045a\u045c\u045d\u045f]/, // без й, щ–я; ѐ, ѓ, ѕ, ј, љ, њ, ќ, ѝ, џ
+    sr: /[\u0430-\u0438\u043a-\u0448\u0452\u0458-\u045b\u045f]/,                // без й, щ–я; ђ, ј, љ, њ, ћ, џ
+  };
+  function onPageAlphabet(text, page) {
+    const abc = CYR_ABC[page];
+    const t = String(text || "").toLowerCase();
+    const letters = t.match(/\p{Script=Cyrillic}/gu);
+    if (!abc || !letters || !letters.every((c) => abc.test(c))) return false;
+    return page !== "ru" || !/\u044a(?![\u0435\u0451\u044e\u044f])/.test(t);   // ъ не перед е, ё, ю, я
   }
 
   // Язык текста → { lang } либо { kind, state } (детектора нет / модель не скачана), либо {}. Заданный
@@ -896,7 +923,7 @@
     try {
       const res = await d.inst.detect(text);
       const top = res && res[0];
-      if (top && top.confidence >= 0.4) return { lang: (await pickLang(res, page)).detectedLanguage.toLowerCase() };
+      if (top && top.confidence >= 0.4) return { lang: (await pickLang(res, text, page)).detectedLanguage.toLowerCase() };
     } catch (e) { /* не определили */ }
     return {};
   }
