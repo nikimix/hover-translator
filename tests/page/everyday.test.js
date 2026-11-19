@@ -463,18 +463,32 @@ const SHIFT = 8;
         <tr><td><div><a href="${gh}tree/master/lib">lib</a></div></td></tr>
         <tr><td><div><a href="${gh}blob/master/.gitignore">.gitignore</a></div></td></tr>
         <tr><td><div><a href="${gh}blob/master/History.md">History.md</a></div></td></tr>
+        <tr><td><div><a href="${gh}blob/master/LICENSE">LICENSE</a></div></td></tr>
       </tbody></table>
+      <div><div><a id="ititle" href="${gh}issues/6724">Add support for the QUERY method</a></div>
+        <div>#6724 · <a id="ilogin" href="/bjohansebas">bjohansebas</a> opened on Aug 23, 2025</div>
+        <div>#7533 ·<a id="plogin" href="${gh}pulls?q=is%3Apr+state%3Aopen+author%3Abjohansebas">bjohansebas</a> opened Oct 17, 2026</div>
+        <div><a id="clogin" href="${gh}commits?author=bjohansebas">bjohansebas</a> committed 3 days ago</div></div>
       <ul><li><a id="wmex" href="/wiki/Mexico">Mexico</a></li><li><a id="wdog" href="/wiki/Dog">dog</a></li></ul>
+      <p id="wpara">The <a id="wtom" href="/wiki/Tomato">tomato</a> came to Europe from <a id="wmex2" href="/wiki/Mexico">Mexico</a>, as <a id="wnasa" href="/wiki/NASA">NASA</a> once noted.</p>
+      <p id="tags">Questions tagged <a id="tpy" href="/tags/python">python</a> are answered fast; read our <a id="tblog" href="/blog">blog</a> for news.</p>
       <p id="inl">Follow the <a id="inla" href="/docs/install">install</a> guide, <i id="eg">e.g.</i> on a new machine.</p>
       <p id="site">Visit example.com for details. It ends here.Then more.</p>`;
     await ev(`document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(names)}); true`);
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
     assert.ok(await until(async () => (await pageNow()) === "done", 3000), "видимое переведено");
-    assert.deepStrictEqual(await ev("Array.from(document.querySelectorAll('#files td:first-child a'), (a) => a.textContent)"),
-      [".github", "examples", "lib", ".gitignore", "History.md"], "файлы и папки — как есть");
+    // логин внутри фразы — как есть, а сама фраза вокруг («opened on …», «committed …») — переведена
+    assert.deepStrictEqual(await ev(`({
+      files: Array.from(document.querySelectorAll('#files td:first-child a'), (a) => a.textContent),
+      logins: ['#ilogin', '#plogin', '#clogin'].map((s) => document.querySelector(s).textContent),
+      around: ['#ilogin', '#plogin', '#clogin'].map((s) => /^\\[RU\\] /.test(document.querySelector(s).nextSibling.nodeValue.trim())) })`),
+    { files: [".github", "examples", "lib", ".gitignore", "History.md", "LICENSE"], logins: ["bjohansebas", "bjohansebas", "bjohansebas"], around: [true, true, true] },
+    "файлы, папки и логины — как есть, фраза вокруг логина — переведена");
     assert.strictEqual(await text("#repo"), "expressjs / express", "владелец / репозиторий — как есть");
-    for (const sel of ["#cmsg", "#cplain", "#wmex", "#wdog", "#inl", "#inla", "#eg", "#site"]) assert.ok(await tr(sel), sel + " переведён");
-    ok("имена не переводятся: .github, examples, lib, .gitignore, History.md, «expressjs / express»; переводятся: сообщения рядом, /wiki/Mexico «Mexico», /wiki/Dog «dog», ссылка «install» внутри фразы, «e.g.», «example.com» в предложении");
+    for (const sel of ["#cmsg", "#cplain", "#ititle", "#wmex", "#wdog", "#wpara", "#wtom", "#wmex2", "#wnasa", "#tags", "#tpy", "#tblog", "#inl", "#inla", "#eg", "#site"]) {
+      assert.ok(await tr(sel), sel + " переведён");
+    }
+    ok("имена не переводятся: .github, examples, lib, .gitignore, History.md, LICENSE, «expressjs / express», логин в «bjohansebas opened …» (/login, ?q=author:…) и «… committed …» (?author=) — фраза вокруг переводится; переводятся: сообщения рядом, /wiki/Mexico «Mexico», /wiki/Dog «dog», внутри фраз — /wiki/Tomato «tomato», /wiki/Mexico «Mexico», /wiki/NASA «NASA», /tags/python «python», /blog «blog», «install», «e.g.», «example.com» в предложении");
 
     // ---- 8г. Подсветка запроса поверх поля (как у GitHub Issues) не переводится: это текст человека ----
     await load({ trigger: "shift" });

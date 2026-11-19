@@ -573,28 +573,49 @@
     return !looksLikeName(node, owner);
   }
 
-  // Имя, а не слова (GitHub: «.gitignore» → «.Гигнор», «lib» → «Либ», «History.md» → «История.MD»):
+  // Имя, а не слова (GitHub: «.gitignore» → «.Гигнор», «lib» → «Либ», «bjohansebas» → «Бьохансебас», «LICENSE» → «Лицензия»).
+  // Текст ссылки — одно латинское «слово» (буквы, цифры, ._-) — сравниваем с кусками её адреса точно, с регистром:
   // 1) одно «слово» вида имени файла или адреса: .gitignore, History.md, example.com («e.g.» — нет: точка в конце);
-  // 2) текст ссылки равен последнему сегменту её адреса из строчных латинских букв, цифр и ._- (lib → …/tree/master/lib),
-  //    и ссылка не внутри фразы: у владельца нет текста с буквами вне ссылок. Иначе «follow the <a href="/docs/install">
-  //    install</a> guide» оставил бы слово посреди переведённого предложения. Ссылки Википедии (/wiki/Mexico)
-  //    начинаются в адресе с заглавной — сюда не попадают.
+  // 2) логин: текст равен всему пути (/bjohansebas — профиль) или автору в запросе (?author=… у коммитов, «author:…» в ?q=
+  //    у списка PR). Внутри фразы — только если фраза с него начинается (перед ссылкой нет буквы или цифры: «#6724 ·
+  //    bjohansebas opened 2 days ago») или слово похоже на логин (цифра, _ или -, заглавная после строчной). Поэтому
+  //    «read our <a href="/blog">blog</a>», «books by <a href="?author=Tolstoy">Tolstoy</a>» переводятся;
+  // 3) текст равен последнему сегменту адреса строчными (lib → …/tree/master/lib) или ЗАГЛАВНЫМИ от 2 знаков (LICENSE →
+  //    …/blob/master/LICENSE; заодно «NASA» → /wiki/NASA в списке), и ссылка не внутри фразы. Иначе «follow the
+  //    <a href="/docs/install">install</a> guide» или «tagged <a href="/tags/python">python</a>» оставили бы слово
+  //    посреди переведённого предложения.
+  // Ссылки Википедии (/wiki/Mexico «Mexico», /wiki/Tomato «tomato») — не весь путь, не автор и не строчные/ЗАГЛАВНЫЕ
+  // с тем же регистром — сюда не попадают ни отдельно, ни внутри фразы.
   const FILE_NAME_RE = /^\.?[\w@+-]+(\.[\w-]+)+$|^\.[\w-]+$/;
-  const NAME_SEG_RE = /^[a-z0-9][a-z0-9._-]*$/;
+  const NAME_WORD_RE = /^[A-Za-z0-9][\w.-]*$/;
+  const NAME_SEG_RE = /^[a-z0-9][a-z0-9._-]*$|^[A-Z0-9][A-Z0-9._-]+$/;
+  const LOGIN_LIKE_RE = /[\d_-]|[a-z][A-Z]/;
   function looksLikeName(node, owner) {
     const t = node.nodeValue.trim();
     if (FILE_NAME_RE.test(t)) return true;
-    if (!NAME_SEG_RE.test(t)) return false;
+    if (!NAME_WORD_RE.test(t)) return false;
     const a = node.parentElement.closest("a[href]");
     if (!a) return false;
-    let seg;
-    try { seg = decodeURIComponent(new URL(a.href).pathname.split("/").filter(Boolean).pop() || ""); } catch (e) { return false; }
-    if (seg !== t) return false;
+    let u, segs;
+    try { u = new URL(a.href); segs = u.pathname.split("/").filter(Boolean).map(decodeURIComponent); } catch (e) { return false; }
+    let login = segs.length === 1 && segs[0] === t;
+    for (const [k, v] of u.searchParams) if (k === "author" && v === t || v.split(/\s+/).includes("author:" + t)) login = true;
+    if (!login && !(NAME_SEG_RE.test(t) && segs[segs.length - 1] === t)) return false;
+    if (!inPhrase(owner)) return true;
+    if (!login) return false;
+    if (LOGIN_LIKE_RE.test(t)) return true;
+    const before = document.createRange();             // текст владельца до ссылки
+    before.setStart(owner, 0);
+    before.setEndBefore(a);
+    return !/[\p{L}\p{N}]\s*$/u.test(before.toString());
+  }
+  // Ссылка внутри фразы: у владельца есть текст с буквами вне ссылок.
+  function inPhrase(owner) {
     const w = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) {
-      if (/\p{L}/u.test(n.nodeValue) && !n.parentElement.closest("a[href]")) return false;
+      if (/\p{L}/u.test(n.nodeValue) && !n.parentElement.closest("a[href]")) return true;
     }
-    return true;
+    return false;
   }
 
   // Узел уже держит живая строка: вложенный владелец переведён наведением, а страница берёт внешний, или наоборот.
