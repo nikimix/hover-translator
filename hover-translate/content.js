@@ -539,7 +539,7 @@
     if (settings.displayMode === "popover") {
       if (popovers.has(owner)) removePopover(owner); else if (!blocked(false)) translatePopover(owner);
     } else {
-      const line = lineByOwner.get(owner);
+      const line = lineOf(owner);
       if (line) restoreLine(line); else if (!blocked(false)) translateLine(owner, false);
     }
   }
@@ -550,8 +550,24 @@
     else translateLine(owner, false);
   }
 
+  // Запись о переводе элемента — если перевод ещё на экране или в пути. Сайт мог перерисовать элемент после
+  // перевода (React/Vue вписали свой текст, textContent заменил узлы): нашего перевода уже нет, а «мёртвая» запись
+  // мешала — первый Shift «снимал» невидимый перевод и ничего не делал, наведение и жест «держу и веду» считали
+  // элемент занятым. Такую запись снимаем (откатывать нечего) — элемент переводится заново.
+  function lineOf(owner) {
+    const line = lineByOwner.get(owner);
+    if (line && !inFlight.has(owner) && !lineAlive(line)) { dropLine(line); return null; }
+    return line || null;
+  }
+  // Переводов на экране (для окна: «Перевод в N местах»): мёртвые записи не в счёт.
+  function shownCount() {
+    let n = 0;
+    for (const line of lines) if (lineAlive(line)) n++;
+    return n;
+  }
+
   // «Показ уже есть» — строка или карточка; isBusy добавляет «запрос уже в полёте».
-  function isShown(owner) { return lineByOwner.has(owner) || popovers.has(owner); }
+  function isShown(owner) { return !!lineOf(owner) || popovers.has(owner); }
   function isBusy(owner) { return isShown(owner) || inFlight.has(owner); }
 
   // Тот же ли это язык, что язык перевода (детектор называет язык своим кодом: "no", "iw", "zh").
@@ -2338,13 +2354,13 @@
   // окно готовит встроенному переводчику именно эту пару.
   function pageNow() {
     if (pageActive) return pageBusy ? "busy" : "done";
-    if (lines.size) return "part";
+    if (shownCount()) return "part";
     return pageWas ? "orig" : "idle";
   }
   function tabState() {
     return {
       ok: true, hud: !!hud, site: SITE, siteOff, lang: String(document.documentElement.lang || "").slice(0, 20),
-      page: pageNow(), done: pageBusy ? pageBusy.done : 0, total: pageBusy ? pageBusy.total : 0, count: lines.size, src: pageSrc,
+      page: pageNow(), done: pageBusy ? pageBusy.done : 0, total: pageBusy ? pageBusy.total : 0, count: shownCount(), src: pageSrc,
     };
   }
   // Окно открыто и ждёт: верхний фрейм сам сообщает каждое изменение (несколько подряд — одним
