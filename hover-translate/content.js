@@ -2740,10 +2740,16 @@
   // Селекторы, которых этот Chrome не знает, отбрасываем: одна ошибка в списке сломала бы весь querySelectorAll.
   const SITE_OPEN = [":modal", ":popover-open", "[role=dialog]", "[role=alertdialog]", "[aria-modal=true]"]
     .filter((s) => { try { return CSS.supports("selector(" + s + ")"); } catch (e) { return false; } }).join(",");
-  function siteOpen() {
-    if (SITE_OPEN) for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) return true;
-    for (const el of document.querySelectorAll('[aria-expanded="true"]')) if (!isOurUi(el) && onScreen(el) && popupOpen(el)) return true;
-    return false;
+  // Что у сайта открыто сейчас (элементы); пусто — ничего.
+  function siteOpenEls() {
+    const out = [];
+    if (SITE_OPEN) for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) out.push(el);
+    for (const el of document.querySelectorAll('[aria-expanded="true"]')) if (!isOurUi(el) && onScreen(el) && popupOpen(el)) out.push(el);
+    return out;
+  }
+  // Открытое так и осталось открытым: на месте, видно, у кнопки по-прежнему aria-expanded=true.
+  function stillOpen(el) {
+    return el.isConnected && onScreen(el) && (!el.hasAttribute("aria-expanded") || el.getAttribute("aria-expanded") === "true");
   }
   // aria-expanded=true — это и раскрытое меню, и раскрытый раздел оглавления или аккордеон (на сайтах документации
   // они раскрыты всегда). Открытым считаем только всплывающее: у кнопки aria-haspopup, или то, чем она управляет
@@ -2751,8 +2757,10 @@
   function popupOpen(el) {
     const hp = el.getAttribute("aria-haspopup");
     if (hp && hp !== "false") return true;
-    const ids = (el.getAttribute("aria-controls") || "").split(/\s+/).filter(Boolean);
-    const targets = ids.length ? ids.map((id) => document.getElementById(id)) : [el.nextElementSibling];
+    const ids = (el.getAttribute("aria-controls") || el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean);
+    // Без ссылки — соседний элемент, но только с текстом: значок в поле ввода (лупа, absolute) меню не делает.
+    const sib = el.nextElementSibling;
+    const targets = ids.length ? ids.map((id) => document.getElementById(id)) : (sib && /\p{L}/u.test(sib.textContent) ? [sib] : []);
     for (const t of targets) {
       if (!t || isOurUi(t) || !onScreen(t)) continue;
       if (/^(menu|menubar|listbox|dialog)$/.test(t.getAttribute("role") || "")) return true;
@@ -2783,11 +2791,14 @@
     // Esc закрывает и уведомление расширения на странице (раньше оно висело до таймера или ✕).
     if (currentToast) currentToast.close();
     // У сайта открыто окно или меню — Esc закрывает его (это делает сайт), перевод остаётся. Наша карточка
-    // закрывается, как и раньше: её абзац мог быть в этом окне.
-    if (siteOpen()) {
-      for (const owner of Array.from(popovers.keys())) removePopover(owner);
-      return;
-    }
+    // закрывается, как и раньше: её абзац мог быть в этом окне. Сайт Esc не услышал и открытое не закрыл
+    // (подсказки поиска Википедии без фокуса в поле) — через 250 мс Esc наш: возвращаем оригинал.
+    const open = siteOpenEls();
+    if (!open.length) { escBack(); return; }
+    for (const owner of Array.from(popovers.keys())) removePopover(owner);
+    setTimeout(() => { if (!dead && open.every(stillOpen)) escBack(); }, 250);
+  }
+  function escBack() {
     if (!anythingShown()) return;
     restoreAll();
     if (!TOP || document.querySelector("iframe, frame")) send({ type: "restoreTab" }).catch(() => {});

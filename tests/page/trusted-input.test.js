@@ -331,6 +331,8 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await esc();
     assert.strictEqual(await ev("document.querySelector('#smenu').getAttribute('aria-expanded')"), "false", "сайт закрыл меню");
     assert.ok(await ru1(), "раскрытое меню (aria-expanded) — перевод на месте");
+    await sleep(400);
+    assert.ok(await ru1(), "сайт закрыл меню сам — перевод на месте и через 0,4 с");
     // спрятанные окна и меню в разметке сайта не мешают; наш кружок (хост [data-ht-ui]) — тоже
     await ev(`(() => { const w = document.createElement("div"); w.hidden = true; w.innerHTML = '<div role="dialog" aria-modal="true">Hidden dialog</div><button aria-expanded="true">Hidden menu</button>';
       document.body.appendChild(w);
@@ -346,6 +348,22 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(await text("#p1"), P1, "ничего не открыто — Esc возвращает оригинал");
     await ev("sendCmd('toggleHud'); true");
     ok("Esc: открыт <dialog>, поповер или меню сайта (aria-expanded) — Esc сайту, перевод на месте; закрыли — Esc возвращает оригинал; спрятанные окна сайта, раскрытые аккордеоны и наш кружок не мешают");
+
+    // 16б. Сайт Esc не слышит и открытое не закрывает (подсказки поиска Википедии без фокуса в поле: combobox с
+    //      aria-owns на видимый listbox, рядом значок-лупа position:absolute) — через 250 мс Esc наш, оригинал вернулся.
+    await reset();
+    await ev("sendCmd('translatePage'); true"); await sleep(400);
+    assert.ok(await ru1(), "страница переведена");
+    await ev(`(() => { const w = document.createElement("div"); w.id = "ssearch"; w.style.cssText = "position: relative; width: 300px";
+      w.innerHTML = '<input role="combobox" aria-expanded="true" aria-owns="ssugg" aria-haspopup="listbox"><span style="position: absolute; right: 4px; top: 4px; width: 18px; height: 18px"></span>'
+        + '<div id="ssugg" role="listbox"><div role="option">Potato</div></div>';
+      document.body.appendChild(w); return true; })()`);
+    await esc();
+    assert.ok(await ru1(), "сразу после Esc — перевод на месте (Esc сначала сайту)");
+    await sleep(400);
+    assert.strictEqual(await text("#p1"), P1, "сайт открытое не закрыл — через 250 мс Esc наш, оригинал вернулся");
+    await ev(`document.querySelector("#ssearch").remove(), true`);
+    ok("Esc: сайт не закрыл своё открытое (подсказки поиска без фокуса) — через 250 мс оригинал возвращается");
 
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {
