@@ -673,6 +673,39 @@ function pageHelpers() {
       ok("«Показать оригинал» в новом <body> возвращает оригинал");
     });
 
+    await block("14. Накладка на всю карточку (The Guardian, BBC): Shift и задержка над заголовком под ней; над пустой накладкой — ничего", async () => {
+      await load();
+      const calls = () => ev("trCalls().length");
+      const topId = (p) => ev(`document.elementFromPoint(${p.x}, ${p.y}).id`);
+      const p = await hover("#cardHead");
+      assert.strictEqual(await topId(p), "cardLink", "под курсором не ссылка-накладка");
+      await tapShift();
+      assert.ok(await until(() => allTr("#cardTitle"), 1500), "Shift над заголовком под ссылкой-накладкой его не перевёл: «" + (await text("#cardTitle")) + "»");
+      await tapShift();
+      assert.ok(await until(() => untranslated("#card"), 1500), "второй Shift не вернул оригинал");
+      ok("Shift над заголовком под пустой ссылкой-накладкой переводит его, второй Shift возвращает оригинал");
+      // Под накладкой без текста: поле внизу карточки и картинка (курсор движется по самой накладке — mouseover нет)
+      const c0 = await calls();
+      const empty = await ev(`(() => { const r = __q("#card").getBoundingClientRect(), m = __q("#card .card__media").getBoundingClientRect();
+        return [{ x: Math.round(r.left + 120), y: Math.round(r.bottom - 15) }, { x: Math.round(r.left + 120), y: Math.round(m.top + m.height / 2) }]; })()`);
+      for (const q of empty) {
+        assert.strictEqual(await topId(q), "cardLink");
+        await move(q.x, q.y); await sleep(40);
+        await tapShift();
+      }
+      await sleep(300);
+      assert.deepStrictEqual([await ev(`__ru("#card")`), await calls()], [[], c0], "Shift над накладкой без текста под ней что-то перевёл");
+      ok("Shift над накладкой там, где под ней текста нет (поле, картинка), ничего не переводит и не запрашивает");
+
+      await load({ trigger: "dwell", dwellMs: 300 });
+      const d = await hover("#promoTitle");
+      assert.strictEqual(await topId(d), "promoCover", "под курсором не накладка");
+      assert.ok(await until(() => allTr("#promoTitle"), 2000), "задержка над заголовком под накладкой его не перевела");
+      await away();
+      assert.ok(await until(() => untranslated("#promo"), 1500), "курсор ушёл с накладки — оригинал не вернулся");
+      ok("задержка курсора над заголовком под накладкой переводит его, уход с накладки возвращает оригинал");
+    });
+
     console.log("");
     if (failed.length) {
       console.log(`Не пройдено блоков: ${failed.length} — ${failed.join("; ")}`);

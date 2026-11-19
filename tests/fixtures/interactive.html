@@ -27,6 +27,10 @@
   #feed li { margin: 0 0 8px; }
   #spacer { height: 600px; }
   .navbar__logo { display: inline-block; width: 16px; height: 16px; margin-right: 6px; background: #446; vertical-align: -2px; }
+  .card { position: relative; width: 420px; margin: 0 0 12px; padding: 0 0 40px; border: 1px solid #d5d9df; }
+  .card__media { height: 60px; background: #c9d3de; }
+  .card h3 { margin: 8px 12px; }
+  .card__link, .card__cover { position: absolute; inset: 0; }
 </style>
 <script>
   // Заглушка chrome.* для content.js — как в stub.html (там подробности): хранилище, сообщения,
@@ -192,6 +196,14 @@
     </ul>
     <div id="navbar"><div class="navbar__items"><a class="navbar__brand" href="#top"><div class="navbar__logo"></div><b class="navbar__title">Docusaurus</b></a> <a class="navbar__link" href="#s-feed">Documentation</a></div></div>
     <div id="mega"><div class="menu__tab"><span class="menu__wrap"><button class="menu__tab-button" type="button">References</button><div class="menu__panel"><ul><li><a href="#s-form"><div>Elements</div></a></li><li><a href="#s-editor"><div>HTML: Markup language</div></a></li></ul><a href="#s-modal">See all…</a></div></span></div></div>
+  </section>
+
+  <!-- Накладка на всю карточку (The Guardian, BBC, .stretched-link Bootstrap): пустой элемент с position:absolute
+       поверх картинки и заголовка — под курсором он, а не текст. Снизу у карточки поле, где под накладкой текста нет. -->
+  <section id="s-cards">
+    <h2>Featured stories</h2>
+    <div id="card" class="card"><div class="card__media"></div><h3 id="cardTitle"><span id="cardHead">Trail shoes that survived a thousand miles</span></h3><a id="cardLink" class="card__link" href="#s-cards" aria-label="Trail shoes that survived a thousand miles"></a></div>
+    <div id="promo" class="card"><h3 id="promoTitle">Free returns within thirty days of delivery</h3><div id="promoCover" class="card__cover"></div></div>
   </section>
 
   <section id="s-feed">

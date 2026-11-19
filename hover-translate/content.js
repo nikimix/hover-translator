@@ -80,6 +80,7 @@
   let failErr = "";
   let siteOff = false;                // этот сайт в списке «выключено на этом сайте»
   let lastOverTarget = null;          // последний элемент под курсором — и при выключенном переводе
+  let overlayFrom = null;             // накладка, сквозь которую hoverEl найден по точке (hoverTarget)
   let pageActive = false;             // страницу переводили целиком, и оригинал с тех пор не возвращали
   let pageToast = null;               // уведомление «Страница переведена» (его закрывает возврат оригинала)
   let retranslateTimer = null;
@@ -508,6 +509,51 @@
       }
     }
     return false;
+  }
+
+  // Ссылка-накладка на всю карточку (The Guardian, BBC, .stretched-link Bootstrap): пустой <a> с position:absolute
+  // лежит поверх заголовка — элемент под курсором без текста, а человек видит текст под ним. Ищем по точке
+  // глубже: верхний элемент, чей текстовый узел в этой точке. Прозрачное без текста пропускаем; то, что закрывает
+  // нижнее (картинка, непрозрачный фон, наш интерфейс, текст без букв), — нет: под ним текста человек не видит.
+  function textUnder(x, y) {
+    let list;
+    try { list = document.elementsFromPoint(x, y); } catch (e) { return null; }
+    const range = document.createRange();
+    for (const el of list.slice(0, 8)) {
+      if (el === document.body || el === document.documentElement || isOurUi(el)) return null;
+      for (const n of el.childNodes) {
+        if (n.nodeType !== 3 || !n.nodeValue.trim()) continue;
+        range.selectNodeContents(n);
+        for (const b of range.getClientRects()) {
+          if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
+          if (!/\p{L}/u.test(n.nodeValue)) return null;
+          const t = pickTarget(el);
+          return t && isTextTarget(t) ? t : null;
+        }
+      }
+      if (hidesBelow(el)) return null;
+    }
+    return null;
+  }
+
+  function hidesBelow(el) {
+    if (el.namespaceURI !== XHTML_NS || /^(IMG|VIDEO|CANVAS|IFRAME|EMBED|OBJECT)$/.test(el.tagName)) return true;
+    const cs = getComputedStyle(el);
+    if (parseFloat(cs.opacity) < 0.1) return false;
+    const bg = parseColor(cs.backgroundColor);
+    return !!(bg && bg[3] >= 0.5) || /url\(/.test(cs.backgroundImage);
+  }
+
+  // Что переводить под курсором: строчный контейнер вокруг элемента события, а если текста в нём нет (накладка) —
+  // текст в точке (x, y) под ним. overlayFrom — элемент, сквозь который текст найден: уход с него — уход с текста.
+  function hoverTarget(el, x, y) {
+    overlayFrom = null;
+    const t = pickTarget(el);
+    if (t && isTextTarget(t)) return t;
+    if (x == null) return null;
+    const under = textUnder(x, y);
+    if (under) overlayFrom = el;
+    return under;
   }
 
   // Можно ли переводить этот текстовый узел внутри owner-контейнера.
@@ -2675,8 +2721,7 @@
     lastOverTarget = e.target;            // и при выключенном переводе: см. keydown
     hoverLost = false;
     if (!active() || !alive()) return;
-    const target = pickTarget(e.target);
-    hoverEl = (target && isTextTarget(target)) ? target : null;
+    hoverEl = hoverTarget(e.target, e.clientX, e.clientY);
     if (popCloseOwner && popCloseOwner === hoverEl) popCloseCancel();   // вернулись на абзац с карточкой
     if (!pointerMoved(e)) return;
     if (hoverEl !== edgeOwner) edgeOwner = null;   // курсор действительно ушёл на другой элемент
@@ -2705,7 +2750,7 @@
     if (hoverLost) {
       hoverLost = false;
       lastOverTarget = e.target;
-      if (active() && !dead) { const t = pickTarget(e.target); hoverEl = t && isTextTarget(t) ? t : null; }
+      if (active() && !dead) hoverEl = hoverTarget(e.target, e.clientX, e.clientY);
     }
     if (settings.trigger !== "dwell" || !active() || dead) return;
     if (drift && !settleDrift(e)) return;
@@ -2746,13 +2791,14 @@
 
   on(document, "mouseout", (e) => {
     if (!e.isTrusted) return;
+    const under = e.target === overlayFrom ? hoverEl : null;   // текст под накладкой, с которой уходим
     clearTimeout(dwellTimer);
     dwellFor = null;
     // Курсор ушёл из окна (или из этого фрейма): элемента под курсором больше нет. Иначе нажатие
     // клавиши-триггера потом переводило бы абзац, с которого курсор давно ушёл.
     if (!e.relatedTarget) { hoverEl = null; lastOverTarget = null; }
     if (settings.trigger !== "dwell") return; // в режиме клавиши перевод остаётся
-    const owner = pickTarget(e.target);
+    const owner = under || pickTarget(e.target);
     if (!owner) return;
     // Переход курсора на собственного потомка owner-а — это НЕ уход с элемента. mouseout
     // всплывает и с внутренних inline-узлов (<b>, <a>, <span>), а pickTarget сводит их к тому же
@@ -2760,7 +2806,7 @@
     // пересечении внутренней границы — то есть почти в любом реальном абзаце, по одному
     // оплаченному запросу на пересечение.
     const to = e.relatedTarget;
-    if (to && (owner === to || owner.contains(to))) return;
+    if (to && (owner === to || owner.contains(to) || (under && e.target.contains(to)))) return;
     // Ушли на карточку этого абзаца: её можно навести и прокрутить, снимает её собственный
     // mouseleave. Событие ретаргетится на хост, поэтому проверки самого узла достаточно.
     const pop = popovers.get(owner);
@@ -2786,10 +2832,10 @@
     if (!active() || settings.trigger === "dwell" || !alive()) return;
     if (!isTriggerKey(e) || !soloMod(e)) return;
     // Перевод только что включили (Alt+Shift+O, галочка сайта), а курсор с тех пор не двигался: пока
-    // перевод был выключен, mouseover элемент не запоминал — берём его из последнего наведения.
+    // перевод был выключен, mouseover элемент не запоминал — берём его из последнего наведения. Под накладкой
+    // (hoverEl её не содержит) — заново по точке: курсор мог сдвинуться по ней, а mouseover внутри неё не приходит.
     if (lastOverTarget && (!hoverEl || !hoverEl.contains(lastOverTarget))) {
-      const t = lastOverTarget.isConnected ? pickTarget(lastOverTarget) : null;
-      hoverEl = t && isTextTarget(t) ? t : null;
+      hoverEl = lastOverTarget.isConnected ? hoverTarget(lastOverTarget, lastXY && lastXY.x, lastXY && lastXY.y) : null;
     }
     if (!hoverEl || modBusy() || typingFocus()) return;
     modPress = { key: e.key, el: hoverEl }; // …а одиночный модификатор над текстом начинает новое
