@@ -801,13 +801,15 @@
   // Создать экземпляр встроенного API (Translator / LanguageDetector) → { inst } либо
   // { kind: "unavailable" | "download" | "fail", state, error }. mayDownload=false — только если
   // модель уже есть (детектор как оптимизация для DeepL/ИИ не должен тратить щелчок пользователя).
-  async function createModel(api, opts, what, mayDownload) {
+  // onLoad() — вызывается, когда началась загрузка модели (см. modelLoading).
+  async function createModel(api, opts, what, mayDownload, onLoad) {
     let state;
     try { state = await api.availability(opts); } catch (e) { return { kind: "fail", error: e }; }
     if (state === "unavailable") return { kind: "unavailable" };
     const ready = state === "available";
     if (!ready && !(mayDownload && userActive())) return { kind: "download", state };
     const n = ready ? null : downloadNotice(what);
+    if (n && onLoad) onLoad();
     try {
       return { inst: await api.create(n ? Object.assign({ monitor: n.monitor }, opts) : opts) };
     } catch (e) {
@@ -949,18 +951,28 @@
 
   // Встроенный Chrome Translator: экземпляры кэшируются по паре языков, неудача — нет.
   // mayDownload=false — только уже скачанная модель (язык короткого куска угадан, см. langOf).
+  // У обещания есть .loading — оно сбывается, когда для пары началась загрузка модели (см. modelLoading).
   function getTranslator(src, tgt, mayDownload = true) {
     const key = src + ">" + tgt;
     if (!translators.has(key)) {
-      const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt }, pairText(src, tgt), mayDownload)
+      let loaded;
+      const loading = new Promise((r) => { loaded = r; });
+      const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt }, pairText(src, tgt), mayDownload, loaded)
         .catch((e) => ({ kind: "fail", error: e }))
         .then((r) => {
           if (!r.inst && translators.get(key) === p) translators.delete(key);
           return r;
         });
+      p.loading = loading;
       translators.set(key, p);
     }
     return translators.get(key);
+  }
+
+  // Ждёт ли обещание getTranslator загрузку модели: true — как только она началась, false — переводчик
+  // (или неудача) готов без загрузки. Уже готовое обещание — false: его обработчик встаёт в очередь первым.
+  function modelLoading(tp) {
+    return Promise.race([tp.then(() => false), tp.loading.then(() => true)]);
   }
 
   // Язык пары, которого нет среди языков браузера, или "". Для таких пар Chrome скрывает от сайта, скачана
@@ -993,11 +1005,15 @@
     return fail({ title: HT_t("csClickTitle"), icon: "pointer", text, progress: "empty" });
   }
 
+  const noLang = () => ({ ok: false, code: "lang", focus: "source-lang", error: HT_t("csDetectFail") });
+
   // Перевод по тексту (без HTML) встроенным движком. Возвращает src для бейджа.
   // Язык перевода — кодом встроенного переводчика (ZH-HANT → "zh-Hant", NB → "no"); языка нет в его
   // списке — честная причина (сюда это доходит только через «авто» после сбоя DeepL).
   // block — обещание detectLang для всего блока, в котором этот узел (см. localResults), или null.
-  async function chromeTranslate(text, targetLang, block) {
+  // opts.defer — не ждать загрузку модели: кусок, чья модель качается, сразу отдаёт { ok: false, wait } —
+  // обещание своего итога, — и пачка с кусками на других языках его не ждёт (см. translatePageChunk).
+  async function chromeTranslate(text, targetLang, block, opts) {
     if (!("Translator" in self)) return { ok: false, error: problemDesc("no-builtin") };
     const tgt = HT_builtinCode(targetLang);
     if (!tgt) return { ok: false, code: "lang", focus: "target-lang", error: sentence(HT_problemText("builtin-lang", "short", { targetLang })) };
@@ -1005,13 +1021,17 @@
     if (!d || !(d.lang || d.kind)) d = await langOf(text);
     if (d.kind === "download") return needDownload(d.state);
     const src = d.lang;
-    const noLang = { ok: false, code: "lang", focus: "source-lang", error: HT_t("csDetectFail") };
-    if (!src) return noLang;
+    if (!src) return noLang();
     if (HT_langKey(src) === HT_langKey(tgt)) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
     const tp = getTranslator(src, tgt, !d.guess);
-    const t = await tp;
+    if (opts && opts.defer && await modelLoading(tp)) return { ok: false, wait: tp.then((t) => withTranslator(t, tp, text, src, tgt, d.guess)) };
+    return withTranslator(await tp, tp, text, src, tgt, d.guess);
+  }
+
+  // Перевод готовым ответом getTranslator (t; tp — его обещание, чтобы выбросить испорченный экземпляр из кэша).
+  async function withTranslator(t, tp, text, src, tgt, guess) {
     // Язык угадан по паре слов, а модели для него нет — не качаем и щелчка не просим: язык не определён.
-    if (d.guess && (t.kind === "download" || t.kind === "unavailable")) return noLang;
+    if (guess && (t.kind === "download" || t.kind === "unavailable")) return noLang();
     if (t.kind === "download") return needDownload(t.state, src, tgt);
     if (t.kind === "unavailable") {
       return { ok: false, error: HT_t("pairUnavailable", [HT_langLabel(src), HT_langLabel(tgt)]) };
@@ -1029,7 +1049,7 @@
         if (!e || e.name !== "UnknownError") throw e;
         const key = src + ">" + tgt;
         if (translators.get(key) === tp) translators.delete(key);
-        const t2 = await getTranslator(src, tgt, !d.guess);
+        const t2 = await getTranslator(src, tgt, !guess);
         if (t2.kind === "download") return needDownload(t2.state, src, tgt);
         if (!t2.inst) throw e;
         return { ok: true, value: await t2.inst.translate(text), src };
@@ -1048,17 +1068,18 @@
   // important»). Апострофа и кавычек “ ” ‘ ’ нет: «’s» после <b>John</b> — часть слова, а “ в немецком закрывает.
   const EDGE_LEAD = /^[\s,.;:!?…)\]}»\p{Pd}]+/u;
   const EDGE_TRAIL = /[\s,;:(\[{«\p{Pd}]+$/u;
-  async function chromeTranslateEdges(text, targetLang, block) {
+  async function chromeTranslateEdges(text, targetLang, block, opts) {
     const lead = (text.match(EDGE_LEAD) || [""])[0];
     const rest = text.slice(lead.length);
     const trail = (rest.match(EDGE_TRAIL) || [""])[0];
     const core = rest.slice(0, rest.length - trail.length);
     // Одни знаки (запятая между двумя <b>) — переводить нечего: value "" оставляет узел как был.
     if (!/[\p{L}\p{N}]/u.test(core)) return { ok: true, value: "", src: null, bare: true };
-    const r = await chromeTranslate(core, targetLang, block);
+    const r = await chromeTranslate(core, targetLang, block, opts);
     // value "" — «уже на языке перевода, оставить оригинал»: знаки к нему не приклеиваем.
-    if (r && r.ok && r.value) r.value = lead + r.value + trail;
-    return r;
+    const edges = (x) => { if (x && x.ok && x.value) x.value = lead + x.value + trail; return x; };
+    if (r && r.wait) r.wait = r.wait.then(edges);
+    return edges(r);
   }
 
   // Встроенный движок для всего списка. Если не перевелось НИЧЕГО — отдаём error: все вызывающие
@@ -1073,7 +1094,8 @@
   // сербский 0,38, — и ссылка или выделенное слово внутри блока оставались непереведёнными посреди перевода.
   // Блок определяем один раз по всему его тексту; свой язык узла — только если по блоку не определился.
   // Короткий блок (пункт меню, кнопка, подпись) — язык страницы (см. langOf).
-  async function localResults(texts, primary, lines) {
+  // opts.defer — см. chromeTranslate: куски, чья модель качается, приходят с wait и ждут её у вызывающего.
+  async function localResults(texts, primary, lines, opts) {
     const blocks = new Map();
     const blockLang = (i) => {
       const line = lines && lines[i];
@@ -1081,7 +1103,13 @@
       if (!blocks.has(line)) blocks.set(line, langOf(lineText(line)));
       return blocks.get(line);
     };
-    const results = await Promise.all(texts.map((t, i) => chromeTranslateEdges(t, settings.targetLang, blockLang(i))));
+    const results = await Promise.all(texts.map((t, i) => chromeTranslateEdges(t, settings.targetLang, blockLang(i), opts)));
+    // Кусок ждёт модель — итог пачки (и сбой, если не перевелось ничего) подводят, когда она докачается.
+    if (results.some((r) => r && r.wait)) return { results };
+    return localOutcome(results, primary);
+  }
+  // Итог пачки встроенного переводчика: { results } или неудача — по правилам выше.
+  function localOutcome(results, primary) {
     // Текст из одних знаков (bare) переводчику не отдавали — это не удача: иначе блок «Hello» + «, » с
     // нескачанной моделью молча не переводился бы, а подсказку «Щёлкните по тексту» глушил бы «перевод» запятой.
     const real = results.filter((r) => !(r && r.bare));
@@ -1123,19 +1151,20 @@
   // (HT_BY_PAGE / HT_BY_USER), от этого зависит бюджет расхода в background.
   // lines — для встроенного: строка перевода каждого текста (язык определяется по блоку целиком), можно без них.
   // Что-то перевелось — прежняя ошибка и ожидание щелчка (точки на кружке) больше не правда.
-  async function translateItems(texts, by, lines) {
-    const out = await translateVia(texts, by, lines);
+  // opts.defer — для встроенного: не ждать загрузку модели (см. chromeTranslate).
+  async function translateItems(texts, by, lines, opts) {
+    const out = await translateVia(texts, by, lines, opts);
     if (out.results && (failErr || needClick)) { failErr = ""; needClick = false; syncFab(); }
     return out;
   }
-  async function translateVia(texts, by, lines) {
+  async function translateVia(texts, by, lines, opts) {
     const e = HT_engine(settings.engine);
-    if (e.via === "local") return localResults(texts, null, lines);
+    if (e.via === "local") return localResults(texts, null, lines, opts);
     // Нет ключа или согласия — текст в сеть не уходит вовсе: «авто» сразу переводит встроенным, а
     // DeepL и ИИ сюда обычно не доходят (их останавливает blocked) — это страховка на гонку с
     // хранилищем. Background проверяет то же самое ещё раз перед запросом.
     if (!HT_canSend(e.code, netState())) {
-      if (e.fallback === "local") return localResults(texts, null, lines);
+      if (e.fallback === "local") return localResults(texts, null, lines, opts);
       const p = problem();
       return { results: null, error: p ? problemDesc(p) : TX_FAIL,
         code: p === "no-consent" ? "no-consent" : p === "deepl-lang" ? "lang" : "no-key", detail: "", focus: p ? problemFocus(p) : "" };
@@ -1165,7 +1194,7 @@
     const viaLocal = e.fallback === "local" ||
       (e.keyField === "apiKey" && BUILTIN === "ok" && Object.prototype.hasOwnProperty.call(FALLBACK_SAY, fail.code));
     if (!viaLocal) return Object.assign({ results: null }, fail);
-    const out = await localResults(texts, fail, lines);
+    const out = await localResults(texts, fail, lines, opts);
     // Выбран именно DeepL, а встроенный сразу не смог (модель не скачана, пара не поддерживается):
     // говорим о сбое DeepL — подсказка «скачиваю модель» без слова о DeepL только путала.
     if (!out.results && e.fallback !== "local") return Object.assign({ results: null }, fail);
@@ -2488,6 +2517,7 @@
     const res = { stop: false };
     if (gone.length) translatePageOwners(gone, gen);
     if (!jobs.length) return res;
+    const held = new Set();      // владельцы с узлом, чья модель ещё качается: в работе, пока не допишем
     try {
       const skip = await Promise.all(jobs.map((j) => isAlreadyTarget(j.nodes.map((n) => n.nodeValue).join(" "))));
       if (gen !== pageGen || lgen !== liveGen) return res;
@@ -2500,23 +2530,36 @@
         }
       });
       if (!entries.length) return res;
-      const out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line));
+      const out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line), { defer: true });
       if (gen !== pageGen || lgen !== liveGen) return res;
       if (out.error || !out.results) {
         if (out.error) { showFail(null, out, true); res.stop = pageWide(out); }
         return res;
       }
+      const put = (e, r) => {
+        if (gen !== pageGen || lgen !== liveGen || lineByOwner.get(e.line.owner) !== e.line) return false;
+        if (!writeEntry(e, r, e.rec.orig)) return false;
+        noteSrc(r.src);
+        return true;
+      };
       let wrote = false;
-      for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        if (lineByOwner.get(e.line.owner) !== e.line) continue;
-        if (writeEntry(e, out.results[i], e.rec.orig)) { wrote = true; noteSrc(out.results[i].src); }
-      }
+      const late = [];
+      entries.forEach((e, i) => {
+        const r = out.results[i];
+        // Модель узла ещё качается — допишем, когда докачается; остальные узлы пачки его не ждут.
+        if (r && r.wait) { held.add(e.line.owner); late.push(r.wait.then((x) => put(e, x))); }
+        else if (put(e, r)) wrote = true;
+      });
       if (wrote) pushState();
+      if (late.length) {
+        Promise.all(late).then((w) => { if (w.some(Boolean)) pushState(); }, () => {})
+          .then(() => { for (const o of held) inFlight.delete(o); });
+      }
     } catch (e) {
       // как при сбое сервиса: прежний перевод на месте, новые узлы остаются в оригинале
+      held.clear();
     } finally {
-      for (const j of jobs) inFlight.delete(j.o);
+      for (const j of jobs) if (!held.has(j.o)) inFlight.delete(j.o);
     }
     return res;
   }
@@ -2612,16 +2655,22 @@
     for (let i = 0; i < visible.length; i += size) jobs.push(visible.slice(i, i + size));
     const left = new Set(jobs);    // пачки, до которых очередь не дошла
     const missed = [];             // видимое, что не перевелось: доберём при прокрутке или повторе
+    const laters = [];             // итоги пачек, ждущих загрузку модели: очередь они не держат
     await runParallel(jobs, async (chunk) => {
       left.delete(chunk);
       const r = await translatePageChunk(chunk, gen);
-      sum.wrote += r.wrote;
-      if (r.failed) { sum.failed = true; missed.push(...chunk); }
+      const add = (x) => {
+        sum.wrote += x.wrote;
+        if (x.failed) { sum.failed = true; missed.push(...chunk); }
+      };
+      add(r);
+      if (r.later) laters.push(r.later.then(add));
       if (gen === pageGen && pageBusy) { pageBusy.done = Math.min(pageBusy.total, pageBusy.done + chunk.length); pushState(); }
       // Сбой одной пачки («не определил язык», «нужна модель пары») остальным не мешает; общий для всех (сеть,
       // ключ, лимит) — дальше не шлём.
       return gen === pageGen && !r.stop;
     });
+    await Promise.all(laters);
     if (gen !== pageGen) return;   // «Стоп», Esc, новый запуск или смена языка — состояние ведут они
     for (const chunk of left) missed.push(...chunk);
 
@@ -2660,18 +2709,26 @@
   }
 
   // Возвращает { wrote: сколько элементов переведено, failed: была ли ошибка, stop: сбой общий для всех }.
+  // Пачки, ждущие загрузку модели (later), следующие не держат: их итог — в конце.
   async function translatePageOwners(owners, gen) {
     const sum = { wrote: 0, failed: false, stop: false };
-    for (let i = 0; i < owners.length; i += OWNER_BATCH) {
-      if (gen !== pageGen) return sum;
-      const r = await translatePageChunk(owners.slice(i, i + OWNER_BATCH), gen);
+    const add = (r) => {
       sum.wrote += r.wrote;
       if (r.failed) sum.failed = true;
       if (r.stop) sum.stop = true;
+    };
+    const laters = [];
+    for (let i = 0; i < owners.length; i += OWNER_BATCH) {
+      if (gen !== pageGen) return sum;
+      const r = await translatePageChunk(owners.slice(i, i + OWNER_BATCH), gen);
+      add(r);
+      if (r.later) laters.push(r.later.then(add));
     }
+    await Promise.all(laters);
     return sum;
   }
 
+  // Возвращает то же и later — обещание итога строк, ждущих загрузку модели (или ничего, если таких нет).
   async function translatePageChunk(chunk, gen) {
     const none = { wrote: 0, failed: false };
     const lgen = liveGen;   // токен отмены живых показов — ДО первого await
@@ -2700,37 +2757,60 @@
 
     let out;
     try {
-      out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line));
+      out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line), { defer: true });
     } catch (e) {
       // Исключение раньше уходило наружу мимо уборки: owner-ы чанка навсегда оставались
       // в inFlight/lineByOwner, а перевод страницы вставал и не создавал IntersectionObserver.
       out = { results: null, error: TX_FAIL, detail: e && e.message };
-    } finally {
-      for (const line of lineObjs) loadingOff(line.owner);
     }
     const results = out.results;
+    // Строки с куском, чья модель ещё качается (wait), ждут её в подсветке; остальные пишутся сразу. Раньше
+    // пачка ждала загрузку целиком (YouTube: реклама по-итальянски — и заголовок, канал, лента висели в
+    // подсветке, пока качалась модель), а с ней и очередь пачек.
+    const held = new Set();
+    if (results) entries.forEach((e, i) => { if (results[i] && results[i].wait) held.add(e.line); });
+    for (const line of lineObjs) if (!held.has(line)) loadingOff(line.owner);
 
     const cancelled = gen !== pageGen;
     if (cancelled || out.error || !results) {
-      for (const line of lineObjs) { inFlight.delete(line.owner); dropLine(line); }
+      for (const line of lineObjs) { loadingOff(line.owner); inFlight.delete(line.owner); dropLine(line); }
       if (out.error && !cancelled) { showFail(null, out, true); return { wrote: 0, failed: true, stop: pageWide(out) }; }
       return none;
     }
 
-    const wrote = new Set();
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      if (e.line.gen !== liveGen || lineByOwner.get(e.line.owner) !== e.line) continue;
-      if (writeEntry(e, results[i], e.rec.orig)) { wrote.add(e.line); noteSrc(results[i].src); }
-    }
-
-    for (const line of lineObjs) {
-      inFlight.delete(line.owner);
-      if (wrote.has(line)) { lines.add(line); applyHLLine(line); }
-      else dropLine(line);           // ничего не записали — снять маркеры
-    }
-    if (wrote.size) pushState();
-    return { wrote: wrote.size, failed: false };
+    // Записать строки group → сколько переведено; непереведённые — снять маркеры.
+    const finish = (group) => {
+      const wrote = new Set();
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        if (!group.has(e.line) || e.line.gen !== liveGen || lineByOwner.get(e.line.owner) !== e.line) continue;
+        if (writeEntry(e, results[i], e.rec.orig)) { wrote.add(e.line); noteSrc(results[i].src); }
+      }
+      for (const line of group) {
+        inFlight.delete(line.owner);
+        if (wrote.has(line)) { lines.add(line); applyHLLine(line); }
+        else dropLine(line);           // ничего не записали — снять маркеры
+      }
+      if (wrote.size) pushState();
+      return wrote.size;
+    };
+    const r = { wrote: finish(new Set(lineObjs.filter((l) => !held.has(l)))), failed: false };
+    if (!held.size) return r;
+    // later — итог ждавших строк после загрузки; не перевелось ничего во всей пачке — сбой, как раньше.
+    r.later = Promise.all(entries.map((e, i) => results[i] && results[i].wait && results[i].wait.then((x) => { results[i] = x; })))
+      .then(() => {
+        for (const line of held) loadingOff(line.owner);
+        if (gen !== pageGen) {
+          for (const line of held) { inFlight.delete(line.owner); dropLine(line); }
+          return none;
+        }
+        const wrote = finish(held);
+        const o = localOutcome(results, null);
+        if (!o.error) return { wrote, failed: false };
+        showFail(null, o, true);
+        return { wrote, failed: true, stop: pageWide(o) };
+      });
+    return r;
   }
 
   // ---- события ----
