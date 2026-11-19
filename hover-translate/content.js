@@ -798,14 +798,30 @@
     const src = d.lang;
     if (!src) return { ok: false, code: "lang", focus: "source-lang", error: HT_t("csDetectFail") };
     if (HT_langKey(src) === HT_langKey(tgt)) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
-    const t = await getTranslator(src, tgt);
+    const tp = getTranslator(src, tgt);
+    const t = await tp;
     if (t.kind === "download") return needDownload(t.state, src, tgt);
     if (t.kind === "unavailable") {
       return { ok: false, error: HT_t("pairUnavailable", [HT_langLabel(src), HT_langLabel(tgt)]) };
     }
     try {
       if (!t.inst) throw t.error;
-      return { ok: true, value: await t.inst.translate(text), src };
+      try {
+        return { ok: true, value: await t.inst.translate(text), src };
+      } catch (e) {
+        // Chrome 157: когда скачивается другая языковая модель (щелчок по цитате на другом языке; замерено —
+        // в момент, когда она докачалась), уже созданные экземпляры отвечают UnknownError «Other generic
+        // failures occurred» — до перезагрузки страницы, а новый экземпляр той же пары работает. Выбрасываем из кэша и повторяем один раз. Соседние
+        // узлы падают разом: убирает только первый (сравниваем обещание — без await между проверкой и
+        // удалением), остальные получают уже новый экземпляр.
+        if (!e || e.name !== "UnknownError") throw e;
+        const key = src + ">" + tgt;
+        if (translators.get(key) === tp) translators.delete(key);
+        const t2 = await getTranslator(src, tgt);
+        if (t2.kind === "download") return needDownload(t2.state, src, tgt);
+        if (!t2.inst) throw e;
+        return { ok: true, value: await t2.inst.translate(text), src };
+      }
     } catch (e) {
       return { ok: false, error: HT_t("builtinFailed"), detail: e && e.message ? e.message : String(e) };
     }
