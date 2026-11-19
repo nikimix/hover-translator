@@ -284,27 +284,37 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
       h.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true })); return true; })()`);
     await sleep(300);
     assert.deepStrictEqual(await ev("window.__sets"), [], "поддельные change/click/Enter по хосту ничего не пишут");
-    assert.strictEqual(await ev("fabRoot().querySelector('.fm').hidden"), true, "и меню не открывают");
+    assert.strictEqual(await ev("fabRoot().querySelector('.fk').hidden"), true, "и кнопки не показывают");
     const fc = await ev("uiPoint(fabRoot(), '.fab')");
     await move(fc.x, fc.y);
     await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: fc.x, y: fc.y, button: "left", clickCount: 1 });
     await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: fc.x, y: fc.y, button: "left", clickCount: 1 });
     await sleep(300);
-    assert.strictEqual(await ev("fabRoot().querySelector('.fm').hidden"), false, "настоящий щелчок по кружку открыл меню");
+    assert.strictEqual(await ev("fabRoot().querySelector('.fk').hidden"), false, "настоящий щелчок по кружку показал кнопки");
     assert.strictEqual(await trCalls(), 0, "щелчок по кружку не переводит");
-    assert.deepStrictEqual(await ev("[...fabRoot().querySelectorAll('[role=menu] .fm-item')].map((x) => x.getAttribute('data-act'))"), ["hide", "settings"], "у страницы нет сайта — нет «Выключить на …»");
-    // страницу уже переводили целиком (п. 10) и вернули оригинал — на месте действия сегмент «Оригинал | Перевод»
-    const pb = await ev("uiPoint(fabRoot(), '.fm-act .fm-btn') || uiPoint(fabRoot(), '.fm-act .fm-seg [role=radio][aria-checked=false]')");
-    assert.ok(pb, "в меню есть «Перевести страницу» или «Перевод»: " + JSON.stringify(await ev("[sendCmd('getHudState'), fabRoot().querySelector('.fm').getAttribute('data-page'), fabRoot().querySelector('.fm-act').innerHTML.slice(0, 400)]")));
+    const mb = await ev("uiPoint(fabRoot(), '.fk-btn[data-k=more]')");
+    const realClick = async (q) => {
+      await move(q.x, q.y);
+      await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: q.x, y: q.y, button: "left", clickCount: 1 });
+      await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: q.x, y: q.y, button: "left", clickCount: 1 });
+      await sleep(200);
+    };
+    await realClick(mb);
+    assert.deepStrictEqual(await ev("[...fabRoot().querySelectorAll('#fk-more:not([hidden]) .fk-opt')].map((x) => x.getAttribute('data-act'))"), ["hide", "settings"], "у страницы нет сайта — в «⋯» нет «Выключить на …»");
+    await realClick(mb);
+    // страницу уже переводили целиком (п. 10) и вернули оригинал — главная кнопка «Показать перевод»
+    const pb = await ev("uiPoint(fabRoot(), '.fk-btn[data-k=main]')");
+    const act = await ev("fabRoot().querySelector('.fk-btn[data-k=main]').getAttribute('data-act')");
+    assert.ok(pb && (act === "tr" || act === "translate"), "главная кнопка — «Показать перевод» или «Перевести страницу»: " + JSON.stringify([await ev("sendCmd('getHudState')"), act]));
     await move(pb.x, pb.y);
     await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: pb.x, y: pb.y, button: "left", clickCount: 1 });
     await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: pb.x, y: pb.y, button: "left", clickCount: 1 });
     await sleep(400);
     const viaFab = await text("#p1");
-    console.log(`      (настоящий щелчок по действию страницы в меню кружка: #p1 = ${JSON.stringify(viaFab.slice(0, 30))})`);
+    console.log(`      (настоящий щелчок по главной кнопке у кружка: #p1 = ${JSON.stringify(viaFab.slice(0, 30))})`);
     assert.ok(viaFab.startsWith("[RU]"), "настоящий щелчок по кнопке внутри закрытого root работает");
     assert.ok(await ev("window.__sets.every((x) => 'hudShown' in x)"), "кроме показа кружка ничего не записано: " + JSON.stringify(await ev("window.__sets")));
-    ok("плавающая кнопка в закрытом shadow root: shadowRoot снаружи — null; поддельные change/click/Enter по хосту ничего не делают; настоящий щелчок по кружку открывает меню (без перевода), по действию страницы в меню — переводит; без сайта нет «Выключить на …»");
+    ok("плавающая кнопка в закрытом shadow root: shadowRoot снаружи — null; поддельные change/click/Enter по хосту ничего не делают; настоящий щелчок по кружку показывает кнопки (без перевода), по главной кнопке — переводит; без сайта в «⋯» нет «Выключить на …»");
     await ev("sendCmd('toggleHud'); true");
 
     // 16. Esc на переведённой странице: открыто окно или меню сайта — Esc закрывает его, перевод на месте; ничего не
@@ -343,7 +353,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await move(5, 790); await sleep(50);
     assert.strictEqual(await ev("sendCmd('toggleHud').hud"), true);
     await sleep(100);
-    assert.ok(await ev("!!fabRoot() && fabRoot().querySelector('.fm').hidden"), "кружок на странице, меню закрыто");
+    assert.ok(await ev("!!fabRoot() && fabRoot().querySelector('.fk').hidden"), "кружок на странице, кнопки скрыты");
     await esc();
     assert.strictEqual(await text("#p1"), P1, "ничего не открыто — Esc возвращает оригинал");
     await ev("sendCmd('toggleHud'); true");

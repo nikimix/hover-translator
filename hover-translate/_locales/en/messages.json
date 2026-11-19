@@ -22,9 +22,6 @@
   "openSettings": {
     "message": "Open settings"
   },
-  "targetLangAria": {
-    "message": "Translation language"
-  },
   "srcAuto": {
     "message": "Detect automatically"
   },
@@ -728,9 +725,6 @@
   "csShowOrig": {
     "message": "Show original"
   },
-  "csShowOrigEsc": {
-    "message": "Show original · Esc"
-  },
   "csOrigShown": {
     "message": "Showing the original"
   },
@@ -869,7 +863,7 @@
     "message": "Copied"
   },
   "csFabAria": {
-    "message": "$name$ menu",
+    "message": "$name$ — translation buttons",
     "placeholders": {
       "name": {
         "content": "$1",
@@ -896,6 +890,60 @@
   },
   "csFabBack": {
     "message": "Bring back"
+  },
+  "csFkMore": {
+    "message": "More"
+  },
+  "csFkLang": {
+    "message": "Translate to: $lang$",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "English"
+      }
+    }
+  },
+  "csFkFind": {
+    "message": "Find a language"
+  },
+  "csFkRecent": {
+    "message": "Recent"
+  },
+  "csFkAll": {
+    "message": "All languages"
+  },
+  "csFkNone": {
+    "message": "No matches"
+  },
+  "csFkOrKey": {
+    "message": "Or point at any text and press $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1",
+        "example": "Shift"
+      }
+    }
+  },
+  "csFkOrDwell": {
+    "message": "Or rest the pointer on any text"
+  },
+  "csFkStop": {
+    "message": "Stop translating"
+  },
+  "csFkStopSub": {
+    "message": "What’s translated so far stays on the page"
+  },
+  "csFkShowTr": {
+    "message": "Show translation"
+  },
+  "csFkErrSub": {
+    "message": "$reason$ · click to see what to do",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "No DeepL key"
+      }
+    }
   },
   "ppScope": {
     "message": "All sites"
@@ -2038,7 +2086,7 @@
     "message": "Show the floating button"
   },
   "opFabD": {
-    "message": "A small circle at the edge of the page. Point at it to open a menu with the translation language and “Translate page”. If it covers something, drag it away."
+    "message": "A small circle at the edge of the page. Point at it to show buttons for translating the page and choosing the language. If it covers something, drag it away."
   },
   "opTarget": {
     "message": "Translation language"

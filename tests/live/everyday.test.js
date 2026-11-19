@@ -384,13 +384,20 @@ async function shortcutsFresh(srvBase) {
     await front();
     const fabBox = async () => { const u = await fabUi(web); const r = u && u.fab && await centerOf(web, u.fab.nodeId);
       return r ? { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.w), h: Math.round(r.h), cx: Math.round(r.x), cy: Math.round(r.y) } : null; };
-    const menuOpen = async () => { const u = await fabUi(web); return !!(u && u.open); };
-    const openMenu = async () => {
-      if (await menuOpen()) return;
+    // Кнопки над кружком (столбик #fk): главная, язык, «⋯». Щелчок по кружку их закрепляет; «⋯» — панель с пунктами.
+    const barOpen = async () => { const u = await fabUi(web); return !!(u && u.open); };
+    const openBar = async () => {
+      if (await barOpen()) return;
       const q = await fabBox();
       await web.click(q.cx, q.cy);
-      assert.ok(await until(menuOpen, 2000), "щелчок по кружку открыл меню");
+      assert.ok(await until(barOpen, 2000), "щелчок по кружку показал кнопки над ним");
     };
+    const openMore = async () => {
+      await openBar();
+      if ((await fabUi(web)).panel !== "more") await clickUi(web, "hud", await msg("csFkMore"));
+      assert.ok(await until(async () => (await fabUi(web)).panel === "more", 2000), "«⋯» открыла панель с пунктами");
+    };
+    const mainIs = async (act) => { const u = await fabUi(web); return !!(u && u.open && u.main && u.main.attrs["data-act"] === act) && u.main; };
     let fb = await until(fabBox, 3000);
     const vp = JSON.parse(await web.ev("JSON.stringify([document.documentElement.clientWidth, document.documentElement.clientHeight])"));
     console.log("      (кружок: " + JSON.stringify(fb) + ", окно " + vp + ")");
@@ -401,27 +408,40 @@ async function shortcutsFresh(srvBase) {
     await web.mouse("mouseReleased", fb.cx - 640, fb.cy - 320, { button: "left", clickCount: 1 }); await sleep(500);
     const moved = await fabBox();
     const savedPos = (await get(["hudPos"])).hudPos;
-    assert.ok(moved && Math.abs(moved.x - 16) <= 1 && !(await menuOpen()), "отпустили — у левого края в 16, меню не открылось: " + JSON.stringify(moved));
+    assert.ok(moved && Math.abs(moved.x - 16) <= 1 && !(await barOpen()), "отпустили — у левого края в 16, кнопки над кружком не показались: " + JSON.stringify(moved));
     assert.ok(savedPos && savedPos.side === "left" && Math.abs(savedPos.top - moved.y) <= 1, "hudPos { side, top }: " + JSON.stringify(savedPos));
     await web.cmd("Page.navigate", { url: LIVE + "?next=1" }); await sleep(1500);
     fb = await until(fabBox, 3000);
     console.log(`      (кружок: после перетаскивания ${JSON.stringify(moved)}, на следующей странице ${JSON.stringify(fb)}; hudPos ${JSON.stringify(savedPos)})`);
     assert.ok(fb && fb.x === moved.x && fb.y === moved.y, "на новой странице кружок на том же месте");
-    // щелчок — меню (страницу не переводит); «Перевести страницу» — кружок залит; «Оригинал» — оригинал
-    await openMenu();
+    // щелчок — кнопки над кружком (страницу не переводит); главная «Перевести страницу» — кружок залит, главная
+    // становится «Показать оригинал» (кнопки остаются); она — оригинал
+    await openBar();
     await sleep(300);
     assert.ok(!(await ru("#p1")), "щелчок по кружку страницу не перевёл");
+    let fu = await fabUi(web);
+    assert.ok(fu.main && fu.main.attrs["aria-label"] === await msg("translatePage") && fu.lang && fu.lang.text === "RU"
+      && fu.more && fu.more.attrs["aria-label"] === await msg("csFkMore"), "кнопки: «Перевести страницу», «RU», «⋯»: "
+      + JSON.stringify([fu.main, fu.lang, fu.more].map((e) => e && [e.attrs["data-k"], e.attrs["aria-label"], e.text])));
+    const mc = await centerOf(web, fu.main.nodeId);
+    await web.mouse("mouseMoved", mc.x, mc.y);
+    fu = await until(async () => { const u = await fabUi(web); return u.tipText ? u : null; }, 2000);
+    assert.ok(fu && fu.tipText.t === await msg("translatePage") && fu.tipText.sub, "наведение на главную — подсказка: " + JSON.stringify(fu && fu.tipText));
     await web.shot("live-fab-menu.png", { clip: { x: 0, y: 0, width: 1000, height: 760, scale: 0.7 } });
     await clickUi(web, "hud", await msg("translatePage"));
-    assert.ok(await until(() => ru("#p1"), 10000), "«Перевести страницу» в меню перевела");
+    assert.ok(await until(() => ru("#p1"), 10000), "главная «Перевести страницу» перевела");
     assert.ok(await until(async () => hasCls((await fabUi(web)).fab, "on"), 5000), "кружок залит, пока страница переведена");
+    const origBtn = await until(() => mainIs("orig"), 10000);
+    assert.ok(origBtn && origBtn.attrs["aria-label"] === await msg("csShowOrig"), "кнопки не закрылись, главная — «Показать оригинал»: " + JSON.stringify(origBtn && origBtn.attrs));
     await web.shot("live-fab-on.png", { clip: { x: 0, y: 0, width: 1000, height: 760, scale: 0.7 } });
-    await openMenu();
-    await clickUi(web, "hud", await msg("ppOrig"));
-    assert.ok(await until(async () => !(await ru("#p1")), 3000), "«Оригинал» в меню — оригинал");
+    await clickUi(web, "hud", await msg("csShowOrig"));
+    assert.ok(await until(async () => !(await ru("#p1")), 3000), "главная «Показать оригинал» — оригинал");
     assert.ok(await until(async () => !hasCls((await fabUi(web)).fab, "on"), 3000), "заливки нет");
-    // «Выключить на 127.0.0.1»
-    await openMenu();
+    assert.ok(await until(() => mainIs("tr"), 3000), "главная — «Показать перевод»");
+    // «⋯» → «Выключить на 127.0.0.1»
+    await openMore();
+    await sleep(250);                                   // снимок — после перехода цвета кнопки (.is-open)
+    await web.shot("live-fab-more.png", { clip: { x: 0, y: 0, width: 1000, height: 760, scale: 0.7 } });
     await clickUi(web, "hud", await msg("csFabSiteOff", "127.0.0.1"));
     assert.ok(await until(async () => JSON.stringify((await get(["disabledSites"])).disabledSites) === '["127.0.0.1"]', 3000), "сайт выключен");
     assert.ok(await until(async () => !(await fabBox()), 3000), "кружок скрыт на выключенном сайте");
@@ -431,8 +451,8 @@ async function shortcutsFresh(srvBase) {
     await clickUi(web, "toast", await msg("turnBackOn"));
     assert.ok(await until(async () => JSON.stringify((await get(["disabledSites"])).disabledSites) === "[]", 3000), "«Включить снова» включил сайт");
     assert.ok(await until(fabBox, 3000), "включили сайт — кружок вернулся");
-    // «Скрыть кнопку» → «Кнопка скрыта» с «Вернуть»
-    await openMenu();
+    // «⋯» → «Скрыть кнопку» → «Кнопка скрыта» с «Вернуть»
+    await openMore();
     await clickUi(web, "hud", await msg("csFabHide"));
     assert.ok(await until(async () => !(await fabBox()), 3000), "кружок скрыт");
     assert.strictEqual((await get(["hudShown"])).hudShown, false);
@@ -442,10 +462,10 @@ async function shortcutsFresh(srvBase) {
     await clickUi(web, "toast", await msg("csFabBack"));
     assert.ok(await until(async () => (await get(["hudShown"])).hudShown === true, 3000), "«Вернуть» — hudShown = true");
     assert.ok(await until(fabBox, 3000), "кружок вернулся");
-    await openMenu();
+    await openMore();
     await clickUi(web, "hud", await msg("csFabHide"));
     assert.ok(await until(async () => (await get(["hudShown"])).hudShown === false, 3000));
-    ok("плавающая кнопка: из окна — справа внизу (16, 44); перетащили настоящей мышью — у левого края в 16, hudPos { side, top }, на следующей странице там же; щелчок открывает меню, не переводя; «Перевести страницу» — кружок залит, «Оригинал» — оригинал; «Выключить на 127.0.0.1» (кружок скрыт, «Включить снова» возвращает); «Скрыть кнопку» — «Кнопка скрыта», «Вернуть» возвращает");
+    ok("плавающая кнопка: из окна — справа внизу (16, 44); перетащили настоящей мышью — у левого края в 16, hudPos { side, top }, на следующей странице там же; щелчок показывает кнопки над кружком, не переводя (подсказка у главной); главная «Перевести страницу» — кружок залит, она становится «Показать оригинал» — оригинал; «⋯» → «Выключить на 127.0.0.1» (кружок скрыт, «Включить снова» возвращает), «Скрыть кнопку» — «Кнопка скрыта», «Вернуть» возвращает");
 
     // ---- наведение с задержкой: прокрутка без движения мыши ----
     await store({ trigger: "dwell" }); await sleep(300);

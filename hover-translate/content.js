@@ -7,7 +7,7 @@
 // (кнопки/ссылки) тоже можно переводить безопасно.
 // Способы показа (displayMode): «замена на месте» (узлы) и «поповер» (плавающая карточка —
 // только при наведении; страницу всегда переводим заменой). Опционально — пара языков на карточке
-// и плавающая кнопка на странице. Всё своё (уведомления, карточка, кнопка с меню) — в закрытом shadow root,
+// и плавающая кнопка на странице. Всё своё (уведомления, карточка, кружок и его кнопки) — в закрытом shadow root,
 // системным шрифтом и своими цветами по фону сайта (светлый сайт — белое, тёмный — #2a2d33).
 // Окну расширения скрипт верхнего фрейма сообщает, что со страницей (tabState, сообщение pageState).
 // Движки: DeepL, LLM (OpenAI/Anthropic) — через background; встроенный Chrome — on-device.
@@ -71,7 +71,7 @@
   let restylePending = false;
   let popScrollBound = false;
   let popPending = false;      // репозиция карточек уже запланирована на кадр
-  let fab = null;                     // плавающая кнопка с меню (см. buildFab) или null — её нет на странице
+  let fab = null;                     // плавающая кнопка с кнопками над ней (см. buildFab) или null — её нет на странице
   let fabPos = null;                  // где стоит кнопка: { side, top } или null — справа внизу (storage.local.hudPos)
   let hudWanted = false;              // показывать ли кнопку (общее для всех сайтов, storage.local.hudShown)
   // Для точек на кружке (см. showFail). needClick — ждём щелчка по тексту (то же, что уведомление «Щёлкните по
@@ -79,6 +79,7 @@
   // человека дальше не переводится (ключ, лимит, язык…): снимается первым удачным переводом или сменой настроек.
   let needClick = false;
   let failErr = "";
+  let failNote = null;                // этот сбой для главной кнопки у кружка: { reason (коротко), toast (уведомление) }
   let siteOff = false;                // этот сайт в списке «выключено на этом сайте»
   let lastOverTarget = null;          // последний элемент под курсором — и при выключенном переводе
   let overlayFrom = null;             // накладка, сквозь которую hoverEl найден по точке (hoverTarget)
@@ -223,7 +224,7 @@
     }
     // Перевод выключили везде — кружка нет (как на выключенном сайте); включили — он появляется сам.
     if (enabledChanged) { updateFab(); pushState(); }
-    // Язык, переводчик, ключ, согласие — меню и точка на кружке говорят о новом (что бы ни было ниже).
+    // Язык, переводчик, ключ, согласие — кнопки и точка на кружке говорят о новом (что бы ни было ниже).
     if (txChanged) failErr = "";
     syncFab();
     // Применяем изменения к уже показанным переводам сразу.
@@ -404,7 +405,7 @@
   ]);
   const XHTML_NS = "http://www.w3.org/1999/xhtml";
 
-  // Языки для меню плавающей кнопки (смена языка перевода на странице) — из общей таблицы shared.js,
+  // Языки для панели языка у плавающей кнопки (смена языка перевода на странице) — из общей таблицы shared.js,
   // чтобы список не расходился с popup и с именами языков в промпте LLM.
   const LANGS = HT_TARGET_LANGS;
 
@@ -1261,15 +1262,19 @@
     }
     if (owner) failOwner(owner);
     const actions = actionsFor(out.code, out.focus);
-    if (actions.length && out.code && failErr !== out.code) { failErr = out.code; syncFab(); }
     // Отклонённый ключ — своим заголовком и подсказкой, что делать; остальное — «Не удалось перевести»
     // и текст ошибки (мелко — код ответа сервиса).
     const hint = FAIL_HINT[out.code];
-    toast({
+    const note = {
       title: hint ? HT_t("csBadKeyTitle", serviceName()) : HT_t("csFailTitle"), icon: "err", kind: "err",
-      text: hint ? HT_t(hint) : out.error || TX_FAIL, detail: out.detail, actions, anchor: owner,
-      ms: actions.length ? 10000 : 5000,
-    });
+      text: hint ? HT_t(hint) : out.error || TX_FAIL, detail: out.detail, actions, ms: actions.length ? 10000 : 5000,
+    };
+    // Без действия человека дальше не переводится: точка на кружке, а главная кнопка — «!» и это же уведомление.
+    if (actions.length && out.code) {
+      failNote = { reason: hint ? note.title : note.text, toast: note };
+      if (failErr !== out.code) { failErr = out.code; syncFab(); }
+    }
+    toast(Object.assign({ anchor: owner }, note));
   }
 
   // ---- фон сайта и подсветка ----
@@ -1327,7 +1332,7 @@
     return { dark: canvasDark(), cream: false };
   }
 
-  // Тёмный ли сайт — для уведомлений, плавающей кнопки и её меню: фон сайта в окне, а не тема системы: светлый
+  // Тёмный ли сайт — для уведомлений, плавающей кнопки и её кнопок: фон сайта в окне, а не тема системы: светлый
   // сайт при тёмной теме Chrome — всё равно светлый. Одна точка в центре попадает в полосу шапки или в картинку
   // (The Guardian: тёмно-синяя шапка посреди окна на светлом сайте) — голосуем центром и четырьмя точками ближе
   // к углам, большинством. Наш интерфейс в точке не в счёт — берём то, что под ним.
@@ -1424,8 +1429,7 @@
       --sep: #e4e7eb; --btn-bg: #ffffff; --btn-line: #858b94; --btn-line-h: #5d646d; --pri: #2563eb; --pri-h: #1d4ed8;
       --pri-fg: #ffffff; --ok: #157a3c; --err: #b42318; --track: #e3e6ea; --bar: #2563eb; --kbd-bg: #f5f6f8;
       --kbd-line: #c9ced5; --shadow: 0 12px 32px rgba(15, 20, 25, 0.16); --focus: #2563eb; --halo: rgba(37, 99, 235, 0.35);
-      --hi-fg: #17191c; --link: #1d4ed8; --seg-bg: #f5f6f8; --seg-on: #ffffff; --seg-on-line: #858b94;
-      --pick: #eef3fe; --pick-press: #dbe6fe; --pick-fg: #1d4ed8;
+      --hi-fg: #17191c;
       color-scheme: light;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       font-size: 14px; line-height: 20px; font-weight: 400; font-style: normal; font-variant: normal;
@@ -1439,8 +1443,7 @@
       --btn-line-h: rgba(255, 255, 255, 0.55); --pri: #8fb0ff; --pri-h: #a9c2ff; --pri-fg: #0b1220; --ok: #4ccf86;
       --err: #ff8a80; --track: rgba(255, 255, 255, 0.16); --bar: #8fb0ff; --kbd-bg: rgba(255, 255, 255, 0.08);
       --kbd-line: rgba(255, 255, 255, 0.4); --shadow: 0 12px 32px rgba(0, 0, 0, 0.6); --focus: #8fb0ff; --halo: rgba(143, 176, 255, 0.45);
-      --hi-fg: #ffffff; --link: #8fb0ff; --seg-bg: #222429; --seg-on: #3a3e46; --seg-on-line: rgba(255, 255, 255, 0.55);
-      --pick: rgba(143, 176, 255, 0.16); --pick-press: rgba(143, 176, 255, 0.26); --pick-fg: #8fb0ff;
+      --hi-fg: #ffffff;
       color-scheme: dark;
     }
     .ui :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -1507,7 +1510,7 @@
       overflow-wrap: anywhere;
     }
 
-    /* плавающая кнопка: кружок 44 у края окна, меню 320 вбок от него (к середине экрана). Цвета — по фону сайта, как у
+    /* плавающая кнопка: кружок 44 у края окна, над ним (или под ним) столбик кнопок. Цвета — по фону сайта, как у
        уведомлений: светлый — белое и рамка #c9ced5, тёмный (.dk) — #2a2d33 и рамка rgba(255,255,255,.4); акцент — #2563eb
        и #8fb0ff (текст на нём #0b1220). Кольцо, подпись и точка мышь не ловят: щёлкнуть можно только сам кружок. */
     [hidden] { display: none !important; }
@@ -1563,123 +1566,119 @@
     .fab-pill.left { left: auto; right: 54px; }
     .dk .fab-pill { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
 
-    /* меню 320: шапка → язык перевода → место действия 64 (как в окне расширения) → черта → пункты 36 */
-    .fm {
-      position: absolute; left: 0; top: 0; width: 320px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
-      overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 16px 16px 8px;
-      border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--fg);
-      box-shadow: 0 12px 32px rgba(15, 20, 25, 0.18);
+    /* кнопки над кружком: столбик круглых кнопок 36 по оси кружка, в 8 от кружка и друг от
+       друга — главная (действие страницы), язык перевода (код), «⋯». Вверх растёт через column-reverse (главная ближе
+       всех к кружку), места над кружком мало — вниз (.down). Промежутки — часть столбика (padding со стороны кружка и
+       gap): курсор в зазоре не «уходит». Цвета — как у кружка; главная залита акцентом, пока её действие — перевести.
+       Появляется за 120 мс: прозрачность и сдвиг на 4 px от кружка. Подсказка и панели — сбоку, к середине экрана. */
+    .fk {
+      position: absolute; left: 0; top: 0; display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
+      width: 44px; padding: 0 0 8px; transition: opacity 0.12s ease-out, transform 0.12s ease-out;
     }
-    .dk .fm { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); }
-    .fm-head { display: flex; align-items: center; gap: 8px; height: 20px; }
-    .fm-name { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .fm-lbl { display: block; margin-top: 16px; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--muted); }
-    .fm-sel { position: relative; margin-top: 6px; }
-    .fm-sel select {
-      appearance: none; -webkit-appearance: none; display: block; width: 100%; height: 36px; padding: 0 36px 0 12px;
-      border: 1px solid var(--btn-line); border-radius: 8px; background: var(--bg); color: var(--fg);
-      font-size: 14px; line-height: 20px; font-weight: 400; cursor: pointer; text-overflow: ellipsis;
+    .fk.down { flex-direction: column; padding: 8px 0 0; }
+    @starting-style {
+      .fk { opacity: 0; transform: translateY(4px); }
+      .fk.down { transform: translateY(-4px); }
     }
-    .fm-sel select:hover { border-color: var(--btn-line-h); }
-    .ui .fm-sel select:focus-visible { border-color: var(--focus); outline: 3px solid var(--halo); outline-offset: 0; }
-    .fm-sel > svg { position: absolute; right: 10px; top: 10px; pointer-events: none; color: var(--muted-2); transition: transform 0.15s; }
-    /* Раскрытый список языка — свой (настраиваемый select, Chrome 135+): поверхность и рамка меню, радиус 12,
-       отступ 4, пункты 36; наведение и пункт под фокусом — мягкий фон акцента, выбранный — цвет акцента и галочка
-       справа. Цвета — по фону сайта (.dk). Старее — системный список. */
-    @supports (appearance: base-select) {
-      .fm-sel select, .fm-sel select::picker(select) { appearance: base-select; }
-      .fm-sel select { display: flex; align-items: center; white-space: nowrap; overflow: clip; overflow-clip-margin: content-box; }
-      .fm-sel select > button {
-        display: block; flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit;
-        text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: inherit;
-      }
-      .fm-sel select::picker-icon { display: none; }
-      .fm-sel select:open { border-color: var(--btn-line-h); }
-      .fm-sel:has(select:open) > svg { transform: rotate(180deg); }
-      .fm-sel select::picker(select) {
-        box-sizing: border-box; min-inline-size: max(200px, anchor-size(self-inline)); max-inline-size: min(320px, 100vw - 16px);
-        max-block-size: min(360px, 100% - 16px); margin: 4px 0; padding: 4px; border: 1px solid var(--line); border-radius: 12px;
-        background: var(--bg); color: var(--fg); box-shadow: 0 12px 32px rgba(15, 20, 25, 0.18); overflow-y: auto;
-        overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
-      }
-      .dk .fm-sel select::picker(select) { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); }
-      .fm-sel option {
-        display: flex; align-items: center; gap: 12px; min-block-size: 36px; padding: 8px 12px; border-radius: 8px;
-        font-size: 14px; line-height: 20px; font-weight: 400; color: var(--fg); white-space: nowrap; cursor: pointer;
-      }
-      .fm-sel option:hover, .fm-sel option:focus-visible { background: var(--pick); outline: none; }
-      .fm-sel option:active { background: var(--pick-press); }
-      .fm-sel option:checked { color: var(--pick-fg); font-weight: 500; }
-      /* галочка — рамкой, без картинки: картинки на чужом сайте может запретить его CSP */
-      .fm-sel option::checkmark {
-        order: 1; flex: none; content: ""; box-sizing: border-box; width: 12px; height: 7px; margin: 0 2px 3px auto;
-        border: solid currentColor; border-width: 0 0 2px 2px; transform: rotate(-45deg);
-      }
+    .fk-btn {
+      position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; width: 36px;
+      height: 36px; padding: 0; border: 1px solid #c9ced5; border-radius: 50%; background: #ffffff; color: #4b525a;
+      box-shadow: 0 1px 2px rgba(15, 20, 25, 0.08), 0 4px 14px rgba(15, 20, 25, 0.14); font-size: 13px; line-height: 1;
+      font-weight: 600; letter-spacing: 0.02em; cursor: pointer; -webkit-tap-highlight-color: transparent;
+      transition: background-color 0.12s, border-color 0.12s, color 0.12s;
     }
-    /* место действия — всегда 64 (кнопка или сегмент 36 + 8 + подсказка 20): меню не прыгает */
-    .fm-act { height: 64px; margin-top: 12px; }
-    .fm-btn {
-      display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 36px; padding: 0 12px;
-      border: 1px solid var(--pri); border-radius: 8px; background: var(--pri); color: var(--pri-fg); font-weight: 500;
-      white-space: nowrap; cursor: pointer;
+    .fk-btn .code, .fk-btn .stp { color: #17191c; }
+    .fk-btn:hover { background: #eef3fe; border-color: #c3d4fb; color: #1d4ed8; }
+    .fk-btn:hover .code, .fk-btn.is-open .code { color: #1d4ed8; }
+    .fk-btn.is-open, .fk-btn:not(.pri):active { background: #dbe6fe; border-color: #a9c2f8; color: #1d4ed8; }
+    .ui .fk-btn:focus-visible { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35), 0 4px 14px rgba(15, 20, 25, 0.14); }
+    .fk-btn.pri { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+    .fk-btn.pri:hover { background: #1d4ed8; border-color: #1d4ed8; color: #ffffff; }
+    .ui .fk-btn.pri:focus-visible { border-color: #2563eb; box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px rgba(37, 99, 235, 0.6), 0 4px 14px rgba(15, 20, 25, 0.14); }
+    .fk-btn.bad { border-color: #e7a19a; color: #d92d20; }
+    .fk-btn.bad:hover { background: #fdf0ef; border-color: #d92d20; color: #b42318; }
+    .fk.dk .fk-btn { background: #2a2d33; border-color: rgba(255, 255, 255, 0.4); color: #d4d7dc; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.5); }
+    .fk.dk .fk-btn .code, .fk.dk .fk-btn .stp { color: #e8e9eb; }
+    .fk.dk .fk-btn:hover { background: #363a41; border-color: rgba(255, 255, 255, 0.55); color: #a9c2ff; }
+    .fk.dk .fk-btn:hover .code, .fk.dk .fk-btn.is-open .code { color: #a9c2ff; }
+    .fk.dk .fk-btn.is-open, .fk.dk .fk-btn:not(.pri):active { background: #40444c; border-color: rgba(255, 255, 255, 0.55); color: #a9c2ff; }
+    .ui .fk.dk .fk-btn:focus-visible { border-color: #8fb0ff; box-shadow: 0 0 0 3px rgba(143, 176, 255, 0.45), 0 4px 14px rgba(0, 0, 0, 0.5); }
+    .fk.dk .fk-btn.pri { background: #8fb0ff; border-color: #8fb0ff; color: #0b1220; }
+    .fk.dk .fk-btn.pri:hover { background: #a9c2ff; border-color: #a9c2ff; color: #0b1220; }
+    .ui .fk.dk .fk-btn.pri:focus-visible { border-color: #8fb0ff; box-shadow: 0 0 0 2px #121316, 0 0 0 5px rgba(143, 176, 255, 0.7), 0 4px 14px rgba(0, 0, 0, 0.5); }
+    .fk.dk .fk-btn.bad { border-color: rgba(255, 107, 95, 0.7); color: #ff6b5f; }
+    .fk.dk .fk-btn.bad:hover { background: #3a2a2a; border-color: #ff6b5f; color: #ff8a80; }
+    /* подсказка — как подпись «Перевожу…»: рамка, r8, 13/500, пояснение 12 серым, клавиша — чип 18. Мышь не ловит:
+       курсор, ушедший на неё, ушёл со столбика. */
+    .fk-tip {
+      position: absolute; left: 0; top: 0; z-index: 2; display: flex; flex-direction: column; width: max-content;
+      max-width: 320px; padding: 5px 10px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+      color: var(--fg); box-shadow: 0 4px 12px rgba(15, 20, 25, 0.12); font-size: 13px; line-height: 18px; font-weight: 500;
+      pointer-events: none;
     }
-    .fm-btn:hover { background: var(--pri-h); border-color: var(--pri-h); }
-    .fm-btn2 {
-      display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 12px;
-      border: 1px solid var(--btn-line); border-radius: 8px; background: var(--btn-bg); color: var(--fg); font-weight: 500;
-      white-space: nowrap; cursor: pointer;
+    .fk-tip.dk { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+    .fk-tip .t { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .fk-tip .sub { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--muted); }
+    .fk-kbd {
+      display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border: 1px solid var(--kbd-line);
+      border-bottom-width: 2px; border-radius: 4px; background: var(--kbd-bg); color: var(--fg); font-size: 11px;
+      line-height: 1; font-weight: 500;
     }
-    .fm-btn2:hover { background: var(--hover); border-color: var(--btn-line-h); }
-    .fm-hint {
-      height: 20px; margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--muted); text-align: center;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    /* панели у столбика: язык (240, поиск и строки 36) и «⋯» (пункты 36) */
+    .fk-pop {
+      position: absolute; left: 0; top: 0; z-index: 2; width: 240px; padding: 6px; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--bg); color: var(--fg); box-shadow: 0 12px 32px rgba(15, 20, 25, 0.18);
     }
-    .fm-kbd {
-      display: inline-block; height: 18px; padding: 0 5px; border: 1px solid var(--kbd-line); border-bottom-width: 2px;
-      border-radius: 4px; background: var(--kbd-bg); color: var(--fg); font-size: 12px; line-height: 15px; font-weight: 500;
-      vertical-align: 1px;
+    .fk-pop.dk { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6); }
+    .fk-pop.menu { width: max-content; min-width: 216px; max-width: 300px; }
+    .fk-find {
+      display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 1px solid var(--btn-line);
+      border-radius: 8px; background: var(--bg); color: var(--fg);
     }
-    .lnk {
-      display: inline; padding: 0; border: 0; border-radius: 2px; background: none; color: var(--link); font: inherit;
-      font-weight: 500; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; cursor: pointer;
+    .fk-find svg { color: var(--muted-2); }
+    .fk-find input {
+      flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: none; background: transparent; color: inherit;
+      font: inherit; appearance: none; -webkit-appearance: none;
     }
-    .fm-busy { display: flex; align-items: center; gap: 12px; height: 36px; }
-    .fm-busy-b { flex: 1; min-width: 0; }
-    .fm-busy-t { display: flex; align-items: center; gap: 8px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
-    .fm-busy-t svg { color: var(--muted-2); }
-    .fm-prog { display: block; height: 4px; margin-top: 8px; border-radius: 2px; background: var(--track); overflow: hidden; }
-    .fm-prog > span { display: block; width: 0; height: 100%; border-radius: 2px; background: var(--bar); transition: width 0.2s; }
-    .spin { animation: ht-spin 0.9s linear infinite; }
-    @keyframes ht-spin { to { transform: rotate(360deg); } }
-    .fm-seg { display: flex; gap: 2px; height: 36px; padding: 3px; border: 1px solid var(--sep); border-radius: 8px; background: var(--seg-bg); }
-    .fm-seg button {
-      flex: 1; min-width: 0; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted);
-      font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    .fk-find input::placeholder { color: #6a717a; opacity: 1; }
+    .fk-pop.dk .fk-find input::placeholder { color: #9aa0a8; }
+    .fk-find:focus-within, .fk-find.is-focus { border-color: var(--focus); box-shadow: 0 0 0 3px var(--halo); }
+    .fk-gl { padding: 10px 10px 4px; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--muted); }
+    .fk-opt {
+      display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0;
+      border-radius: 8px; background: transparent; color: inherit; text-align: left; white-space: nowrap; cursor: pointer;
     }
-    .fm-seg button:hover { background: var(--hover); color: var(--hi-fg); }
-    .fm-seg button[aria-checked="true"] {
-      background: var(--seg-on); color: var(--hi-fg); font-weight: 600; box-shadow: 0 0 0 1px var(--seg-on-line), 0 1px 2px rgba(16, 24, 40, 0.08);
-    }
-    .fm-sep { height: 1px; margin: 16px -16px 8px; background: var(--sep); }
-    .fm-item {
-      display: flex; align-items: center; gap: 12px; width: calc(100% + 16px); height: 36px; margin: 0 -8px; padding: 0 8px;
-      border: 0; border-radius: 8px; background: transparent; color: var(--fg); text-align: left; white-space: nowrap; cursor: pointer;
-    }
-    .fm-item svg { color: var(--muted-2); }
-    .fm-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .fm-item:hover { background: var(--hover); }
-    .ui .fm-item:focus-visible { outline: none; background: var(--hover); box-shadow: inset 0 0 0 2px var(--focus); }
+    .fk-opt .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .fk-opt .cd { font-size: 12px; font-weight: 500; color: #6a717a; }
+    .fk-pop.dk .fk-opt .cd { color: #9aa0a8; }
+    .fk-opt svg { color: var(--muted-2); }
+    .fk-opt.sel { font-weight: 600; }
+    .fk-opt.sel svg.ck { color: var(--focus); }
+    .fk-opt mark { background: none; color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+    .fk-opt:hover { background: var(--hover); }
+    .ui .fk-opt:focus-visible, .fk-opt.is-focus { outline: none; background: var(--hover); box-shadow: inset 0 0 0 2px var(--focus); }
+    .fk-sep { height: 1px; margin: 6px -6px; background: var(--sep); }
+    /* список языков: видно 6 строк, дальше прокрутка (панель не растёт); «Ничего не нашлось» — строка, не кнопка */
+    .fk-list { max-height: 216px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+    .fk-none { padding: 8px 10px; color: var(--muted); }
+    /* строка языка: самоназвание целиком, название на языке интерфейса — в остаток справа (длинное — с многоточием) */
+    .fk-list .nm { flex: none; max-width: 100%; }
+    .fk-list .cd { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+    .fk-list svg.ck { margin-left: auto; }
+    /* поле поиска: рамка фокуса — у .fk-find, у самого поля её нет; без системного «×» (как на макете) */
+    .ui .fk-find input:focus-visible { outline: none; }
+    .fk-find input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
 
     @media (prefers-reduced-motion: reduce) {
       .toast, .toast.low { transform: none; transition: none; }
-      .t-prog > span, .fm-prog > span, .fab, .fab-ring .bar, .fm-sel > svg { transition: none; }
+      .t-prog > span, .fab, .fab-ring .bar, .fk-btn { transition: none; }
+      .fk { transition: opacity 0.12s ease-out; }
       .t-prog.indet > span { width: 100%; opacity: 0.5; animation: none; }
-      .spin { animation: none; }
     }
   `;
 
-  // Shadow root закрытый: в открытый сайт может зайти через host.shadowRoot и выбрать в списке
-  // меню плавающей кнопки любое значение, а оно пишется в настройки и действует на всех сайтах.
+  // Shadow root закрытый: в открытый сайт может зайти через host.shadowRoot и выбрать в панели
+  // языка у плавающей кнопки любое значение, а оно пишется в настройки и действует на всех сайтах.
   // host.shadowRoot у закрытого — null, поэтому ссылку на root держим сами.
   const uiRoots = new WeakMap();      // host -> его закрытый shadow root
 
@@ -1710,7 +1709,7 @@
   // Смонтировать наше окно на страницу.
   function mountUi(node) { (document.body || document.documentElement).appendChild(node); }
 
-  // Слои: карточка < плавающая кнопка с меню < уведомление. Раньше панель и тост стояли на 2147483647, а
+  // Слои: карточка < плавающая кнопка с кнопками < уведомление. Раньше панель и тост стояли на 2147483647, а
   // карточка — на 2147483646, поэтому карточка накрывала панель смены языка.
   const Z_POPOVER = "2147483644";
   const Z_HUD = "2147483645";
@@ -1748,12 +1747,13 @@
     alert: [{ circle: { cx: 12, cy: 12, r: 10 } }, "M12 8v4", "M12 16h.01"],
     pointer: ["M12.586 12.586 19 19", "M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"],
     ban: [{ circle: { cx: 12, cy: 12, r: 10 } }, "m4.9 4.9 14.2 14.2"],
-    chevDown: ["m6 9 6 6 6-6"],
     eyeOff: ["M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49", "M14.084 14.158a3 3 0 0 1-4.242-4.242",
       "M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143", "m2 2 20 20"],
     gear: ["M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
       { circle: { cx: 12, cy: 12, r: 3 } }],
-    spin: ["M21 12a9 9 0 1 1-6.22-8.56"],
+    undo: ["M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"],
+    more: [{ circle: { cx: 12, cy: 12, r: 1 } }, { circle: { cx: 19, cy: 12, r: 1 } }, { circle: { cx: 5, cy: 12, r: 1 } }],
+    search: [{ circle: { cx: 11, cy: 11, r: 8 } }, "m21 21-4.3-4.3"],
   };
   function svgEl(tag, attrs) {
     const e = document.createElementNS(SVG_NS, tag);
@@ -1767,8 +1767,6 @@
       if (typeof part === "string") svg.appendChild(svgEl("path", { d: part }));
       else for (const tag in part) svg.appendChild(svgEl(tag, part[tag]));
     }
-    // Крутилка «идёт перевод» — дуга потолще и вращается (как в окне расширения).
-    if (name === "spin") { svg.setAttribute("stroke-width", "2.5"); svg.setAttribute("class", "spin"); }
     return svg;
   }
   // «Стоп» — залитый квадрат 12 (как в окне расширения).
@@ -2638,7 +2636,7 @@
     });
   }
 
-  // via — откуда просьба: "popup" (кнопка окна или меню плавающей кнопки) или "command" (горячая клавиша; keys —
+  // via — откуда просьба: "popup" (кнопка окна или кнопка у кружка) или "command" (горячая клавиша; keys —
   // её сочетание для подсказки). Окно расширения само говорит, что перевод выключен, а горячая
   // клавиша — только здесь.
   // На выключенном сайте не переводим и по явной просьбе: сайты выключают ради приватности (почта,
@@ -2657,7 +2655,7 @@
     }
     if (blocked(true)) return;
     // Горячая клавиша на переведённой странице — переключатель: возвращает оригинал, как и ожидают от
-    // повторного нажатия. Окно и меню плавающей кнопки показывают оригинал своими кнопками.
+    // повторного нажатия. Окно и кнопки у плавающей показывают оригинал своими кнопками.
     if (pageActive && via === "command") {
       restoreAll();
       notice(HT_t("csOrigShown"), 3000);
@@ -3011,7 +3009,7 @@
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
   // или aria-modal, раскрытое всплывающее меню или список (см. popupOpen), панель или окно без ARIA поверх всей
-  // страницы (см. siteLayer). Наши хосты [data-ht-ui] не в счёт: меню кружка, карточка и уведомления живут
+  // страницы (см. siteLayer). Наши хосты [data-ht-ui] не в счёт: кнопки кружка, карточка и уведомления живут
   // в закрытом shadow root, их Esc разбирает escRestore.
   // Селекторы, которых этот Chrome не знает, отбрасываем: одна ошибка в списке сломала бы весь querySelectorAll.
   const SITE_OPEN = [":modal", ":popover-open", "[role=dialog]", "[role=alertdialog]", "[aria-modal=true]"]
@@ -3100,10 +3098,10 @@
   // Esc для поля (закрыть подсказки поиска), переводы не трогаем. Встроенные окна вкладки (у
   // каждого свой скрипт и свои переводы) откатывает background по нашей просьбе.
   function escRestore() {
-    // Открыт список языка в меню кружка — Esc закрывает только его (это делает сам Chrome).
-    if (pickerOpen()) return;
-    // Открыто меню кружка — Esc закрывает только его; фокус был в меню — возвращается на кружок (меню, открытое
-    // наведением, фокус со страницы не забирает).
+    // Открыта панель у кнопок кружка (язык, «⋯») — Esc закрывает только её; фокус был у нас — на её кнопку.
+    if (panelOpen()) { closePanel(focusInFab()); return; }
+    // Показаны кнопки кружка — Esc скрывает только их; фокус был у нас — возвращается на кружок (кнопки,
+    // показанные наведением, фокус со страницы не забирают).
     if (menuOpen()) { closeMenu(focusInFab()); return; }
     if (typingFocus()) return;
     // Esc закрывает и уведомление расширения на странице (раньше оно висело до таймера или ✕).
@@ -3127,7 +3125,7 @@
 
   on(window, "mousedown", (e) => { if (e.isTrusted) modPress = null; }, true);
 
-  // Щелчок мимо карточки закрывает её, мимо плавающей кнопки — её меню. Щелчок внутри приходит с хостом в
+  // Щелчок мимо карточки закрывает её, мимо плавающей кнопки — её кнопки и панели. Щелчок внутри приходит с хостом в
   // target (закрытый shadow root наружу показывает только хост).
   on(window, "pointerdown", (e) => {
     if (!e.isTrusted) return;
@@ -3142,8 +3140,8 @@
   // под курсором — щелчок по самому абзацу и начинает загрузку.
   on(window, "click", (e) => {
     if (!e.isTrusted || !retryOnClick || !active() || !alive()) return;
-    // Щелчок по плавающей кнопке открывает меню и ничего не переводит («Перевести страницу» в меню
-    // переводит сама — у её щелчка то же действие пользователя).
+    // Щелчок по плавающей кнопке или её кнопкам здесь ничего не переводит (главная кнопка переводит сама — у её
+    // щелчка то же действие пользователя).
     if (fab && e.target === fab.host) return;
     retryOnClick = false;
     if (needClick) { needClick = false; syncFab(); }
@@ -3179,7 +3177,7 @@
     };
   }
   // Окно открыто и ждёт: верхний фрейм сам сообщает каждое изменение (несколько подряд — одним
-  // сообщением, одинаковое — не повторяет). Плавающая кнопка и её меню — тоже по этому состоянию (hud — кружок
+  // сообщением, одинаковое — не повторяет). Плавающая кнопка и её кнопки — тоже по этому состоянию (hud — кружок
   // сейчас на странице).
   function pushState() {
     syncFab();
@@ -3231,28 +3229,36 @@
     else if (msg.what === "disabled") notice(keys ? HT_t("csOffKeys", keys) : "", 3500, { title: HT_t("csOffTitle") });
   }
 
-  // ---- плавающая кнопка: кружок 44 у края окна и меню 320 вбок от него ----
-  // Кружок показывает, что со страницей: переведена — залит акцентом; идёт перевод —
-  // кольцо с долей готового и подпись «Перевожу… N из M» со стороны середины экрана; янтарная точка — ждём щелчка
-  // по тексту; красная — перевод не работает (что делать, говорит уведомление). Наведение 200 мс раскрывает меню,
-  // уход с кружка и меню закрывает его через 400 мс; щелчок открывает и закрепляет (до щелчка мимо, Esc, выбора
-  // пункта или повторного щелчка). Страницу щелчок по кружку не переводит. В меню — язык перевода, главное действие
-  // страницы теми же словами, что в окне расширения, и редкое: выключить на сайте, скрыть кнопку, настройки.
+  // ---- плавающая кнопка: кружок 44 у края окна и кнопки над ним ----
+  // Кружок показывает,
+  // что со страницей: переведена — залит акцентом; идёт перевод — кольцо с долей готового и подпись «Перевожу… N из M»
+  // со стороны середины экрана; янтарная точка — ждём щелчка по тексту; красная — перевод не работает (что делать,
+  // говорит уведомление). Наведение на кружок сразу показывает над ним (места мало — под ним) столбик кнопок 36:
+  // главная — действие страницы (перевести → «Стоп» → «Показать оригинал»), язык перевода (код), «⋯» (выключить на
+  // сайте, скрыть кнопку, настройки). Уход с кружка и кнопок скрывает их через 300 мс; щелчок по кружку закрепляет
+  // (до щелчка мимо, Esc или повторного щелчка). Страницу щелчок по кружку не переводит. Подсказка у кнопки — сразу
+  // при наведении и при фокусе с клавиатуры.
   // Кружок тащат за него самого: сдвиг больше 4 px — перетаскивание; отпустили — за 200 мс прилипает к ближайшему
   // краю (16 px), по высоте где отпустили. Место одно на все сайты (hudPos), пишется один раз — при отпускании:
   // каждая запись будит скрипты во всех вкладках.
-  const FAB = 44, FAB_EDGE = 16, FAB_GAP = 8;            // кружок, отступ от края окна, зазор до меню
-  const FAB_OPEN_MS = 200, FAB_CLOSE_MS = 400, FAB_SNAP_MS = 200, FAB_DRAG_PX = 4;
+  const FAB = 44, FAB_EDGE = 16, FAB_GAP = 8;            // кружок, отступ от края окна, зазор до кнопок и между ними
+  const FK_BTN = 36, FK_COL = 3 * FK_BTN + 2 * FAB_GAP;  // кнопка столбика и сам столбик (124)
+  const FK_SIDE = FAB_GAP - (FAB - FK_BTN) / 2;          // подсказка и панели — в 8 от кнопок, то есть в 4 от кружка
+  const FAB_CLOSE_MS = 300, FAB_SNAP_MS = 200, FAB_DRAG_PX = 4;
   const RING_C = 2 * Math.PI * 25;                      // длина кольца r 25 (в квадрате 54)
 
   function buildFab() {
     const { host, root } = makeUiHost(Z_HUD);
-    // open: "" — меню закрыто, "hover" — открыто наведением, "pin" — закреплено щелчком или клавиатурой.
-    // press — нажали на кружок (может стать перетаскиванием), drag — тащат; noClick — щелчок после
-    // перетаскивания не считается; actKey — что сейчас нарисовано в месте действия.
-    const f = { host, root, open: "", press: null, drag: null, noClick: false, actKey: "", timers: { open: 0, close: 0, snap: 0 } };
-    f.btn = h("button", { type: "button", class: "fab", "aria-label": HT_t("csFabAria", extName()), "aria-haspopup": "dialog",
-      "aria-expanded": "false", "aria-controls": "fm" }, icon("languages", 20));
+    // open: "" — кнопки скрыты, "hover" — показаны наведением (или фокусом на кружке), "pin" — закреплены щелчком
+    // или клавиатурой; panel: "" | "lang" | "more" — открытая панель. press — нажали на кружок (может стать
+    // перетаскиванием), drag — тащат; noClick — щелчок после перетаскивания не считается; noHover — после
+    // перетаскивания кнопки не появляются, пока курсор не уйдёт с кружка; quiet — фокус на кружок ставим сами (это
+    // не «Tab до кружка»); mainKey — что нарисовано на главной кнопке, mainSpec — её описание; tipFor — кнопка
+    // с подсказкой; keys — сочетание «Перевести страницу» из chrome.commands ("" — не задано).
+    const f = { host, root, open: "", panel: "", press: null, drag: null, noClick: false, noHover: false, quiet: false,
+      mainKey: "", mainSpec: null, tipFor: null, keys: "", timers: { close: 0, snap: 0 } };
+    f.btn = h("button", { type: "button", class: "fab", "aria-label": HT_t("csFabAria", extName()), "aria-expanded": "false",
+      "aria-controls": "fk" }, icon("languages", 20));
     f.ring = svgEl("svg", { class: "fab-ring", width: 54, height: 54, viewBox: "0 0 54 54", "aria-hidden": "true" });
     f.ring.appendChild(svgEl("circle", { class: "tr", cx: 27, cy: 27, r: 25, fill: "none", "stroke-width": 3 }));
     f.bar = svgEl("circle", { class: "bar", cx: 27, cy: 27, r: 25, fill: "none", "stroke-width": 3, "stroke-linecap": "round",
@@ -3262,43 +3268,44 @@
     f.dot = h("span", { class: "fab-dot", "aria-hidden": "true" });
     f.w = h("div", { class: "fab-w" }, f.btn);           // подпись, кольцо и точка — только пока они нужны
 
-    // Список языка: запись действует на всех сайтах — пишем только настоящий выбор и только значение из таблицы.
-    f.sel = h("select", { id: "fm-lang" });
-    for (const [code, label] of LANGS) {
-      const o = h("option", {}, label);
-      o.value = code;
-      f.sel.appendChild(o);
-    }
-    // Поле настраиваемого списка (Chrome 135+) показывает выбранное через <button><selectedcontent>: длинное название
-    // обрезается многоточием перед стрелкой. Без поддержки кнопка внутри select не рисуется.
-    f.sel.prepend(h("button", { type: "button" }, document.createElement("selectedcontent")));
-    f.sel.value = settings.targetLang;
-    f.sel.addEventListener("change", (e) => {
-      if (!e.isTrusted || HT_valid("targetLang", f.sel.value) !== f.sel.value) return;
-      chrome.storage.local.set({ targetLang: f.sel.value }).catch(() => {});
-    });
-    f.act = h("div", { class: "fm-act" });
-    const item = (act, ic, label, run) => uiButton("fm-item", { role: "menuitem", "data-act": act, title: act === "site-off" ? label : null },
-      [icon(ic, 16), h("span", {}, label)], () => { closeMenu(false); run(); });
-    f.items = h("div", { role: "menu" });
-    if (SITE) f.items.appendChild(item("site-off", "ban", HT_t("csFabSiteOff", SITE), disableSiteFromFab));
-    f.items.appendChild(item("hide", "eyeOff", HT_t("csFabHide"), hideFab));
-    f.items.appendChild(item("settings", "gear", HT_t("ppSettings"), () => openSettings("page")));
-    f.menu = h("div", { class: "fm", id: "fm", role: "dialog", "aria-label": extName(), hidden: true },
-      h("div", { class: "fm-head" }, logo(20), h("span", { class: "fm-name" }, extName())),
-      h("label", { class: "fm-lbl", for: "fm-lang" }, HT_t("targetLangAria")),
-      h("div", { class: "fm-sel" }, f.sel, icon("chevDown", 16)),
-      f.act,
-      h("div", { class: "fm-sep", "aria-hidden": "true" }),
-      f.items);
-    f.ui = h("div", { class: "ui fab-box" }, f.w, f.menu);
+    // Столбик: порядок в DOM — порядок Tab, от кружка наружу (вверх столбик растёт через column-reverse). Кнопки
+    // срабатывают только от настоящего щелчка; с клавиатуры (detail 0) панель забирает фокус.
+    const btn = (k, attrs, kid, run) => {
+      const b = h("button", Object.assign({ type: "button", class: "fk-btn", "data-k": k }, attrs), kid);
+      b.addEventListener("click", (e) => { if (e.isTrusted) run(e.detail === 0); });
+      // Подсказка — сразу при наведении; пальцем — нет.
+      b.addEventListener("pointerenter", (e) => { if (e.isTrusted && e.pointerType !== "touch") showTip(b); });
+      b.addEventListener("pointerleave", (e) => { if (e.isTrusted) tipBack(); });
+      return b;
+    };
+    f.mainBtn = btn("main", {}, null, mainAct);
+    f.code = h("span", { class: "code" });
+    f.langBtn = btn("lang", { "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "fk-lang" }, f.code,
+      (kb) => { if (f.panel === "lang") closeLangPanel(kb); else openLangPanel(kb); });
+    f.moreBtn = btn("more", { "aria-haspopup": "menu", "aria-expanded": "false", "aria-controls": "fk-more",
+      "aria-label": HT_t("csFkMore") }, icon("more", 18), (kb) => { if (f.panel === "more") closePanel(kb); else openMore(kb); });
+    f.fk = h("div", { class: "fk", id: "fk", role: "toolbar", "aria-orientation": "vertical", "aria-label": extName(), hidden: true },
+      f.mainBtn, f.langBtn, f.moreBtn);
+    // Подсказка — одна на все кнопки: заголовок (+ клавиша) и пояснение.
+    f.tipT = h("span", { class: "t" });
+    f.tipS = h("span", { class: "sub" });
+    f.tip = h("div", { class: "fk-tip", id: "fk-tip", role: "tooltip", hidden: true }, f.tipT, f.tipS);
+    f.langPop = buildLangPanel();
+    // «⋯» — редкое словами, как пункты прежнего меню; выбор закрывает всё.
+    const item = (act, ic, label, run) => uiButton("fk-opt", { role: "menuitem", "data-act": act, title: act === "site-off" ? label : null },
+      [icon(ic, 16), h("span", { class: "nm" }, label)], () => { closeMenu(false); run(); });
+    f.morePop = h("div", { class: "fk-pop menu", id: "fk-more", role: "menu", "aria-label": HT_t("csFkMore"), hidden: true });
+    if (SITE) f.morePop.appendChild(item("site-off", "ban", HT_t("csFabSiteOff", SITE), disableSiteFromFab));
+    f.morePop.appendChild(item("hide", "eyeOff", HT_t("csFabHide"), hideFab));
+    f.morePop.appendChild(item("settings", "gear", HT_t("ppSettings"), () => openSettings("page")));
+    f.ui = h("div", { class: "ui fab-box" }, f.w, f.fk, f.tip, f.langPop, f.morePop);
     root.appendChild(f.ui);
 
-    // Наведение: на сам кружок — открыть через 200 мс; ушли с кружка и меню — закрыть через 400 мс (путь от
-    // кружка к меню прощается: вернулись на меню — закрытие отменяется). Палец (сенсорный экран) наведения не
-    // знает — у него только щелчок.
+    // Наведение на кружок — кнопки сразу; ушли с кружка, кнопок и панели — скрыть через 300 мс (вернулись — отмена;
+    // зазоры между кнопками и до кружка — часть столбика). Палец (сенсорный экран) наведения не знает — у него
+    // только щелчок.
     f.btn.addEventListener("pointerenter", (e) => { if (e.isTrusted && e.pointerType !== "touch") fabHoverIn(); });
-    f.btn.addEventListener("pointerleave", (e) => { if (e.isTrusted) clearTimeout(f.timers.open); });
+    f.btn.addEventListener("pointerleave", (e) => { if (e.isTrusted) f.noHover = false; });
     host.addEventListener("pointerenter", (e) => { if (e.isTrusted) { clearTimeout(f.timers.close); themeFab(); } });
     host.addEventListener("pointerleave", (e) => { if (e.isTrusted && e.pointerType !== "touch") fabHoverOut(); });
     f.btn.addEventListener("pointerdown", fabDown);
@@ -3307,56 +3314,73 @@
     f.btn.addEventListener("pointercancel", fabUp);
     f.btn.addEventListener("lostpointercapture", fabUp);
     f.btn.addEventListener("click", fabClick);
-    f.menu.addEventListener("keydown", menuKey);
-    // Фокус пришёл в меню с клавиатуры — меню закрепляется: иначе уход мыши закрыл бы его вместе с фокусом.
-    f.menu.addEventListener("focusin", (e) => {
-      let kb = false;
-      try { kb = e.target.matches(":focus-visible"); } catch (err) { kb = false; }
-      if (kb && f.open === "hover") { f.open = "pin"; clearTimeout(f.timers.close); }
-    });
+    f.fk.addEventListener("keydown", barKey);
+    f.morePop.addEventListener("keydown", moreKey);
+    f.ui.addEventListener("focusin", fabFocusIn);
+    f.ui.addEventListener("focusout", fabFocusOut);
     return f;
   }
 
   function fabHoverIn() {
     if (!fab) return;
     clearTimeout(fab.timers.close);
-    if (fab.open || fab.drag || fab.press) return;
-    clearTimeout(fab.timers.open);
-    fab.timers.open = setTimeout(() => {
-      if (fab && !fab.open && !fab.drag && !fab.press) openMenu("hover", false);
-    }, FAB_OPEN_MS);
+    if (fab.open || fab.drag || fab.press || fab.noHover) return;
+    openMenu("hover", false);
   }
   function fabHoverOut() {
-    if (!fab) return;
-    clearTimeout(fab.timers.open);
-    if (fab.open !== "hover") return;
+    if (!fab || fab.open !== "hover") return;
     clearTimeout(fab.timers.close);
     fab.timers.close = setTimeout(() => {
-      // Курсор уже снова над нами — не закрываем. Раскрыт список языка (он в верхнем слое и может выходить за меню) —
-      // ждём ещё: выбрали язык, а курсор остался вне меню — закроется следом.
-      if (!fab || fab.open !== "hover" || hovered(fab.host)) return;
-      if (pickerOpen()) { fabHoverOut(); return; }
+      // Курсор снова над нами — не скрываем. Открыта панель — ждём её (закроют щелчок мимо, Esc или выбор; курсор,
+      // оставшийся снаружи, скроет кнопки следом — см. hidePanel). Фокус с клавиатуры на кружке — скроет его уход.
+      if (!fab || fab.open !== "hover" || hovered(fab.host) || fab.panel || kbFocus()) return;
       closeMenu(false);
     }, FAB_CLOSE_MS);
   }
   function hovered(el) { try { return el.matches(":hover"); } catch (e) { return false; } }
+  function focusVisible(el) { try { return el.matches(":focus-visible"); } catch (e) { return false; } }
+  // Фокус у нас и пришёл с клавиатуры.
+  function kbFocus() { const a = fab && fab.root.activeElement; return !!a && focusVisible(a); }
 
-  // Щелчок (мышь, палец, Enter или пробел): открыть и закрепить; закреплённое — закрыть. С клавиатуры (detail 0)
-  // фокус уходит в меню, на список языка.
+  // Щелчок (мышь, палец, Enter или пробел): показать кнопки и закрепить; закреплённые — скрыть. С клавиатуры
+  // (detail 0) фокус уходит на главную кнопку (скрыли — остаётся на кружке).
   function fabClick(e) {
     if (!e.isTrusted || !fab) return;
     if (fab.noClick) { fab.noClick = false; return; }        // это было перетаскивание
-    clearTimeout(fab.timers.open);
     const kb = e.detail === 0;
     if (fab.open === "pin") closeMenu(kb);
     else openMenu("pin", kb);
+  }
+
+  // Фокус с клавиатуры: Tab до кружка — кнопки показываются, как при наведении; фокус пришёл на кнопки — они
+  // закрепляются (иначе уход мыши скрыл бы их вместе с фокусом), у кнопки — подсказка.
+  function fabFocusIn(e) {
+    if (!fab) return;
+    const t = e.target, kb = focusVisible(t);
+    if (t === fab.btn) {
+      if (kb && !fab.quiet && !fab.open && !fab.drag && !fab.press) openMenu("hover", false);
+      return;
+    }
+    if (!kb) return;
+    if (fab.open === "hover") { fab.open = "pin"; clearTimeout(fab.timers.close); }
+    if (t.classList.contains("fk-btn")) showTip(t);
+  }
+  // Фокус ушёл с кнопки — её подсказка тоже (если курсор не над ней). Ушёл на страницу (Tab из последней кнопки,
+  // Shift+Tab с кружка) — кнопки скрываются: ловушки фокуса нет. Курсор при этом над нами — остаются, как
+  // показанные наведением.
+  function fabFocusOut(e) {
+    if (!fab || !fab.open) return;
+    if (e.target === fab.tipFor && !hovered(e.target)) hideTip();
+    const to = e.relatedTarget;
+    if (!to || fab.root.contains(to)) return;
+    if (hovered(fab.host)) fab.open = "hover";
+    else closeMenu(false);
   }
 
   // ---- перетаскивание ----
   // Захват указателя: движения приходят кружку, даже когда курсор над встроенным окном сайта (iframe).
   function fabDown(e) {
     if (!e.isTrusted || !fab || e.button !== 0 || !e.isPrimary) return;
-    clearTimeout(fab.timers.open);
     const r = fab.host.getBoundingClientRect();
     fab.press = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, x: r.left, y: r.top, on: false };
     try { fab.btn.setPointerCapture(e.pointerId); } catch (err) { /* указатель уже отпущен */ }
@@ -3390,6 +3414,7 @@
     fab.press = null;
     if (!d.on) return;                                     // не сдвинули — это щелчок, он придёт следом
     fab.drag = null;
+    fab.noHover = true;                                    // кнопки — когда курсор уйдёт с кружка и вернётся
     fab.btn.classList.remove("is-drag");
     // Щелчок после перетаскивания приходит в той же задаче, что и отпускание: его не считаем.
     if (e.type === "pointerup") { fab.noClick = true; setTimeout(() => { if (fab) fab.noClick = false; }, 0); }
@@ -3444,81 +3469,359 @@
     placeMenu();
     placeToast();                       // кружок сдвинулся — уведомление не должно оказаться под ним
   }
-  // Кружок в правой половине окна? Подпись и меню — со стороны середины экрана.
+  // Кружок в правой половине окна? Подпись, подсказки и панели — со стороны середины экрана.
   function fabOnRight() {
     const r = fab.host.getBoundingClientRect();
     return r.left + FAB / 2 > viewSize().w / 2;
   }
   function sideFab() { if (fab) fab.pill.classList.toggle("left", fabOnRight()); }
 
-  // Меню — вбок к середине экрана; кружок в нижней половине — низ меню на уровне низа кружка, в верхней — верх на
-  // уровне верха. Не хватает места по высоте — сдвиг внутрь окна. Вбок не помещается (узкое окно) — над кружком
-  // или под ним: кружок меню не закрывает никогда.
+  // Столбик — по оси кружка: вверх, если над кружком хватает места (8 + столбик 124 + 16 до края окна), иначе вниз.
+  // Подсказка и панели — сбоку, к середине экрана, в 8 от кнопок; не помещаются — сдвиг внутрь окна (поле 8).
   function placeMenu() {
     if (!fab || !fab.open) return;
-    const m = fab.menu, r = fab.host.getBoundingClientRect(), vs = viewSize();
-    const mw = m.offsetWidth, mh = m.offsetHeight;
-    const right = fabOnRight(), low = r.top + FAB / 2 > vs.h / 2;
-    const M = mh + 2 * FAB_EDGE <= vs.h ? FAB_EDGE : 8;
-    let x = right ? r.left - FAB_GAP - mw : r.right + FAB_GAP;
-    let y = low ? r.bottom - mh : r.top;
-    if (x < 8 || x + mw > vs.w - 8) {
-      x = Math.max(8, Math.min(right ? r.right - mw : r.left, vs.w - 8 - mw));
-      y = low ? r.top - FAB_GAP - mh : r.bottom + FAB_GAP;
+    const r = fab.host.getBoundingClientRect();
+    const down = r.top - FAB_GAP - FK_COL < FAB_EDGE;
+    fab.fk.classList.toggle("down", down);
+    fab.fk.style.top = (down ? FAB : -(FAB_GAP + FK_COL)) + "px";
+    if (fab.tipFor) placeTip();
+    if (fab.panel) placePanel();
+  }
+  function fabBtns() { return [fab.mainBtn, fab.langBtn, fab.moreBtn]; }
+  // Середина i-й кнопки (0 — главная) от верха кружка. Считаем, а не меряем: при появлении столбик ещё едет.
+  function btnMid(i) {
+    const d = FAB_GAP + FK_BTN / 2 + i * (FK_BTN + FAB_GAP);
+    return fab.fk.classList.contains("down") ? FAB + d : -d;
+  }
+  // Поставить элемент (его left/top — от кружка) в точку x, y окна, сдвинув внутрь окна с полем 8.
+  function putAt(el, r, x, y) {
+    const vs = viewSize();
+    x = Math.max(8, Math.min(x, vs.w - 8 - el.offsetWidth));
+    y = Math.max(8, Math.min(y, vs.h - 8 - el.offsetHeight));
+    el.style.left = Math.round(x - r.left) + "px";
+    el.style.top = Math.round(y - r.top) + "px";
+  }
+  // Подсказка — по центру своей кнопки по вертикали.
+  function placeTip() {
+    const t = fab.tip, r = fab.host.getBoundingClientRect();
+    const x = fabOnRight() ? r.left - FK_SIDE - t.offsetWidth : r.right + FK_SIDE;
+    putAt(t, r, x, r.top + btnMid(fabBtns().indexOf(fab.tipFor)) - t.offsetHeight / 2);
+  }
+  // Панель языка — вровень с низом кружка (кнопки вниз — с верхом); «⋯» — вровень с дальним краем своей кнопки.
+  // Узкое окно: панель не шире места сбоку от кнопок (но не уже 160) — пусть налезает на текст страницы, не на кнопки.
+  function placePanel() {
+    const [p] = panelParts(fab.panel), r = fab.host.getBoundingClientRect(), vs = viewSize(), right = fabOnRight();
+    const room = (right ? r.left - FK_SIDE : vs.w - r.right - FK_SIDE) - 8;
+    p.style.maxWidth = room < 240 ? Math.max(160, room) + "px" : "";
+    const down = fab.fk.classList.contains("down"), ph = p.offsetHeight;
+    const x = right ? r.left - FK_SIDE - p.offsetWidth : r.right + FK_SIDE;
+    let y;
+    if (fab.panel === "lang") y = down ? r.top : r.bottom - langSpan(ph);
+    else {
+      const top = r.top + btnMid(2) - FK_BTN / 2;
+      y = down ? top + FK_BTN - ph : top;
     }
-    y = Math.max(M, Math.min(y, vs.h - M - mh));
-    m.style.left = Math.round(x - r.left) + "px";
-    m.style.top = Math.round(y - r.top) + "px";
+    putAt(p, r, x, y);
   }
 
   function menuOpen() { return !!(fab && fab.open); }
-  // Раскрыт список языка в меню (до Chrome 133 список системный, и Esc сюда не доходит).
-  function pickerOpen() { return !!fab && selectOpen(fab.sel); }
+  // Открыта панель у кнопок: язык или «⋯».
+  function panelOpen() { return !!(fab && fab.panel); }
   function openMenu(mode, byKeyboard) {
     if (!fab) return;
-    clearTimeout(fab.timers.open);
     clearTimeout(fab.timers.close);
     const was = !!fab.open;
     fab.open = mode;
     if (!was) {
       themeFab();
-      fab.menu.hidden = false;
+      syncFab();                        // главная кнопка и код языка — по состоянию страницы
+      placeMenu();                      // направление (.down) — до показа: от него сдвиг при появлении
+      fab.fk.hidden = false;
       fab.btn.setAttribute("aria-expanded", "true");
-      syncFab();                        // место действия — по состоянию страницы; подпись у кружка прячется
-      placeMenu();
-      placeToast();                     // уведомление не должно закрыть меню
+      placeToast();                     // уведомление не должно закрыть кнопки
+      askKeys();
     }
-    if (byKeyboard) fab.sel.focus();
+    if (byKeyboard) fab.mainBtn.focus();
   }
   function closeMenu(refocus) {
     if (!fab || !fab.open) return;
-    clearTimeout(fab.timers.open);
     clearTimeout(fab.timers.close);
     fab.open = "";
-    fab.menu.hidden = true;
+    closePanel(false);
+    hideTip();
+    if (refocus) quietFocus(fab.btn);   // до скрытия: фокус с кнопок не должен упасть на страницу
+    fab.fk.hidden = true;
     fab.btn.setAttribute("aria-expanded", "false");
     syncFab();
     placeToast();
-    if (refocus) fab.btn.focus();
   }
-  // Фокус в нашем кружке или меню (закрытый shadow root наружу показывает только хост).
+  // Фокус на кружок — сами, а не Tab до него: кнопки от этого не показываются.
+  function quietFocus(el) {
+    fab.quiet = true;
+    try { el.focus(); } finally { fab.quiet = false; }
+  }
+  // Фокус в нашем кружке или кнопках (закрытый shadow root наружу показывает только хост).
   function focusInFab() { return !!fab && document.activeElement === fab.host; }
 
-  // Клавиатура в меню: Tab и Shift+Tab — по кругу (фокус из открытого меню не уходит); ↑ ↓ Home End — по пунктам.
-  function menuKey(e) {
-    if (!e.isTrusted || !fab) return;
-    const cur = fab.root.activeElement;
-    if (e.key === "Tab") {
-      const all = Array.from(fab.menu.querySelectorAll("select, button, [tabindex]")).filter((el) =>
-        (el.tagName === "SELECT" || !el.closest("select")) && !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
-      if (!all.length) return;
-      const i = all.indexOf(cur);
-      if (e.shiftKey && i <= 0) { e.preventDefault(); all[all.length - 1].focus(); }
-      else if (!e.shiftKey && i === all.length - 1) { e.preventDefault(); all[0].focus(); }
-      return;
+  // ---- панели у кнопок (язык — у «RU», «⋯» — у «⋯») ----
+  // Одна за раз. Пока она открыта, подсказок нет, кнопка «нажата» (.is-open), а уход курсора кнопки не скрывает:
+  // закроют щелчок мимо, Esc (фокус — на кнопку панели), выбор или повторный щелчок по кнопке.
+  function panelParts(name) { return name === "lang" ? [fab.langPop, fab.langBtn] : [fab.morePop, fab.moreBtn]; }
+  function showPanel(name) {
+    if (!fab) return false;
+    if (!fab.open) openMenu("pin", false);
+    if (fab.panel === name) return true;
+    if (fab.panel) closePanel(false);
+    const [pop, b] = panelParts(name);
+    hideTip();
+    fab.panel = name;
+    b.classList.add("is-open");
+    b.setAttribute("aria-expanded", "true");
+    pop.hidden = false;
+    placeMenu();
+    placeToast();
+    return true;
+  }
+  function hidePanel(refocus) {
+    if (!fab || !fab.panel) return;
+    const [pop, b] = panelParts(fab.panel);
+    fab.panel = "";
+    b.classList.remove("is-open");
+    b.setAttribute("aria-expanded", "false");
+    if (refocus) b.focus();             // до скрытия: фокус из панели не должен упасть на страницу
+    pop.hidden = true;
+    placeToast();
+    // Кнопки показаны наведением, а курсор уже ушёл (выбрали и увели мышь) — скрываются следом.
+    if (fab.open === "hover" && !hovered(fab.host)) fabHoverOut();
+  }
+  // Закрыть открытую панель (у панели языка — своё закрытие).
+  function closePanel(refocus) {
+    if (!fab || !fab.panel) return;
+    if (fab.panel === "lang") closeLangPanel(refocus);
+    else hidePanel(refocus);
+  }
+  function openMore(byKeyboard) {
+    if (!showPanel("more")) return;
+    if (byKeyboard) { const first = fab.morePop.querySelector(".fk-opt"); if (first) first.focus(); }
+  }
+
+  // ---- панель языка ----
+  // Панель у «RU»: поле поиска и строки языков. Поле пустое — «Недавние»: текущий язык (галочка)
+  // и до 4 недавних (recentLangs, как в окне расширения); недавних нет — языки браузера и английский. Набрали —
+  // «Все языки»: совпадения по началу любого слова самоназвания, названия на языке интерфейса или кода; видно
+  // 6 строк, дальше прокрутка. Фокус остаётся в поле: ↑ ↓ — по строкам (aria-activedescendant), Enter — выбрать,
+  // Esc — закрыть (escRestore), Tab — к «⋯», Shift+Tab — к «RU». Выбор пишет targetLang и recentLangs только от
+  // настоящих событий и только коды из таблицы; переведённую страницу переводит заново storage.onChanged, как при
+  // смене языка в окне расширения. buildLangPanel зовётся из buildFab (fab ещё не присвоен) — элементы панели
+  // и её состояние держим в lp.
+  const LANG_RECENT_MAX = 6;            // недавних хранит окно расширения (RECENT_MAX в popup.js)
+  const LANG_SHOW = 4;                  // недавних в панели, без текущего
+  // pop, q (поле), gl (заголовок), list, none («Ничего не нашлось»); codes — коды строк по порядку, active — строка
+  // под фокусом (-1 — нет), recent — recentLangs из хранилища, span — высота панели за этот показ (см. langSpan).
+  let lp = null;
+  let langTable = null;                 // языки таблицы с названиями и свёртками для поиска (один раз)
+  function langRows() {
+    if (!langTable) langTable = LANGS.map(([code, name]) => {
+      const ui = HT_langLabel(code);
+      const label = ui.toLowerCase() === name.toLowerCase() ? "" : ui;   // совпадает с самоназванием — не пишем
+      return { code, name, label, fn: langFold(name), fl: langFold(label), fc: langFold(code) };
+    });
+    return langTable;
+  }
+  function langRow(code) { return langRows().find((r) => r.code === code) || null; }
+  function langOk(code) { return HT_valid("targetLang", code) === code; }
+
+  // Свёртка для поиска: без регистра и диакритики («portugues» находит Português, «е» — «ё»). Посимвольно и той же
+  // длины, что строка: место совпадения в свёртке — место в самой строке (там ставится <mark>). Символ, который
+  // без знаков распадается на несколько (слог хангыля), остаётся как есть.
+  function langFold(s) {
+    let o = "";
+    for (const c of s) {
+      if (c.length > 1) { o += c; continue; }
+      const base = c.normalize("NFD").replace(/\p{M}/gu, "");
+      const low = (base.length === 1 ? base : c).toLowerCase();
+      o += low.length === 1 ? low : c;
     }
-    const items = Array.from(fab.items.querySelectorAll(".fm-item"));
-    const i = items.indexOf(cur);
+    return o;
+  }
+  // Где запрос совпал с началом слова свёрнутой строки (слово — буквы, цифры и знаки при них); -1 — нигде.
+  const LANG_WORD = /[\p{L}\p{N}\p{M}]/u;
+  function langHit(f, fq) {
+    let prev = false;
+    for (let i = 0; i < f.length;) {
+      const ch = String.fromCodePoint(f.codePointAt(i)), w = LANG_WORD.test(ch);
+      if (w && !prev && f.startsWith(fq, i)) return i;
+      prev = w;
+      i += ch.length;
+    }
+    return -1;
+  }
+
+  // Поле пустое: текущий язык и недавние без него; недавних нет — языки браузера (по таблице) и английский.
+  function langDefault() {
+    const cur = settings.targetLang;
+    let more = (lp.recent || []).filter((c) => langOk(c) && c !== cur);
+    if (!more.length) {
+      more = Array.from(navigator.languages || [navigator.language]).map(HT_targetFromLocale);
+      if (!more.concat(cur).some((c) => HT_langKey(c) === "en")) more.push(HT_targetFromLocale("en"));
+      more = more.filter((c) => langOk(c) && c !== cur);
+    }
+    return [cur].concat(Array.from(new Set(more)).slice(0, LANG_SHOW)).map((c) => ({ r: langRow(c) })).filter((x) => x.r);
+  }
+  // Набрали: все языки таблицы, у которых совпало начало слова; сначала те, у кого совпало начало названия или кода.
+  function langFind(fq) {
+    const out = [];
+    for (const r of langRows()) {
+      const n = langHit(r.fn, fq), l = r.label ? langHit(r.fl, fq) : -1, c = langHit(r.fc, fq);
+      if (n >= 0 || l >= 0 || c >= 0) out.push({ r, n, l, first: n === 0 || l === 0 || c === 0 });
+    }
+    return out.filter((x) => x.first).concat(out.filter((x) => !x.first));
+  }
+
+  // Текст строки; совпадение [i, i + len) — в <mark> (через DOM, без разметки).
+  function langText(cls, text, i, len) {
+    const el = h("span", { class: cls, dir: cls === "nm" ? "auto" : null });
+    if (i == null || i < 0) el.textContent = text;
+    else el.append(text.slice(0, i), h("mark", null, text.slice(i, i + len)), text.slice(i + len));
+    return el;
+  }
+  function langOpt(x, i, len) {
+    const { r } = x, sel = r.code === settings.targetLang;
+    const ck = sel ? icon("check", 16) : null;
+    if (ck) ck.classList.add("ck");
+    const b = h("button", { type: "button", class: "fk-opt" + (sel ? " sel" : ""), role: "option", id: "fk-lo-" + i, tabindex: "-1",
+      "aria-selected": String(sel), "data-code": r.code },
+      langText("nm", r.name, x.n, len), r.label ? langText("cd", r.label, x.l, len) : null, ck);
+    b.addEventListener("click", (e) => { if (e.isTrusted) chooseLang(r.code); });
+    return b;
+  }
+  // Строки — по полю: пустое — недавние, иначе совпадения (нет — «Ничего не нашлось», не строка списка).
+  function langRender() {
+    const q = lp.q.value.trim(), fq = langFold(q);
+    const xs = q ? langFind(fq) : langDefault();
+    lp.gl.textContent = HT_t(q ? "csFkAll" : "csFkRecent");
+    lp.list.replaceChildren(...xs.map((x, i) => langOpt(x, i, fq.length)));
+    lp.list.hidden = !xs.length;
+    lp.list.scrollTop = 0;
+    lp.none.textContent = q && !xs.length ? HT_t("csFkNone") : "";
+    lp.none.hidden = !lp.none.textContent;
+    lp.codes = xs.map((x) => x.r.code);
+    langActive(q && xs.length ? 0 : -1);
+    if (fab && fab.panel === "lang") placePanel();
+  }
+  // Строка под фокусом: .is-focus и aria-activedescendant у поля; список прокручивается к ней.
+  function langActive(i) {
+    lp.active = i;
+    for (const el of lp.list.querySelectorAll(".is-focus")) el.classList.remove("is-focus");
+    const el = i >= 0 ? lp.list.children[i] : null;
+    if (!el) { lp.q.removeAttribute("aria-activedescendant"); return; }
+    el.classList.add("is-focus");
+    lp.q.setAttribute("aria-activedescendant", el.id);
+    const L = lp.list, top = el.getBoundingClientRect().top - L.getBoundingClientRect().top + L.scrollTop;
+    if (top < L.scrollTop) L.scrollTop = top;
+    else if (top + el.offsetHeight > L.scrollTop + L.clientHeight) L.scrollTop = top + el.offsetHeight - L.clientHeight;
+  }
+  function langKey(e) {
+    if (!e.isTrusted || !fab || fab.panel !== "lang" || e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+    const n = lp.codes.length, i = lp.active;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (n) langActive(e.key === "ArrowDown" ? Math.min(i + 1, n - 1) : i < 0 ? n - 1 : Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (i >= 0) chooseLang(lp.codes[i]);
+    } else if (e.key === "Tab") {
+      // Из панели — к соседям «RU»: вперёд — «⋯», назад — сама «RU» (по DOM поле стоит после всех кнопок).
+      e.preventDefault();
+      if (e.shiftKey) closeLangPanel(true);
+      else { closeLangPanel(false); fab.moreBtn.focus(); }
+    }
+  }
+
+  // recentLangs из хранилища (не прочлось — что было).
+  function langRecentRead() {
+    const was = () => (lp && lp.recent) || [];
+    try {
+      return chrome.storage.local.get("recentLangs")
+        .then((s) => (s && Array.isArray(s.recentLangs) ? s.recentLangs.filter((c) => typeof c === "string") : []), was);
+    } catch (e) { return Promise.resolve(was()); }
+  }
+  // Выбор: как в окне расширения — targetLang и recentLangs = [новый, прежний, …остальные недавние], до 6, только
+  // коды из таблицы. Недавние перечитываем перед записью: окно могло их сменить.
+  function chooseLang(code) {
+    if (!fab || !langOk(code)) return;
+    const prev = settings.targetLang;
+    closeLangPanel(true);
+    if (code === prev) return;
+    langRecentRead().then((rec) => {
+      const recent = [code, prev].concat(rec.filter((c) => c !== code && c !== prev)).filter(langOk).slice(0, LANG_RECENT_MAX);
+      if (lp) lp.recent = recent;
+      return chrome.storage.local.set({ targetLang: code, recentLangs: recent });
+    }).catch(() => {});
+  }
+
+  // Высота, по которой панель встаёт вровень с низом кружка (столбик вверх), — наибольшая за этот показ: список
+  // сократился при наборе — верх панели и поле под пальцами остаются на месте, вырос — панель поднимается.
+  function langSpan(ph) { lp.span = Math.max(lp.span, ph); return lp.span; }
+
+  function buildLangPanel() {
+    const q = h("input", { type: "search", class: "fk-q", placeholder: HT_t("csFkFind"), "aria-label": HT_t("csFkFind"),
+      role: "combobox", "aria-autocomplete": "list", "aria-expanded": "true", "aria-controls": "fk-lang-list",
+      autocomplete: "off", spellcheck: "false" });
+    const gl = h("p", { class: "fk-gl", id: "fk-lang-gl" });
+    const list = h("div", { class: "fk-list", id: "fk-lang-list", role: "listbox", "aria-labelledby": "fk-lang-gl" });
+    const none = h("p", { class: "fk-none", role: "status", hidden: true });
+    const pop = h("div", { class: "fk-pop", id: "fk-lang", role: "dialog", "aria-label": HT_t("csFkFind"), hidden: true },
+      h("div", { class: "fk-find" }, icon("search", 16), q), gl, list, none);
+    lp = { pop, q, gl, list, none, codes: [], active: -1, recent: null, span: 0 };
+    q.addEventListener("input", () => { if (fab && fab.panel === "lang") langRender(); });
+    q.addEventListener("keydown", langKey);
+    // Набор в поле — только нам: сочетания клавиш сайта («/», j и k, пробел у видео) от него не срабатывают. Наши
+    // обработчики на document (Esc, клавиша перевода) ловят на погружении, до поля, — им это не мешает.
+    for (const t of ["keydown", "keyup", "keypress"]) q.addEventListener(t, (e) => e.stopPropagation());
+    langRecentRead().then((rec) => { if (lp && lp.q === q) lp.recent = rec; });
+    return pop;
+  }
+  function openLangPanel(byKeyboard) {
+    if (!fab || !lp) return;
+    lp.q.value = "";
+    lp.span = 0;
+    langRender();                       // до показа: место панели — по её высоте
+    if (!showPanel("lang")) return;
+    if (byKeyboard) lp.q.focus();
+    // Недавние могли смениться в окне расширения — перечитываем; другие, а поле ещё пустое, — перерисовываем.
+    const q = lp.q;
+    langRecentRead().then((rec) => {
+      if (!lp || lp.q !== q) return;
+      const same = JSON.stringify(rec) === JSON.stringify(lp.recent);
+      lp.recent = rec;
+      if (!same && fab && fab.panel === "lang" && !q.value.trim()) langRender();
+    });
+  }
+  function closeLangPanel(refocus) {
+    if (fab && fab.panel === "lang") hidePanel(refocus);
+  }
+  // ---- конец панели языка ----
+
+  // Клавиатура в столбике: ↑ ↓ Home End — по кнопкам по его направлению (вверх — дальше от кружка; в .down — вниз).
+  // Tab и Shift+Tab — обычные: из «⋯» фокус уходит дальше, и кнопки скрываются (fabFocusOut).
+  function barKey(e) {
+    if (!e.isTrusted || !fab || e.altKey || e.ctrlKey || e.metaKey) return;
+    const all = fabBtns(), i = all.indexOf(fab.root.activeElement);
+    if (i < 0) return;
+    const down = fab.fk.classList.contains("down");
+    const k = e.key, n = all.length;
+    const to = k === (down ? "ArrowDown" : "ArrowUp") ? i + 1 : k === (down ? "ArrowUp" : "ArrowDown") ? i - 1
+      : k === "Home" ? 0 : k === "End" ? n - 1 : null;
+    if (to === null) return;
+    e.preventDefault();
+    all[Math.max(0, Math.min(to, n - 1))].focus();
+  }
+  // «⋯»: ↑ ↓ Home End — по пунктам по кругу.
+  function moreKey(e) {
+    if (!e.isTrusted || !fab) return;
+    const items = Array.from(fab.morePop.querySelectorAll(".fk-opt"));
+    const i = items.indexOf(fab.root.activeElement);
     if (i < 0) return;
     const n = items.length;
     const to = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? n - 1 : null;
@@ -3527,11 +3830,11 @@
     items[(to + n) % n].focus();
   }
 
-  // Цвета кружка и меню — по фону сайта (сайт мог сменить тему, пока кружок на экране).
+  // Цвета кружка, кнопок, подсказки и панелей — по фону сайта (сайт мог сменить тему, пока кружок на экране).
   function themeFab() {
     if (!fab) return;
     const dk = siteDark();
-    for (const el of [fab.ui, fab.w, fab.menu]) el.classList.toggle("dk", dk);
+    for (const el of [fab.ui, fab.w, fab.fk, fab.tip, fab.langPop, fab.morePop]) el.classList.toggle("dk", dk);
   }
 
   // «Перевожу… 5 из 12» — те же слова и числа, что в окне расширения.
@@ -3539,7 +3842,7 @@
     return HT_t("ppBusy") + (total ? " " + HT_t("ppBusyN", [HT_num(done), HT_num(total)]) : "");
   }
 
-  // Кружок и меню — по состоянию страницы (зовётся из pushState и при каждой смене того, что они показывают).
+  // Кружок и кнопки — по состоянию страницы (зовётся из pushState и при каждой смене того, что они показывают).
   function syncFab() {
     if (!fab) return;
     const page = pageNow();
@@ -3552,104 +3855,120 @@
       if (!fab.ring.isConnected) fab.btn.after(fab.ring);
       fab.pill.textContent = busyText(busy.done, busy.total);
     } else fab.ring.remove();
-    // Подпись — пока меню закрыто: открытое меню говорит то же самое и стоит на её месте.
-    if (busy && !fab.open) { if (!fab.pill.isConnected) fab.btn.before(fab.pill); sideFab(); } else fab.pill.remove();
+    // Подпись — и при показанных кнопках: они над кружком (или под ним), не на её месте.
+    if (busy) { if (!fab.pill.isConnected) fab.btn.before(fab.pill); sideFab(); } else fab.pill.remove();
     // Точка: красная (перевод не работает) важнее янтарной (ждём щелчка по тексту); одна за раз.
     const dot = problem() || failErr ? "err" : needClick ? "warn" : "";
     if (dot) { fab.dot.className = "fab-dot " + dot; if (!fab.dot.isConnected) fab.w.appendChild(fab.dot); } else fab.dot.remove();
-    if (fab.open) syncMenu(page);
+    if (fab.open) syncBar(page);
   }
 
-  // Меню: язык и место действия (как в окне расширения: «Перевести страницу» → «Перевожу… N из M» + «Стоп» →
-  // сегмент «Оригинал | Перевод»; после «Стопа» — «Перевести страницу» и «Перевод в N местах · Показать оригинал»).
-  // Место действия перерисовываем, только когда меняется его вид; ход перевода — на месте, чтобы фокус на «Стопе»
-  // не терялся. Перерисовали, а фокус был в нём — фокус на тот же контрол (или на первый).
-  function syncMenu(page) {
-    if (!pickerOpen()) fab.sel.value = settings.targetLang;
-    fab.menu.setAttribute("data-page", page);
-    const spec = actSpec(page);
-    if (spec.key !== fab.actKey) {
-      const had = fab.root.activeElement;
-      const k = had && fab.act.contains(had) ? had.getAttribute("data-k") || "" : null;
-      fab.actKey = spec.key;
-      fab.act.replaceChildren(...spec.build());
-      if (k !== null) {
-        // Тот же контрол, иначе первый доступный с Tab (в сегменте — выбранный, у невыбранного tabindex −1).
-        const to = (k && fab.act.querySelector(`[data-k="${k}"]`)) || fab.act.querySelector('button:not([tabindex="-1"])');
-        if (to) to.focus();
-      }
+  // Кнопки: главная — по состоянию страницы (вид и действие меняются на месте, фокус остаётся на ней), код языка,
+  // подсказка открытой кнопки — тоже на месте.
+  function syncBar(page) {
+    const s = mainSpec(page), b = fab.mainBtn;
+    fab.mainSpec = s;
+    const key = s.act + ":" + s.cls + ":" + s.icon;
+    if (key !== fab.mainKey) {
+      fab.mainKey = key;
+      b.className = "fk-btn" + (s.cls ? " " + s.cls : "");
+      b.setAttribute("data-act", s.act);
+      b.replaceChildren(s.icon === "stop" ? h("span", { class: "stp" }, stopIcon()) : icon(s.icon, 18));
     }
-    if (page === "busy" && pageBusy) {
-      const { done, total } = pageBusy;
-      const n = fab.act.querySelector(".fm-busy-t span");
-      if (n) n.textContent = busyText(done, total);
-      const bar = fab.act.querySelector(".fm-prog");
-      if (bar) {
-        bar.firstChild.style.width = (total ? Math.min(100, (100 * done) / total) : 0) + "%";
-        bar.setAttribute("aria-valuemax", String(total));
-        bar.setAttribute("aria-valuenow", String(done));
-      }
-    }
+    b.setAttribute("aria-label", s.t);
+    // Код языка — до «-», заглавными: EN-US → EN, ZH-HANT → ZH, PT-BR → PT.
+    fab.code.textContent = String(settings.targetLang || "").split("-")[0].toUpperCase();
+    fab.langBtn.setAttribute("aria-label", tipSpec(fab.langBtn).t);
+    if (fab.tipFor) { fillTip(tipSpec(fab.tipFor)); placeTip(); }
   }
 
-  // Что показать в месте действия: { key, build() → [узлы] }.
-  function actSpec(page) {
-    const hint = (parts) => {
-      const p = h("p", { class: "fm-hint" }, ...parts);
-      p.title = p.textContent;          // обрезанную многоточием строку можно прочитать целиком
-      return p;
-    };
-    const translateBtn = () => uiButton("fm-btn", { "data-k": "translate" }, [icon("languages", 16), HT_t("translatePage")], () => translatePage("popup"));
-    if (page === "busy") {
-      return { key: "busy", build: () => {
-        const bar = h("span", { class: "fm-prog", role: "progressbar", "aria-label": HT_t("ppBusyAria"), "aria-valuemin": "0" }, h("span", {}));
-        const stop = uiButton("fm-btn2", { "data-k": "stop" }, [stopIcon(), HT_t("ppStop")], () => stopPage());
-        return [h("div", { class: "fm-busy" },
-          h("div", { class: "fm-busy-b", role: "status" }, h("span", { class: "fm-busy-t" }, icon("spin", 16), h("span", {})), bar), stop),
-        hint([HT_t("ppRestLater")])];
-      } };
+  // Главная кнопка: { act, cls, icon, t (заголовок подсказки и aria-label), kbd (клавиша), sub (пояснение) }.
+  // Перевод идёт — «Стоп»; переведена — «Показать оригинал» (Esc); показан оригинал — «Показать перевод»; перевод
+  // не работает — «!» и уведомление, что делать; иначе — «Перевести страницу» с клавишей и вторым способом.
+  function mainSpec(page) {
+    if (page === "busy") return { act: "stop", cls: "", icon: "stop", t: HT_t("csFkStop"), kbd: "", sub: HT_t("csFkStopSub") };
+    if (page === "done") return { act: "orig", cls: "", icon: "undo", t: HT_t("csShowOrig"), kbd: "Esc", sub: menuPair() };
+    if (page === "orig") return { act: "tr", cls: "pri", icon: "languages", t: HT_t("csFkShowTr"), kbd: "", sub: HT_t("ppOrigHint", menuPair()) };
+    const p = problem();
+    if (p || failErr) {
+      const why = p ? HT_problemText(p, "short", netState()) : failNote ? failNote.reason : "";
+      return { act: "err", cls: "bad", icon: "alert", t: HT_t("probTitle"), kbd: "", sub: why ? HT_t("csFkErrSub", bare(why)) : "" };
     }
-    if (page === "done" || page === "orig") {
-      const pair = menuPair();
-      return { key: "seg:" + page + ":" + pair, build: () => {
-        const tr = page === "done";
-        const run = (toTr) => { if (toTr && pageNow() !== "done") translatePage("popup"); else if (!toTr && pageNow() === "done") restoreAll(); };
-        const opt = (isTr) => {
-          const b = uiButton("", { role: "radio", "aria-checked": String(tr === isTr), tabindex: tr === isTr ? "0" : "-1",
-            "data-k": isTr ? "tr" : "orig" }, [HT_t(isTr ? "ppTr" : "ppOrig")], () => run(isTr));
-          // Сегмент — radiogroup: стрелки переключают и сразу применяют выбор (как в окне расширения).
-          b.addEventListener("keydown", (e) => {
-            if (!e.isTrusted || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) return;
-            e.preventDefault();
-            if (b.getAttribute("aria-checked") === "true") run(!isTr); else run(isTr);
-          });
-          return b;
-        };
-        return [h("div", { class: "fm-seg", role: "radiogroup", "aria-label": HT_t("ppSegAria") }, opt(false), opt(true)),
-          hint([HT_t(tr ? "ppEscHint" : "ppOrigHint", pair)])];
-      } };
-    }
+    const s = { act: "translate", cls: "pri", icon: "languages", t: HT_t("translatePage"), kbd: fab.keys };
     const count = shownCount();
-    if (page === "part" && count > 0) {
-      return { key: "part:" + count, build: () => [translateBtn(),
-        hint([HT_plural("ppPartDone", count) + " · ",
-          uiButton("lnk", { "data-k": "restore", title: HT_t("csShowOrigEsc") }, [HT_t("ppShowOrig")], () => restoreAll())])] };
+    if (page === "part" && count > 0) s.sub = HT_t("ppEscHint", HT_plural("ppPartDone", count));
+    else if (needClick) s.sub = HT_t("csClickPair");
+    else {
+      // Второй способ — как в окне (страница уже на языке перевода — честно об этом).
+      const lang = String(document.documentElement.lang || "");
+      const key = HT_triggerKey(settings.trigger, HT_isMac());
+      if (lang && HT_langKey(lang) === HT_langKey(settings.targetLang)) s.sub = HT_t("ppAlready");
+      else s.sub = key ? HT_t("csFkOrKey", key) : HT_t("csFkOrDwell");
     }
-    // Можно переводить: подсказка — как в окне (страница уже на языке перевода — честно об этом).
-    const lang = String(document.documentElement.lang || "");
-    const already = !!lang && HT_langKey(lang) === HT_langKey(settings.targetLang);
-    const key = HT_triggerKey(settings.trigger, HT_isMac());
-    let parts;
-    if (already) parts = [HT_t("ppAlready")];
-    else if (key) {
-      const MARK = "";
-      const s = HT_t("ppHintKey", MARK).split(MARK);
-      parts = [s[0] || "", h("span", { class: "fm-kbd" }, key), s[1] || ""];
-    } else parts = [HT_t("ppHintDwell")];
-    return { key: "idle:" + (already ? "a" : key || "d"), build: () => [translateBtn(), hint(parts)] };
+    return s;
+  }
+  // Причина для подсказки: с заглавной и без точки в конце (за ней — « · щёлкните — что делать»).
+  function bare(s) { return capFirst(String(s || "").trim().replace(/\.+$/, "")); }
+  function mainAct() {
+    if (!fab) return;
+    const act = fab.mainBtn.getAttribute("data-act");
+    if (act === "stop") stopPage();
+    else if (act === "orig") restoreAll();
+    else if (act === "err") {
+      // Как Shift на тексте: уведомление с причиной и тем, что делать (сбой — то же, что показали при нём).
+      const p = problem();
+      if (p) problemNotice(p);
+      else if (failNote) showToast(Object.assign({}, failNote.toast));
+    } else translatePage("popup");
   }
 
-  // Пара языков для сегмента — как в окне: язык оригинала по ответам переводчика или по атрибуту lang страницы;
+  // Подсказка кнопки: { t, kbd, sub }.
+  function tipSpec(b) {
+    if (b === fab.mainBtn) return fab.mainSpec || mainSpec(pageNow());
+    if (b === fab.langBtn) return { t: HT_t("csFkLang", capFirst(HT_langLabel(settings.targetLang))) };
+    return { t: HT_t("csFkMore") };
+  }
+  function fillTip(s) {
+    fab.tipT.replaceChildren(s.t);
+    if (s.kbd) fab.tipT.appendChild(h("span", { class: "fk-kbd" }, s.kbd));
+    fab.tipS.textContent = s.sub || "";
+    fab.tipS.hidden = !s.sub;
+  }
+  // Показать подсказку у кнопки (одна за раз; при открытой панели — нет).
+  function showTip(b) {
+    if (!fab || !fab.open || fab.panel || fab.drag) return;
+    if (fab.tipFor && fab.tipFor !== b) fab.tipFor.removeAttribute("aria-describedby");
+    fab.tipFor = b;
+    fillTip(tipSpec(b));
+    b.setAttribute("aria-describedby", "fk-tip");
+    fab.tip.hidden = false;
+    placeTip();
+  }
+  function hideTip() {
+    if (!fab || !fab.tipFor) return;
+    fab.tipFor.removeAttribute("aria-describedby");
+    fab.tipFor = null;
+    fab.tip.hidden = true;
+  }
+  // Курсор ушёл с кнопки: подсказка — у кнопки с фокусом с клавиатуры (если он есть), иначе прячется.
+  function tipBack() {
+    const a = fab && fab.root.activeElement;
+    if (a && a.classList.contains("fk-btn") && focusVisible(a)) showTip(a);
+    else hideTip();
+  }
+
+  // Сочетание «Перевести страницу» — настоящее, из chrome.commands (его меняют на chrome://extensions/shortcuts):
+  // спрашиваем background при каждом показе кнопок; пришло другое — подсказка обновляется.
+  function askKeys() {
+    send({ type: "shortcut", name: "translate-page" }).then((k) => {
+      const s = typeof k === "string" ? k.slice(0, 40) : "";
+      if (!fab || s === fab.keys) return;
+      fab.keys = s;
+      if (fab.open) syncBar(pageNow());
+    }).catch(() => {});
+  }
+
+  // Пара языков для подсказок — как в окне: язык оригинала по ответам переводчика или по атрибуту lang страницы;
   // неизвестен или совпадает с языком перевода — «На русский».
   function menuPair() {
     const tgt = settings.targetLang;
@@ -3762,7 +4081,7 @@
     if (off) list.push(SITE);
     await chrome.storage.local.set({ disabledSites: list.slice(-HT_SITES_MAX) });
   }
-  // Пункт меню плавающей кнопки. Сайт выключаем сразу (не дожидаясь ответа хранилища): перевод, кружок и
+  // Пункт «⋯» у плавающей кнопки. Сайт выключаем сразу (не дожидаясь ответа хранилища): перевод, кружок и
   // карточки уходят тут же. Кнопка «Включить снова» — на случай промаха.
   function disableSiteFromFab() {
     siteOff = true;
@@ -3777,8 +4096,8 @@
   // ---- уведомление ----
   // 360 px, вверху справа с отступом 16. Если там оно закрыло бы абзац под курсором или тот, что
   // переводится, — внизу справа над плавающей кнопкой: низ уведомления на 12 выше верха кружка (кружок справа
-  // внизу — bottom 72; без кружка или он у левого края — 16; кружок утащили наверх — не накрывает его, открытое
-  // меню — тоже). Значок расширения 20 — во всех уведомлениях (видно, что это не сайт); смысл —
+  // внизу — bottom 72; без кружка или он у левого края — 16; кружок утащили наверх — не накрывает его, показанные
+  // кнопки и панель — тоже). Значок расширения 20 — во всех уведомлениях (видно, что это не сайт); смысл —
   // иконкой 16 в заголовке: ✓ зелёная, ! красная, курсор. Кнопки 32 (главная — синяя), ✕ 32, полоса
   // загрузки 4. Уведомление на экране одно: новое заменяет прежнее.
   // Кнопки и ✕ — в закрытом shadow root и срабатывают только от настоящего щелчка; пока на уведомлении
@@ -3795,11 +4114,15 @@
     const t = currentToast;
     if (!t || !t.host.isConnected) return;
     const s = t.host.style;
-    // Кружок вместе с открытым меню: меню — внутри его хоста, а уведомление лежит слоем выше и не должно его закрыть.
+    // Кружок вместе с показанными кнопками и открытой панелью: они — внутри его хоста, а уведомление лежит слоем выше
+    // и не должно их закрыть.
     let hr = fab && fab.host.isConnected ? fab.host.getBoundingClientRect() : null;
     if (hr && menuOpen()) {
-      const m = fab.menu.getBoundingClientRect();
-      hr = { left: Math.min(hr.left, m.left), top: Math.min(hr.top, m.top), right: Math.max(hr.right, m.right), bottom: Math.max(hr.bottom, m.bottom) };
+      for (const el of [fab.fk, fab.langPop, fab.morePop]) {
+        if (el.hidden) continue;
+        const m = el.getBoundingClientRect();
+        hr = { left: Math.min(hr.left, m.left), top: Math.min(hr.top, m.top), right: Math.max(hr.right, m.right), bottom: Math.max(hr.bottom, m.bottom) };
+      }
     }
     const avoid = [t.anchor, hoverEl, work].filter((el) => el && el.nodeType === 1 && el.isConnected).map((el) => el.getBoundingClientRect());
     const hits = (r) => avoid.some((a) => a.width && a.height && cross(r, a));

@@ -1,8 +1,9 @@
 // Языки вживую: настоящее расширение в Chrome без интерфейса с английским и русским языком браузера.
 // Проверяет: язык интерфейса — по языку браузера; при установке язык перевода — English (US) для английского
 // браузера и русский для русского; в видимом тексте приветствия (и в его состоянии «Подключите переводчик»), окна
-// (настоящего и всех 19 состояний), уведомлений и плавающей кнопки (кружок и меню) на английском нет кириллицы, на русском — английских
-// слов, кроме названий сервисов, клавиш и самого расширения; нигде нет «абзац» / «paragraph»; пустых текстов нет;
+// (настоящего и всех 19 состояний), уведомлений и плавающей кнопки (кружок, кнопки над ним, их подсказки и панели)
+// на английском нет кириллицы, на русском — английских слов, кроме названий сервисов, клавиш и самого расширения;
+// нигде нет «абзац» / «paragraph»; пустых текстов нет;
 // значок расширения на приветствии и в окне — векторный (чёткий на экране ×2); в английском окне все 19 состояний
 // влезают (место действия 72, подсказки в одну строку, ничего не обрезано, подвал ≤ 182 px, ряды одной высоты, окно
 // ≤ 600) — русское проверяет live/popup.test.js; длинное имя сайта режется с начала («…garden-example.co.uk»),
@@ -13,7 +14,7 @@
 const assert = require("assert");
 const { launch, sleep, until } = require("../lib/chrome");
 const { serve } = require("../lib/server");
-const { pageUi, fabUi, clickUi, popupOpener, popupView, prepareBuiltin } = require("../lib/live");
+const { pageUi, fabUi, centerOf, clickUi, popupOpener, popupView, prepareBuiltin } = require("../lib/live");
 let LIVE = "";
 const LANGS = process.argv[2] ? [process.argv[2]] : ["en", "ru"];
 let pass = 0;
@@ -338,26 +339,64 @@ async function runLang(lang) {
     texts.push(...page);
     await pageShots("done");
     await sw.ev(`chrome.tabs.sendMessage(${tabId}, { type: "restoreAll" }, { frameId: 0 }).then(() => true)`);
-    // плавающая кнопка: подпись кружка, меню (язык, действие, пункты). Страницу только что переводили и вернули
-    // оригинал (restoreAll) — место действия, как в окне, сегмент «Оригинал | Перевод».
+    // плавающая кнопка: подпись кружка, кнопки над ним (главная, язык, «⋯») и их подсказки, пункты «⋯», поле панели
+    // языка. Страницу только что переводили и вернули оригинал (restoreAll) — главная, как в окне, «Показать перевод»
+    // (английская страница на английском браузере не переводилась — тогда «Перевести страницу»).
     await sw.ev(`chrome.tabs.sendMessage(${tabId}, { type: "toggleHud" }, { frameId: 0 }).then(() => true)`);
     assert.ok(await until(async () => (await pageUi(web)).hud, 3000), "плавающая кнопка показана");
     const fabAria = await msg("csFabAria", await msg("extShortName"));
     await web.mouse("mouseMoved", 990, 20); await sleep(100);
     await clickUi(web, "hud", fabAria);
-    assert.ok(await until(async () => (await fabUi(web)).open, 3000), "щелчок по кружку открыл меню");
-    const hud = (await pageUi(web)).hud;
-    for (const [k, sub] of [["csFabAria", await msg("extShortName")], ["targetLangAria"], ["ppOrig"], ["ppTr"], ["csFabSiteOff", "127.0.0.1"], ["csFabHide"], ["ppSettings"]]) {
-      assert.ok(hud.texts.includes(await msg(k, sub)), k + ": " + JSON.stringify(hud.texts));
+    assert.ok(await until(async () => (await fabUi(web)).open, 3000), "щелчок по кружку показал кнопки над ним");
+    // Строка s видна: текст, подпись, title или placeholder не скрытого элемента.
+    const shown = (u, s) => u.host.els.some((e) => !e.hidden && [e.text, e.attrs["aria-label"], e.attrs.title, e.attrs.placeholder].includes(s));
+    let fu = await fabUi(web);
+    const code = lang === "en" ? "EN" : "RU";
+    const tips = {};
+    const origT = await msg("csFkShowTr"), mainOk = lang === "en" ? [origT, await msg("translatePage")] : [origT];
+    assert.ok(fu.main && mainOk.includes(fu.main.attrs["aria-label"]), "главная — «Показать перевод»: " + JSON.stringify(fu.main && fu.main.attrs));
+    assert.ok(fu.lang && fu.lang.text === code && String(fu.lang.attrs["aria-label"]).startsWith(await msg("csFkLang", "")),
+      "кнопка языка «" + code + "»: " + JSON.stringify(fu.lang && [fu.lang.text, fu.lang.attrs["aria-label"]]));
+    assert.ok(fu.more && fu.more.attrs["aria-label"] === await msg("csFkMore"), "«⋯»: " + JSON.stringify(fu.more && fu.more.attrs));
+    // подсказки: наведение на каждую кнопку (заголовок подсказки = подпись кнопки)
+    for (const k of ["main", "lang", "more"]) {
+      const c = await centerOf(web, (await fabUi(web))[k].nodeId);
+      await web.mouse("mouseMoved", c.x, c.y);
+      fu = await until(async () => { const u = await fabUi(web); return u.tipText && u.tipText.t === u[k].attrs["aria-label"] ? u : null; }, 2000);
+      assert.ok(fu, k + ": подсказка при наведении — " + JSON.stringify((await fabUi(web)).tipText));
+      tips[k] = fu.tipText;
+      texts.push(...fu.host.texts);
+      if (k === "main") { await sleep(250); await web.shot(`page-fab-${lang}.png`); }
     }
-    console.log("      (плавающая кнопка: " + JSON.stringify(hud.texts) + ")");
-    texts.push(...hud.texts);
-    await web.shot(`page-fab-${lang}.png`);
+    console.log("      (подсказки: " + JSON.stringify(tips) + ")");
+    const origSub = (await msg("ppOrigHint", "")).trim();
+    assert.ok(tips.main.t === origT ? tips.main.sub.endsWith(origSub) && tips.main.sub.length > origSub.length + 2 : !!tips.main.sub,
+      "пояснение главной (у «Показать перевод» — пара и «показан оригинал»): " + JSON.stringify(tips.main));
+    // «⋯» — пункты
+    await clickUi(web, "hud", await msg("csFkMore"));
+    fu = await until(async () => { const u = await fabUi(web); return u.panel === "more" ? u : null; }, 2000);
+    assert.ok(fu, "«⋯» открыла панель");
+    for (const [k, sub] of [["csFabSiteOff", "127.0.0.1"], ["csFabHide"], ["ppSettings"]]) {
+      assert.ok(shown(fu, await msg(k, sub)), k + ": " + JSON.stringify(fu.host.texts));
+    }
+    texts.push(...fu.host.texts);
+    await sleep(250);                                   // снимок — после перехода цвета кнопок (.is-open)
+    await web.shot(`page-fab-more-${lang}.png`);
+    // «RU» / «EN» — панель языка с полем «Найти язык»
+    await clickUi(web, "hud", code);
+    fu = await until(async () => { const u = await fabUi(web); return u.panel === "lang" ? u : null; }, 2000);
+    assert.ok(fu, "«" + code + "» открыла панель языка");
+    assert.ok(shown(fu, await msg("csFkFind")), "поле «Найти язык»: " + JSON.stringify(fu.host.texts));
+    console.log("      (плавающая кнопка: " + JSON.stringify(fu.host.texts) + ")");
+    texts.push(...fu.host.texts);
+    assert.ok(fu.host.texts.includes(fabAria), "подпись кружка: " + JSON.stringify(fu.host.texts));
+    await sleep(250);
+    await web.shot(`page-fab-lang-${lang}.png`);
     await web.mouse("mouseMoved", 990, 20);
     await web.key("rawKeyDown", "Escape", "Escape", 0, 27); await web.key("keyUp", "Escape", "Escape", 0, 27); await sleep(150);
     await sw.ev(`chrome.tabs.sendMessage(${tabId}, { type: "toggleHud" }, { frameId: 0 }).then(() => true)`);
     assert.deepStrictEqual(langProblems(lang, [...new Set(texts)]), [], "чужой язык на странице");
-    ok(`${lang}: на странице — «Перевод не работает» с кнопками и значком, «перевести страницу», плавающая кнопка с меню: ${new Set(texts).size} строк без чужого языка; скриншоты page-*-${lang}-*.png`);
+    ok(`${lang}: на странице — «Перевод не работает» с кнопками и значком, «перевести страницу», плавающая кнопка (кнопки над кружком, подсказки, «⋯», панель языка): ${new Set(texts).size} строк без чужого языка; скриншоты page-*-${lang}-*.png`);
 
     assert.deepStrictEqual(errors, [], "исключения в консоли");
   } finally {

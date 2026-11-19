@@ -22,9 +22,6 @@
   "openSettings": {
     "message": "Открыть настройки"
   },
-  "targetLangAria": {
-    "message": "Язык перевода"
-  },
   "srcAuto": {
     "message": "Определять автоматически"
   },
@@ -728,9 +725,6 @@
   "csShowOrig": {
     "message": "Показать оригинал"
   },
-  "csShowOrigEsc": {
-    "message": "Показать оригинал · Esc"
-  },
   "csOrigShown": {
     "message": "Показан оригинал"
   },
@@ -869,7 +863,7 @@
     "message": "Скопировано"
   },
   "csFabAria": {
-    "message": "$name$ — меню",
+    "message": "$name$ — кнопки перевода",
     "placeholders": {
       "name": {
         "content": "$1",
@@ -896,6 +890,60 @@
   },
   "csFabBack": {
     "message": "Вернуть"
+  },
+  "csFkMore": {
+    "message": "Ещё"
+  },
+  "csFkLang": {
+    "message": "Язык перевода: $lang$",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "Русский"
+      }
+    }
+  },
+  "csFkFind": {
+    "message": "Найти язык"
+  },
+  "csFkRecent": {
+    "message": "Недавние"
+  },
+  "csFkAll": {
+    "message": "Все языки"
+  },
+  "csFkNone": {
+    "message": "Ничего не нашлось"
+  },
+  "csFkOrKey": {
+    "message": "Или наведите курсор на текст и нажмите $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1",
+        "example": "Shift"
+      }
+    }
+  },
+  "csFkOrDwell": {
+    "message": "Или задержите курсор на тексте"
+  },
+  "csFkStop": {
+    "message": "Остановить перевод"
+  },
+  "csFkStopSub": {
+    "message": "Уже переведённое останется на странице"
+  },
+  "csFkShowTr": {
+    "message": "Показать перевод"
+  },
+  "csFkErrSub": {
+    "message": "$reason$ · щёлкните — что делать",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Не задан ключ DeepL"
+      }
+    }
   },
   "ppScope": {
     "message": "Везде"
@@ -2038,7 +2086,7 @@
     "message": "Показывать плавающую кнопку"
   },
   "opFabD": {
-    "message": "Кружок у края страницы. Наведите на него — откроется меню с языком перевода и «Перевести страницу». Если он что-то закрывает, перетащите его."
+    "message": "Кружок у края страницы. Наведите на него — над ним появятся кнопки: перевести страницу и выбрать язык. Если кружок что-то закрывает, перетащите его."
   },
   "opTarget": {
     "message": "Язык перевода"

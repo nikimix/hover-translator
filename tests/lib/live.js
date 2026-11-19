@@ -11,8 +11,8 @@
 const http = require("http");
 const { sleep, until } = require("./chrome");
 
-// Слои нашего интерфейса (z-index хоста, см. content.js): карточка < плавающая кнопка (кружок и его меню — один хост,
-// слой зовётся hud со времён мини-панели) < уведомление.
+// Слои нашего интерфейса (z-index хоста, см. content.js): карточка < плавающая кнопка (кружок, кнопки над ним и их
+// панели — один хост, слой зовётся hud со времён мини-панели) < уведомление.
 const LAYERS = { 2147483644: "card", 2147483645: "hud", 2147483646: "toast" };
 
 function attrsOf(n) {
@@ -26,9 +26,10 @@ function textOf(n) {
   return (n.children || []).concat(n.shadowRoots || []).map(textOf).join("");
 }
 
-// { toast, hud, card } — каждый null или { hostId, els, texts }: els — элементы внутри хоста ({ nodeId, tag,
-// attrs, text, hidden }), texts — видимые человеку строки (текстовые узлы, title, aria-label; без списков
-// языков — это самоназвания). Ещё all — все хосты по порядку.
+// { toast, hud, card } — каждый null или { hostId, els, texts }: els — элементы внутри хоста ({ nodeId, parent, tag,
+// attrs, text, hidden }; parent — nodeId родителя), texts — видимые человеку строки (текстовые узлы, title,
+// aria-label; без списков языков — это самоназвания: select и самоназвания в панели языка у кружка, #fk-lang .nm).
+// Ещё all — все хосты по порядку.
 async function pageUi(tab) {
   const { root } = await tab.cmd("DOM.getDocument", { depth: -1, pierce: true });
   const out = { toast: null, hud: null, card: null, all: [] };
@@ -37,19 +38,21 @@ async function pageUi(tab) {
     if (n.nodeType === 1 && "data-ht-ui" in a) {
       const z = ((a.style || "").match(/z-index:\s*(\d+)/) || [])[1];
       const host = { kind: LAYERS[z] || "other", hostId: n.nodeId, els: [], texts: [] };
-      const walk = (m, hidden, skip) => {
+      const walk = (m, hidden, skip, langs, parent) => {
         const ma = attrsOf(m);
         const hid = hidden || (m.nodeType === 1 && "hidden" in ma);
-        const sk = skip || m.nodeName === "OPTION" || m.nodeName === "SELECT" || m.nodeName === "STYLE";
-        if (m.nodeType === 1 && m !== n) host.els.push({ nodeId: m.nodeId, tag: m.nodeName, attrs: ma, text: textOf(m).trim(), hidden: hid });
+        const inLangs = langs || ma.id === "fk-lang";
+        const sk = skip || m.nodeName === "OPTION" || m.nodeName === "SELECT" || m.nodeName === "STYLE"
+          || (inLangs && String(ma.class || "").split(/\s+/).includes("nm"));
+        if (m.nodeType === 1 && m !== n) host.els.push({ nodeId: m.nodeId, parent, tag: m.nodeName, attrs: ma, text: textOf(m).trim(), hidden: hid });
         if (!sk) {
           if (m.nodeType === 3 && m.nodeValue.trim()) host.texts.push(m.nodeValue.trim());
           for (const k of ["title", "aria-label"]) if (m !== n && ma[k]) host.texts.push(ma[k]);
         }
-        for (const c of m.children || []) walk(c, hid, sk);
-        for (const s of m.shadowRoots || []) walk(s, hid, sk);
+        for (const c of m.children || []) walk(c, hid, sk, inLangs, m.nodeId);
+        for (const s of m.shadowRoots || []) walk(s, hid, sk, inLangs, m.nodeId);
       };
-      walk(n, false, false);
+      walk(n, false, false, false, null);
       out.all.push(host);
       if (host.kind in out && !out[host.kind]) out[host.kind] = host;
       return;
@@ -82,17 +85,31 @@ async function centerOf(tab, nodeId) {
   return { x: Math.min(...xs) + w / 2, y: Math.min(...ys) + h / 2, w, h, left: Math.min(...xs), top: Math.min(...ys) };
 }
 
-// Есть ли у элемента (из pageUi) класс c — целым словом: «fab» не совпадает с «fab-w», «fm» — с «fm-head».
+// Есть ли у элемента (из pageUi) класс c — целым словом: «fab» не совпадает с «fab-w», «fk» — с «fk-btn».
 const hasCls = (e, c) => !!e && String(e.attrs.class || "").split(/\s+/).includes(c);
 
-// Плавающая кнопка на вкладке: { fab, menu, open } — элементы кружка (button.fab) и меню (.fm) из pageUi, открыто
-// ли меню; null — кружка нет.
+// Плавающая кнопка на вкладке (элементы — из pageUi; null — кружка нет):
+//   fab — кружок (button.fab); bar — столбик кнопок над ним (#fk, role=toolbar; menu — то же, прежнее имя), open —
+//   показан ли он; main, lang, more — его кнопки (button.fk-btn[data-k]); tip — подсказка (#fk-tip) и tipText —
+//   { t, kbd, sub } (null — скрыта); langPop, morePop — панели языка (#fk-lang) и «⋯» (#fk-more), panel — какая
+//   открыта ("" | "lang" | "more").
 async function fabUi(tab) {
   const h = (await pageUi(tab)).hud;
   if (!h) return null;
+  const byId = (id) => h.els.find((e) => e.attrs.id === id) || null;
   const fab = h.els.find((e) => e.tag === "BUTTON" && hasCls(e, "fab")) || null;
-  const menu = h.els.find((e) => hasCls(e, "fm")) || null;
-  return { host: h, fab, menu, open: !!menu && !menu.hidden };
+  const bar = byId("fk"), tip = byId("fk-tip"), langPop = byId("fk-lang"), morePop = byId("fk-more");
+  const key = (k) => h.els.find((e) => e.tag === "BUTTON" && hasCls(e, "fk-btn") && e.attrs["data-k"] === k) || null;
+  const kid = (p, c) => (p && h.els.find((e) => e.parent === p.nodeId && hasCls(e, c))) || null;
+  let tipText = null;
+  if (tip && !tip.hidden) {
+    const t = kid(tip, "t"), kbd = kid(t, "fk-kbd"), sub = kid(tip, "sub");
+    const k = kbd ? kbd.text : "", tt = t ? t.text : "";
+    tipText = { t: (k && tt.endsWith(k) ? tt.slice(0, -k.length) : tt).trim(), kbd: k, sub: sub && !sub.hidden ? sub.text : "" };
+  }
+  const shown = (e) => !!e && !e.hidden;
+  return { host: h, fab, bar, menu: bar, open: shown(bar), main: key("main"), lang: key("lang"), more: key("more"), tip, tipText,
+    langPop, morePop, panel: shown(langPop) ? "lang" : shown(morePop) ? "more" : "" };
 }
 
 // Настоящий щелчок по элементу нашего интерфейса. kind — toast | hud | card; ждёт до ms, пока элемент появится.

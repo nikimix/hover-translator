@@ -118,20 +118,23 @@ const NONE = {};
     assert.ok(/DeepL не принял ключ/.test((await toastsNow()).join()), JSON.stringify(await toastsNow()));
     ok("«авто» без ключа или согласия, встроенный не смог: показана настоящая причина («не умеет переводить эту пару»), а не «не задан ключ DeepL»; ошибка ключа DeepL — по-прежнему она");
 
-    // ---- 6. плавающая кнопка: значки — SVG; у кружка, списка языка и кнопок меню — подписи для чтения с экрана ----
+    // ---- 6. плавающая кнопка: значки — SVG; у кружка, кнопок над ним и пунктов «⋯» — подписи для чтения с экрана ----
     await load({ engine: "chrome", hudShown: true });
-    assert.strictEqual(await ev("fabRoot().querySelector('.fm').hidden"), true, "меню закрыто, пока его не открыли");
+    assert.strictEqual(await ev("fabRoot().querySelector('.fk').hidden"), true, "кнопки скрыты, пока кружок не открыли");
     const fc = await ev("uiPoint(fabRoot(), '.fab')");
-    await t.click(fc.x, fc.y); await sleep(150);       // меню — настоящим щелчком (содержимое может строиться при открытии)
-    const fab = await ev(`(() => { const r = fabRoot(), b = r.querySelector('.fab'), s = r.querySelector('.fm-sel select');
-      const byIds = (ids) => (ids || '').split(/\\s+/).filter(Boolean).map((id) => (r.getElementById(id) || {}).textContent || '').join(' ').trim();
-      const name = (e) => e.getAttribute('aria-label') || byIds(e.getAttribute('aria-labelledby')) || (e.labels && e.labels[0] ? e.labels[0].textContent.trim() : '') || e.textContent.trim();
-      return { fab: (b.querySelector('svg') ? 'svg' : '-') + ':' + name(b), sel: name(s), open: !r.querySelector('.fm').hidden,
-        buttons: [...r.querySelectorAll('.fm button')].filter((x) => !x.closest('select')).map((x) => (x.querySelector('svg') ? 'svg' : '-') + ':' + name(x)) }; })()`);
-    const want = await ev(`({ fab: 'svg:' + HT_t('csFabAria', [HT_t('extShortName')]), sel: HT_t('targetLangAria'), open: true,
-      buttons: ['svg:' + HT_t('translatePage'), 'svg:' + HT_t('csFabSiteOff', ['127.0.0.1']), 'svg:' + HT_t('csFabHide'), 'svg:' + HT_t('ppSettings')] })`);
+    await t.click(fc.x, fc.y); await sleep(150);       // кнопки и «⋯» — настоящими щелчками
+    const mc = await ev("uiPoint(fabRoot(), '.fk-btn[data-k=more]')");
+    await t.click(mc.x, mc.y); await sleep(150);
+    const fab = await ev(`(() => { const r = fabRoot(), b = r.querySelector('.fab');
+      const name = (e) => e.getAttribute('aria-label') || e.textContent.trim();
+      const one = (x) => (x.querySelector('svg') ? 'svg' : '-') + ':' + name(x);
+      return { fab: one(b), open: !r.querySelector('.fk').hidden, bar: [...r.querySelectorAll('.fk .fk-btn')].map(one),
+        code: r.querySelector('.fk-btn[data-k=lang]').textContent, more: [...r.querySelectorAll('#fk-more .fk-opt')].map(one) }; })()`);
+    const want = await ev(`(() => { const l = HT_langLabel('RU'); return { fab: 'svg:' + HT_t('csFabAria', [HT_t('extShortName')]), open: true,
+      bar: ['svg:' + HT_t('translatePage'), '-:' + HT_t('csFkLang', [l[0].toUpperCase() + l.slice(1)]), 'svg:' + HT_t('csFkMore')], code: 'RU',
+      more: ['svg:' + HT_t('csFabSiteOff', ['127.0.0.1']), 'svg:' + HT_t('csFabHide'), 'svg:' + HT_t('ppSettings')] }; })()`);
     assert.deepStrictEqual(fab, want);
-    ok("плавающая кнопка: у кружка — значок SVG и подпись «" + want.fab.slice(4) + "», у списка — «" + want.sel + "», у кнопок меню — значки SVG и подписи; меню закрыто, пока его не открыли щелчком");
+    ok("плавающая кнопка: у кружка — значок SVG и подпись «" + want.fab.slice(4) + "», у кнопок над ним — значки и подписи («" + want.bar[1].slice(2) + "» — код «RU»), у пунктов «⋯» — значки SVG и подписи; кнопки скрыты, пока кружок не открыли щелчком");
 
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);

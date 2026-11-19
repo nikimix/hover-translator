@@ -1184,6 +1184,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === "noticeOnce") return reply(noticeOnce(String(msg.problem)), sendResponse);
   if (msg.type === "openSettings") return reply(openSettings(msg.focus), sendResponse);
+  // Подсказка «Перевести страницу» у кружка показывает настоящее сочетание ("" — не задано или занято).
+  if (msg.type === "shortcut") return reply(shortcutOf(String(msg.name || "")), sendResponse);
   // Esc на странице: вернуть оригинал и во встроенных окнах той же вкладки (у каждого свой скрипт).
   if (msg.type === "restoreTab") {
     if (sender && sender.tab) toTab(sender.tab.id, { type: "restoreAll" });
