@@ -254,6 +254,55 @@ const until = async (fn, ms = 4000, step = 50) => {
     assert.strictEqual(await text("#p10"), "[es>ru] Riega por la mañana, [es>ru] directamente [es>ru] sobre la tierra y no sobre las hojas. [es>ru] Abono: [es>ru] cada dos semanas.");
     ok("встроенный: язык короткого узла (ссылка, выделенное слово) — по всему блоку, и клавишей, и «Перевести страницу»");
 
+    // 10б. У пункта меню, оглавления, заголовка блок — сама подпись из 1–3 слов, и язык по блоку не спасает: детектор
+    //      уверенно называет чужой язык (Википедия: «Main menu» → ro 0,61, «Contents» → ca), и по действию
+    //      пользователя Chrome начинал качать модель этого языка. Короткое получает язык страницы (детектор по всему
+    //      её тексту), длинный абзац на другом языке — свой. Модели пар не из ready — «скачивание» (__tr.downloads).
+    const shortMis = (pageOk) => `__tr.pairs = []; __tr.downloads = []; __tr.ready = ['en>ru', 'fr>ru'];
+      Translator.availability = async (o) => __tr.ready.includes(o.sourceLanguage + '>' + o.targetLanguage) ? 'available' : 'downloadable';
+      Translator.create = async (o) => { const p = o.sourceLanguage + '>' + o.targetLanguage; __tr.pairs.push(p);
+        if (!__tr.ready.includes(p)) { __tr.downloads.push(p); __tr.ready.push(p); }
+        return { translate: async (s) => '[' + p + '] ' + s }; };
+      const WRONG = { 'Main menu': 'ro', 'Main page': 'fr', 'Contents': 'ca', 'Wikidata item': 'pl', 'Naming': 'nl' };
+      LanguageDetector.create = async () => ({ detect: async (t) => [
+        t.length < 25 ? { detectedLanguage: WRONG[t.trim()] || 'nl', confidence: 0.61 }
+        : !${pageOk} && t.length > 150 ? { detectedLanguage: 'en', confidence: 0.2 }
+        : /^Le jardin/.test(t) ? { detectedLanguage: 'fr', confidence: 0.99 } : { detectedLanguage: 'en', confidence: 0.99 }] });
+      document.body.insertAdjacentHTML('beforeend', '<ul id="menu10"><li><a href="#m">Main menu</a></li><li><a href="#c">Contents</a></li>'
+        + '<li><a href="#p">Main page</a></li><li><a href="#w">Wikidata item</a></li></ul><h3 id="h10">Naming</h3>'
+        + '<p id="fr10">Le jardin potager demande de l\\'eau chaque matin, surtout pendant les semaines chaudes.</p>'); true`;
+    const FR10 = "Le jardin potager demande de l'eau chaque matin, surtout pendant les semaines chaudes.";
+    const menu10 = () => ev("[...document.querySelectorAll('#menu10 a, #h10')].map((e) => e.textContent)");
+    await load("fake", { engine: "chrome" });
+    await ev(shortMis(true));
+    await hover("#menu10 a"); await tapShift(); await sleep(300);
+    assert.strictEqual(await ev("document.querySelector('#menu10 a').textContent"), "[en>ru] Main menu", "клавишей");
+    await hover("#p1"); await click("#p1"); await sleep(50);         // действие пользователя: модели качать можно
+    assert.strictEqual(await ev("navigator.userActivation.isActive"), true);
+    await ev("sendCmd('translatePage'); true");
+    assert.ok(await until(async () => (await text("#fr10")).startsWith("[fr>ru] ") && (await menu10()).every((s) => s.startsWith("[en>ru] ")), 3000),
+      JSON.stringify([await menu10(), await text("#fr10")]));
+    await sleep(200);
+    assert.deepStrictEqual(await menu10(), ["[en>ru] Main menu", "[en>ru] Contents", "[en>ru] Main page", "[en>ru] Wikidata item", "[en>ru] Naming"]);
+    assert.strictEqual(await text("#fr10"), "[fr>ru] " + FR10, "длинный абзац по-французски — со своего языка");
+    assert.deepStrictEqual(await ev("__tr.downloads"), [], "ни одной загрузки модели");
+    assert.ok((await ev("__tr.pairs")).every((p) => p === "en>ru" || p === "fr>ru"), JSON.stringify(await ev("__tr.pairs")));
+    assert.ok(!(await ev("toasts()")).some((t) => /Скачиваю|Щёлкните/.test(t)), JSON.stringify(await ev("toasts()")));
+    ok("встроенный: короткие подписи (меню, заголовок) — с языка страницы, не со своего, и модели чужих языков не качаются; длинный абзац по-французски — с французского");
+    // Язык страницы не известен (нет <html lang>, текст страницы детектор не определил): язык подписи — догадка по паре
+    // слов; уже скачанная модель годится («Main page» → fr), а ради остальных модель не качаем даже после щелчка.
+    await load("fake", { engine: "chrome" });
+    await ev(`document.documentElement.removeAttribute('lang'); ${shortMis(false)}`);
+    await hover("#p1"); await click("#p1"); await sleep(50);
+    await ev("sendCmd('translatePage'); true");
+    assert.ok(await until(async () => (await text("#fr10")).startsWith("[fr>ru] "), 3000), await text("#fr10"));
+    await sleep(300);
+    assert.deepStrictEqual(await menu10(), ["Main menu", "Contents", "[fr>ru] Main page", "Wikidata item", "Naming"]);
+    assert.strictEqual(await text("#p1"), "[en>ru] " + P1);
+    assert.deepStrictEqual(await ev("__tr.downloads"), [], "ради догадки по паре слов модель не качается");
+    assert.ok(!(await ev("toasts()")).some((t) => /Скачиваю|Щёлкните/.test(t)), JSON.stringify(await ev("toasts()")));
+    ok("язык страницы не известен: догадка по короткой подписи переводит только уже скачанной моделью, загрузок нет");
+
     // 11. Точки на плавающей кнопке — те же условия, что у уведомлений: «Щёлкните по тексту» — янтарная (warn),
     //     «Перевод не работает» — красная (err); причину устранили — точки нет. Одновременно — не больше одной.
     const dotShot = (name) => ev("(() => { const r = fabRoot().host.getBoundingClientRect(); return { x: Math.max(0, r.right - 300), y: Math.max(0, r.bottom - 150) }; })()")

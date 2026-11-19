@@ -744,13 +744,60 @@
     return {};
   }
 
+  // Короткий кусок — меньше 4 слов или меньше 25 букв. На таком детектор Chrome уверенно ошибается (Википедия:
+  // «Main menu» → румынский 0,61, «Main page» → французский, «Contents» → каталанский, «Wikidata item» → польский,
+  // «Solanum lycopersicum» — 2 слова, 19 букв — → латынь), а у пункта меню, оглавления, кнопки весь блок — это и
+  // есть подпись, язык по блоку не спасает. Все замеченные ошибки — на 1–3 словах до 20 букв; порог с запасом, а
+  // обычная фраза из 4+ слов и 25+ букв уже определяется. В письме без пробелов (китайский, японский, тайский…)
+  // знак — почти слово: считаем его словом и тремя буквами («主菜单» — короткое, фраза из 10 знаков — нет).
+  const NOSPACE = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]/gu;
+  function shortText(s) {
+    const ns = (s.match(NOSPACE) || []).length;
+    const words = s.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length + ns;
+    const letters = (s.match(/\p{L}/gu) || []).length + 2 * ns;
+    return words < 4 || letters < 25;
+  }
+
+  // Язык страницы для коротких кусков: детектор по большому видимому тексту страницы (на нём он не ошибается и
+  // не верит неправильному <html lang> шаблона), иначе — <html lang>. Детектор назвал язык перевода — это может
+  // быть наш же перевод на странице: тогда <html lang>, если он есть. Считаем раз на адрес (без #); детектор
+  // не ответил (ещё не скачан) — спросим снова через 5 с, а пока <html lang>.
+  let pageLangMemo = null;            // { url, until, det } — det: обещание языка по тексту страницы ("" — нет)
+  async function pageLang() {
+    const url = location.href.split("#")[0];
+    if (!pageLangMemo || pageLangMemo.url !== url || pageLangMemo.until < Date.now()) {
+      const sample = String((document.body && document.body.innerText) || "").replace(/\s+/g, " ").slice(0, 5000);
+      const memo = { url, until: Infinity, det: null };
+      memo.det = (shortText(sample) ? Promise.resolve({}) : detectLang(sample, true)).then((d) => {
+        if (!d.lang) memo.until = Date.now() + 5000;
+        return d.lang || "";
+      });
+      pageLangMemo = memo;
+    }
+    const det = await pageLangMemo.det;
+    const html = HT_langKey(document.documentElement.lang || "");
+    const own = /^[a-z]{2,3}$/.test(html) ? html : "";
+    return det && (!isTargetLang(det) || !own) ? det : own;
+  }
+
+  // Язык куска для встроенного переводчика — как detectLang, но короткий кусок получает язык страницы.
+  // Страница без языка — свой язык куска с пометкой guess: ради догадки по паре слов модель не качаем.
+  async function langOf(text) {
+    if ((settings.sourceLang && settings.sourceLang !== "auto") || !shortText(text)) return detectLang(text, true);
+    const page = await pageLang();
+    if (page) return { lang: page };
+    const d = await detectLang(text, true);
+    return d.lang ? Object.assign(d, { guess: true }) : d;
+  }
+
   // ---- движки перевода ----
 
   // Встроенный Chrome Translator: экземпляры кэшируются по паре языков, неудача — нет.
-  function getTranslator(src, tgt) {
+  // mayDownload=false — только уже скачанная модель (язык короткого куска угадан, см. langOf).
+  function getTranslator(src, tgt, mayDownload = true) {
     const key = src + ">" + tgt;
     if (!translators.has(key)) {
-      const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt }, pairText(src, tgt), true)
+      const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt }, pairText(src, tgt), mayDownload)
         .catch((e) => ({ kind: "fail", error: e }))
         .then((r) => {
           if (!r.inst && translators.get(key) === p) translators.delete(key);
@@ -800,13 +847,16 @@
     const tgt = HT_builtinCode(targetLang);
     if (!tgt) return { ok: false, code: "lang", focus: "target-lang", error: sentence(HT_problemText("builtin-lang", "short", { targetLang })) };
     let d = block ? await block : null;
-    if (!d || !(d.lang || d.kind)) d = await detectLang(text, true);
+    if (!d || !(d.lang || d.kind)) d = await langOf(text);
     if (d.kind === "download") return needDownload(d.state);
     const src = d.lang;
-    if (!src) return { ok: false, code: "lang", focus: "source-lang", error: HT_t("csDetectFail") };
+    const noLang = { ok: false, code: "lang", focus: "source-lang", error: HT_t("csDetectFail") };
+    if (!src) return noLang;
     if (HT_langKey(src) === HT_langKey(tgt)) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
-    const tp = getTranslator(src, tgt);
+    const tp = getTranslator(src, tgt, !d.guess);
     const t = await tp;
+    // Язык угадан по паре слов, а модели для него нет — не качаем и щелчка не просим: язык не определён.
+    if (d.guess && (t.kind === "download" || t.kind === "unavailable")) return noLang;
     if (t.kind === "download") return needDownload(t.state, src, tgt);
     if (t.kind === "unavailable") {
       return { ok: false, error: HT_t("pairUnavailable", [HT_langLabel(src), HT_langLabel(tgt)]) };
@@ -818,13 +868,13 @@
       } catch (e) {
         // Chrome 157: когда скачивается другая языковая модель (щелчок по цитате на другом языке; замерено —
         // в момент, когда она докачалась), уже созданные экземпляры отвечают UnknownError «Other generic
-        // failures occurred» — до перезагрузки страницы, а новый экземпляр той же пары работает. Выбрасываем из кэша и повторяем один раз. Соседние
-        // узлы падают разом: убирает только первый (сравниваем обещание — без await между проверкой и
-        // удалением), остальные получают уже новый экземпляр.
+        // failures occurred» — до перезагрузки страницы, а новый экземпляр той же пары работает. Выбрасываем
+        // из кэша и повторяем один раз. Соседние узлы падают разом: убирает только первый (сравниваем
+        // обещание — без await между проверкой и удалением), остальные получают уже новый экземпляр.
         if (!e || e.name !== "UnknownError") throw e;
         const key = src + ">" + tgt;
         if (translators.get(key) === tp) translators.delete(key);
-        const t2 = await getTranslator(src, tgt);
+        const t2 = await getTranslator(src, tgt, !d.guess);
         if (t2.kind === "download") return needDownload(t2.state, src, tgt);
         if (!t2.inst) throw e;
         return { ok: true, value: await t2.inst.translate(text), src };
@@ -867,12 +917,13 @@
   // коротком куске уверенно ошибается — «прямо под корень» → украинский 0,58, «Abono» → итальянский 0,76, «Да» →
   // сербский 0,38, — и ссылка или выделенное слово внутри блока оставались непереведёнными посреди перевода.
   // Блок определяем один раз по всему его тексту; свой язык узла — только если по блоку не определился.
+  // Короткий блок (пункт меню, кнопка, подпись) — язык страницы (см. langOf).
   async function localResults(texts, primary, lines) {
     const blocks = new Map();
     const blockLang = (i) => {
       const line = lines && lines[i];
       if (!line || !line.nodes) return null;
-      if (!blocks.has(line)) blocks.set(line, detectLang(lineText(line), true));
+      if (!blocks.has(line)) blocks.set(line, langOf(lineText(line)));
       return blocks.get(line);
     };
     const results = await Promise.all(texts.map((t, i) => chromeTranslateEdges(t, settings.targetLang, blockLang(i))));
