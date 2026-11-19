@@ -3127,6 +3127,26 @@
     const mq = matchMedia("(prefers-color-scheme: dark)");
     on(mq, "change", () => { themeFab(); if (currentToast) currentToast.retheme(); });
   } catch (e) { /* без matchMedia — тема по фону при показе */ }
+  // Сайт сменил тему своим переключателем, без перезагрузки (Википедия — класс у <html>, GitHub — data-color-mode):
+  // следим за class, style и data-* у <html> и <body> и перекрашиваемся, когда что-то наше на экране.
+  let themeTimer = 0;
+  const themeObs = new MutationObserver(() => {
+    if (dead) { themeObs.disconnect(); return; }
+    if (themeTimer || !(fab || currentToast)) return;
+    themeTimer = setTimeout(() => {
+      themeTimer = 0;
+      if (dead) return;
+      themeFab();
+      if (currentToast) currentToast.retheme();
+    }, 150);
+  });
+  function watchTheme() {
+    themeObs.disconnect();
+    if (dead) return;
+    for (const el of [document.documentElement, document.body]) if (el) themeObs.observe(el, { attributes: true });
+  }
+  watchTheme();
+  if (!document.body) on(document, "DOMContentLoaded", watchTheme);
 
   // Кружок только в верхнем фрейме сайта, когда перевод включён и сайт не выключен; на своих страницах
   // расширения его нет. Показан ли он — общее для всех сайтов (hudWanted), поэтому на другой странице он снова тут.

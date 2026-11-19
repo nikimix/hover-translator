@@ -560,6 +560,14 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await away();
     assert.deepStrictEqual([(await F()).dk, ...(await look())], [false, "rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(37, 99, 235)"], "светлый сайт при тёмной теме системы — светлый кружок");
     await t.cmd("Emulation.setEmulatedMedia", { features: [] });
+    // сайт сменил тему своим переключателем, без перезагрузки (класс у <html>, как у Википедии) — кружок вслед за ним
+    await ev(`(() => { const st = document.createElement("style"); st.textContent = "html.night, html.night body { background: #121316 !important; color: #e6e6e6 !important; }";
+      document.head.appendChild(st); document.documentElement.classList.add("night"); return true; })()`);
+    await sleep(400);
+    assert.deepStrictEqual([(await F()).dk, ...(await look())], [true, "rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(143, 176, 255)"], "сайт стал тёмным без перезагрузки — кружок тёмный без наведения");
+    await ev(`document.documentElement.classList.remove("night"), true`);
+    await sleep(400);
+    assert.strictEqual((await F()).dk, false, "сайт снова светлый — кружок светлый");
     await load({ hudShown: true }, "&dark=1");
     await away();
     f = await F();
