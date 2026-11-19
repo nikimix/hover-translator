@@ -37,15 +37,16 @@ It works right after installing: no account, no sign-up, no key. By default it u
 
 HOW TO START
 1. Install the extension. A welcome tab opens.
-2. Choose the language you want and click “Set up translator”. The browser downloads the language models once, for free.
+2. Choose the language you want and click “Download translator”. The browser downloads it once, for free, and you can try it right there.
 3. Point at any text and press Shift.
 Tabs that were open before installing need to be reloaded.
 
 FEATURES
 • Inline translation in place, or in a card next to the text if you’d like to keep the original visible.
-• Page translator: “Translate page” handles what’s on screen first and the rest as you scroll down.
+• Page translator: “Translate page” handles what’s on screen first and the rest as you scroll down. Stop it at any time, then switch between Original and Translation in one click.
 • Hover mode: just rest the cursor on a sentence, no keypress needed (links, buttons and menus are skipped). You can also choose Alt or Ctrl as the trigger.
-• A mini panel to switch languages without opening the settings.
+• A compact toolbar window for everyday actions, and a separate settings tab for the rest.
+• A floating button to switch languages without opening the settings.
 • Turn it off on a particular site, such as your email or bank.
 • A list of names and terms to keep as they are (DeepL and AI only).
 • 121 target languages; each service supports its own set.
@@ -55,7 +56,7 @@ SERVICES AND PRIVACY
 • Built-in (default): free, works on your computer, even offline once the models are downloaded. Nothing leaves your device.
 • DeepL: more accurate, uses your own API key (the free API plan includes 500,000 characters a month).
 • AI: uses your own OpenAI or Anthropic API key; billed to your account.
-DeepL and AI stay off until you select one, paste a key and agree to send text to that service. Only the passages you ask for are sent, straight from your browser to that service, never the URL. Keys stay in your browser. Their results are saved on your computer for 14 days, so the same sentence isn’t paid for twice.
+DeepL and AI stay off until you select one, allow sending text to that service and add a working key. Only the passages you ask for are sent, straight from your browser to that service, never the URL. Keys stay in your browser. Their results are saved on your computer for 14 days, so the same sentence isn’t paid for twice.
 The extension has no server of its own, no analytics and no ads. Its source code is open on GitHub.
 
 KEYBOARD SHORTCUTS
@@ -74,9 +75,10 @@ LIMITATIONS
 Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trademarks of their respective owners. This extension is not affiliated with or endorsed by them.
 ```
 
-3164 characters. Checked against the store rules:
+3363 characters. Checked against the store rules:
 
-- no word other than “the/and/to…” appears more than 5 times (Shift, page, key, Chrome, text, translator — 5 each);
+- no word other than “the/and/to…” appears more than 5 times (Shift, Alt, page, key, Chrome, text, translator,
+  original, own — 5 each);
 - the keywords appear naturally, once or twice: hover, translator, in place, inline, page translator, free, private;
 - third-party names are used only as compatibility (“uses your own OpenAI or Anthropic API key”), at most 4 brands
   (Google Chrome, DeepL, OpenAI, Anthropic), with the trademark notice at the end and “Google Chrome™” on first use;

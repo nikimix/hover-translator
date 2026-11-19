@@ -276,9 +276,21 @@ function HT_targetFromLocale(locale) {
 // абзаца для пробы на приветствии: английский → язык перевода; а если переводят на английский — с языка
 // интерфейса (русского), при английском интерфейсе — с испанского. Остальные пары скачиваются на сайте
 // при первом переводе. tgt пустой — встроенный не знает язык перевода.
-function HT_prepPair(targetLang) {
+// pageLang — язык открытой вкладки (атрибут lang страницы), если окно его знает: тогда готовим именно
+// его → язык перевода. Иначе на испанской странице готовилась пара «английский → русский», окно писало
+// «Готово», а на странице всё равно начиналась загрузка испанской модели.
+function HT_prepPair(targetLang, pageLang) {
   const tgt = HT_builtinCode(targetLang);
+  const page = HT_builtinOf(pageLang);
+  if (tgt && page && HT_langKey(page) !== HT_langKey(tgt)) return { src: page, tgt };
   return { src: HT_langKey(tgt) !== "en" ? "en" : HT_uiLang() === "ru" ? "ru" : "es", tgt };
+}
+// Код встроенного переводчика для языка из атрибута lang («es-ES» → «es»); "" — не знаем такого.
+function HT_builtinOf(lang) {
+  const key = HT_langKey(lang);
+  if (!key || !/^[a-z]{2,3}$/.test(key)) return "";
+  const row = HT_LANGS.find((r) => r[4] && HT_langKey(r[4]) === key);
+  return row ? row[4] : "";
 }
 
 // ---- движки ----
@@ -378,9 +390,11 @@ function HT_canSend(engine, st) {
 function HT_engineProblem(engine, st, builtin) {
   const e = HT_engine(engine);
   const hasKey = !e.keyField || !!(st && st[e.keyField]);
-  // Язык — первым: без него ни ключ, ни согласие не помогут.
+  // Язык — первым: без него ни ключ, ни согласие не помогут. Затем согласие, потом ключ — в том же порядке,
+  // что и шаги подключения на странице настроек («Согласие → Ключ → Готово»).
+  const agreed = HT_agreed(st && st.consent, HT_provider(engine, st && st.llmProvider));
   const why = HT_langGap(e.via, st) ? "deepl-lang"
-    : !hasKey ? (e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key") : "no-consent";
+    : !agreed ? "no-consent" : !hasKey ? (e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key") : "no-consent";
   const net = e.via !== "local" && HT_canSend(engine, st);
   if (e.via !== "local" && !net && e.fallback !== "local") return why;
   const needLocal = e.via === "local" || !net;
@@ -464,9 +478,14 @@ var HT_DEFAULTS = {
   // чтобы их смена тоже триггерила живое перетранслирование уже показанных переводов.
   // Пустая модель — «по умолчанию» (первая в HT_LLM_MODELS для провайдера).
   llmProvider: "openai", llmModel: "",
-  dispMode: "auto", dispBg: "#0078d7", dispOpacity: 12,
-  dispBorder: false, dispBorderColor: "#0078d7", dispBorderStyle: "solid",
+  // Подсветка переведённого: «auto» — янтарная, подстраивается под фон страницы; «custom» — свой цвет
+  // (dispBg) и насыщенность в процентах (dispOpacity, 10–60); «none» — без подсветки. Обводка прежних
+  // версий (dispBorder*) убрана: её ключи стирает background при обновлении (HT_OBSOLETE_KEYS).
+  dispMode: "auto", dispBg: "#ffcf4a", dispOpacity: 35,
 };
+var HT_OBSOLETE_KEYS = ["dispBorder", "dispBorderColor", "dispBorderStyle"];
+// Шесть цветов подсветки на выбор (страница настроек): код, сообщение с названием.
+var HT_SWATCHES = [["#ffcf4a", "swAmber"], ["#7ed6a5", "swGreen"], ["#8fb8ff", "swBlue"], ["#f5a3c7", "swPink"], ["#c4b5fd", "swLilac"], ["#c9ced5", "swGray"]];
 
 // Допустимые значения настроек-перечислений. Хранилище общее для всех сайтов, а писать в него
 // может не только popup (мини-панель живёт на странице), поэтому значение сверяется со списком
@@ -496,6 +515,8 @@ function HT_validAll(s) {
 // Задержка наведения. Клэмп общий: popup пишет уже нормализованное значение, а content
 // перепроверяет прочитанное — раньше две проверки расходились (в content не было верхней границы).
 var HT_DWELL_MAX = 2000;
+// Ползунок задержки на странице настроек: 300–1500 мс, шаг 100 (сохранённые значения вне диапазона не трогаем).
+var HT_DWELL_UI = { min: 300, max: 1500, step: 100 };
 function HT_clampDwell(v) {
   // Пустое поле — это «не задано», а не 0: Number("") === 0, и стёртое поле «Задержка» иначе молча
   // включило бы перевод без задержки. Не `|| DEFAULTS` — иначе валидный 0 стал бы значением по умолчанию.
@@ -527,11 +548,19 @@ function HT_sites(v) {
   return out;
 }
 
-// Мини-панель: показана ли она и где стоит — общие для всех сайтов значения (hudShown, hudPos), чтобы
-// панель не пропадала при переходе на другую страницу. Позицию тоже сверяем при чтении.
-function HT_hudPos(v) {
-  return v && typeof v === "object" && Number.isFinite(v.left) && Number.isFinite(v.top)
-    ? { left: v.left, top: v.top } : null;
+// Плавающая кнопка: показана ли она и где стоит — общие для всех сайтов значения (hudShown, hudPos), чтобы
+// кнопка не пропадала при переходе на другую страницу. Место — { side: "left" | "right", top }: у какого края
+// окна кружок и сколько px от верха окна до его верха (как отпустили); null — место по умолчанию (справа внизу).
+// Сверяем при чтении. Старое место мини-панели { left, top } переводим в новое: край — та половина окна, где была
+// середина кружка (vw — ширина окна; без неё — справа), высота прежняя. Обратно в хранилище при чтении не пишем:
+// перепишется, когда кружок перетащат. Всё остальное — null.
+function HT_hudPos(v, vw) {
+  if (!v || typeof v !== "object") return null;
+  if ((v.side === "left" || v.side === "right") && Number.isFinite(v.top)) return { side: v.side, top: v.top };
+  if (Number.isFinite(v.left) && Number.isFinite(v.top)) {
+    return { side: vw && v.left + 22 < vw / 2 ? "left" : "right", top: v.top };
+  }
+  return null;
 }
 
 // ---- названия клавиш ----

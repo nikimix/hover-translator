@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><style>body{font:16px/1.5 sans-serif;margin:0;padding:10px} p{margin:0;width:560px}</style>
 <script>
   // Встроенное окно с другого адреса (localhost против 127.0.0.1). Своя заглушка chrome.*; родитель
-  // спрашивает postMessage, сколько было запросов перевода и что за сайт видит content.
+  // спрашивает postMessage, сколько было запросов перевода, что за сайт видит content и сколько тут нашего интерфейса (ui).
   const q = new URLSearchParams(location.search);
   window.__calls = [];
   window.__store = Object.assign({ enabled: true, trigger: "dwell", dwellMs: 100, engine: "deepl", displayMode: "replace", targetLang: "RU", apiKey: "k:fx", consent: { deepl: true, openai: true, anthropic: true } }, JSON.parse(q.get("store") || "{}"));
@@ -17,7 +17,7 @@
   };
   window.Translator = { async availability() { return "available"; }, async create() { return { translate: async (t) => "[ru] " + t }; } };
   window.LanguageDetector = { async availability() { return "available"; }, async create() { return { detect: async () => [{ detectedLanguage: "en", confidence: 0.99 }] }; } };
-  addEventListener("message", (e) => { if (e.data === "report") parent.postMessage({ calls: window.__calls, text: document.getElementById("fp").textContent, anc: [...location.ancestorOrigins] }, "*"); });
+  addEventListener("message", (e) => { if (e.data === "report") parent.postMessage({ calls: window.__calls, text: document.getElementById("fp").textContent, anc: [...location.ancestorOrigins], ui: document.querySelectorAll("[data-ht-ui]").length }, "*"); });
 </script></head>
 <body><p id="fp">A paragraph inside an embedded frame from another address for the site test.</p>
 <script src="/i18n-ru.js"></script><script src="/src/shared.js"></script><script src="/src/content.js"></script></body></html>

@@ -2,11 +2,11 @@
   <!-- Значок 48×48: та же композиция, своя сетка для этого размера (полосы и курсор на целых пикселях). -->
   <defs>
   <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-  <stop offset="0" stop-color="#1bb8a5"/>
-  <stop offset="1" stop-color="#0b877b"/>
+  <stop offset="0" stop-color="#3070f1"/>
+  <stop offset="1" stop-color="#1a56e5"/>
   </linearGradient>
   <filter id="sh" x="-30%" y="-30%" width="160%" height="160%">
-  <feDropShadow dx="0" dy="0.375" stdDeviation="0.375" flood-color="#04302c" flood-opacity="0.35"/>
+  <feDropShadow dx="0" dy="0.375" stdDeviation="0.375" flood-color="#081a45" flood-opacity="0.35"/>
   </filter>
   </defs>
   <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#g)"/>
@@ -14,6 +14,6 @@
   <rect x="9.333333333333332" y="21.25" width="20.166666666666664" height="5.958333333333333" rx="2.9791666666666665" fill="#ffcf4a" />
   <rect x="9.333333333333332" y="31.333333333333332" width="12.833333333333332" height="5.958333333333333" rx="2.9791666666666665" fill="#fff" />
   <g filter="url(#sh)">
-  <path d="M24.92 23.08 L24.92 41.20 L29.33 37.03 L32.42 43.82 L35.52 42.51 L32.54 35.83 L38.26 35.83Z" fill="#fff" stroke="#0b3f3b" stroke-width="2.75" stroke-linejoin="round" paint-order="stroke"/>
+  <path d="M24.92 23.08 L24.92 41.20 L29.33 37.03 L32.42 43.82 L35.52 42.51 L32.54 35.83 L38.26 35.83Z" fill="#fff" stroke="#0b1f4d" stroke-width="2.75" stroke-linejoin="round" paint-order="stroke"/>
   </g>
 </svg>

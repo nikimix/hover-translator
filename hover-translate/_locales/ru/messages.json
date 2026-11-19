@@ -4,12 +4,10 @@
     "description": "Language code of this file. Used for number formats, plural forms and language names. Not shown."
   },
   "extName": {
-    "message": "Переводчик при наведении — перевод прямо на странице",
-    "description": "Full extension name (manifest name, Chrome Web Store, extensions page), up to 75 characters. Used nowhere else."
+    "message": "Hover Translator — перевод прямо на странице"
   },
   "extShortName": {
-    "message": "Переводчик при наведении",
-    "description": "Short extension name: manifest short_name, toolbar icon tooltip, extension window, welcome page, notification titles on pages. Change both names here (and in the other messages.json) — everything else takes them from here."
+    "message": "Hover Translator"
   },
   "extDescription": {
     "message": "Наведите курсор на текст и нажмите Shift — он переведётся прямо на странице. Бесплатно и без регистрации, DeepL и ИИ — по желанию.",
@@ -21,29 +19,8 @@
   "translatePage": {
     "message": "Перевести страницу"
   },
-  "showOriginal": {
-    "message": "Вернуть оригинал"
-  },
-  "showOriginalEsc": {
-    "message": "Вернуть оригинал (Esc)"
-  },
   "openSettings": {
     "message": "Открыть настройки"
-  },
-  "switchToBuiltin": {
-    "message": "Переключиться на встроенный"
-  },
-  "agree": {
-    "message": "Согласен"
-  },
-  "check": {
-    "message": "Проверить"
-  },
-  "close": {
-    "message": "Закрыть"
-  },
-  "targetLangAria": {
-    "message": "Язык перевода"
   },
   "srcAuto": {
     "message": "Определять автоматически"
@@ -58,7 +35,7 @@
     "message": "DeepL"
   },
   "engDeeplHint": {
-    "message": "точнее; по своему ключу, бесплатно 500 000 знаков в месяц"
+    "message": "точнее; по своему ключу, на бесплатном тарифе 500 000 знаков в месяц"
   },
   "engAuto": {
     "message": "DeepL, а если не вышло — встроенный"
@@ -98,22 +75,22 @@
     "message": "Другая…"
   },
   "keyHintDeepl": {
-    "message": "Не задан ключ DeepL — нажмите на значок расширения и вставьте ключ."
+    "message": "Не задан ключ DeepL — вставьте его в настройках расширения."
   },
   "keyHintLlm": {
-    "message": "Не задан ключ ИИ — нажмите на значок расширения и вставьте ключ."
+    "message": "Не задан ключ ИИ — вставьте его в настройках расширения."
   },
   "probNoDeeplKey": {
     "message": "не задан ключ DeepL"
   },
   "probNoDeeplKeyPage": {
-    "message": "Перевод не работает: не задан ключ DeepL. Нажмите на значок расширения, чтобы вставить ключ или включить встроенный переводчик."
+    "message": "Перевод не работает: не задан ключ DeepL. Вставьте ключ или включите встроенный переводчик в настройках расширения."
   },
   "probNoLlmKey": {
     "message": "не задан ключ ИИ"
   },
   "probNoLlmKeyPage": {
-    "message": "Перевод не работает: не задан ключ ИИ. Нажмите на значок расширения, чтобы вставить ключ или включить встроенный переводчик."
+    "message": "Перевод не работает: не задан ключ ИИ. Вставьте ключ или включите встроенный переводчик в настройках расширения."
   },
   "probNoConsent": {
     "message": "нужно ваше согласие на отправку текста"
@@ -125,7 +102,7 @@
     "message": "встроенный переводчик недоступен в этом браузере"
   },
   "probNoBuiltinPage": {
-    "message": "Перевод не работает: встроенный переводчик недоступен в этом браузере (нужен Chrome 138 или новее на компьютере). Нажмите на значок расширения, чтобы подключить DeepL."
+    "message": "Перевод не работает: встроенный переводчик недоступен в этом браузере (нужен Chrome 138 или новее на компьютере). Подключите DeepL в настройках расширения."
   },
   "probDeeplLangTo": {
     "message": "DeepL не переводит на этот язык: $lang$",
@@ -137,7 +114,7 @@
     }
   },
   "probDeeplLangToPage": {
-    "message": "Перевод не работает: DeepL не переводит на этот язык ($lang$). Нажмите на значок расширения, чтобы выбрать другой язык или переводчик.",
+    "message": "Перевод не работает: DeepL не переводит на этот язык ($lang$). Выберите другой язык или переводчик в настройках расширения.",
     "placeholders": {
       "lang": {
         "content": "$1",
@@ -155,7 +132,7 @@
     }
   },
   "probDeeplLangFromPage": {
-    "message": "Перевод не работает: DeepL не переводит с этого языка ($lang$). Нажмите на значок расширения, чтобы выбрать другой язык оригинала или переводчик.",
+    "message": "Перевод не работает: DeepL не переводит с этого языка ($lang$). Выберите другой язык оригинала или переводчик в настройках расширения.",
     "placeholders": {
       "lang": {
         "content": "$1",
@@ -173,7 +150,7 @@
     }
   },
   "probBuiltinLangToPage": {
-    "message": "Перевод не работает: встроенный переводчик не переводит на этот язык ($lang$). Нажмите на значок расширения, чтобы выбрать другой язык или подключить DeepL.",
+    "message": "Перевод не работает: встроенный переводчик не переводит на этот язык ($lang$). Выберите другой язык или подключите DeepL в настройках расширения.",
     "placeholders": {
       "lang": {
         "content": "$1",
@@ -191,100 +168,13 @@
     }
   },
   "probBuiltinLangFromPage": {
-    "message": "Перевод не работает: встроенный переводчик не переводит с этого языка ($lang$). Нажмите на значок расширения, чтобы выбрать другой язык оригинала или подключить DeepL.",
+    "message": "Перевод не работает: встроенный переводчик не переводит с этого языка ($lang$). Выберите другой язык оригинала или подключите DeepL в настройках расширения.",
     "placeholders": {
       "lang": {
         "content": "$1",
         "example": "Hindi"
       }
     }
-  },
-  "popupTitle": {
-    "message": "$name$ — настройки",
-    "placeholders": {
-      "name": {
-        "content": "$1",
-        "example": "Hover Translator"
-      }
-    }
-  },
-  "enabledOn": {
-    "message": "Перевод включён"
-  },
-  "enabledOff": {
-    "message": "Перевод выключен"
-  },
-  "siteOn": {
-    "message": "Переводить на этом сайте"
-  },
-  "reloadTab": {
-    "message": "Обновить вкладку"
-  },
-  "targetLang": {
-    "message": "Переводить на"
-  },
-  "trigger": {
-    "message": "Как включать"
-  },
-  "triggerDwell": {
-    "message": "Наведение"
-  },
-  "dwellLabel": {
-    "message": "Задержка перед переводом"
-  },
-  "dwellFaster": {
-    "message": "быстрее"
-  },
-  "dwellSlower": {
-    "message": "медленнее"
-  },
-  "hudBtn": {
-    "message": "Мини-панель на странице"
-  },
-  "quality": {
-    "message": "Качество перевода"
-  },
-  "engineLegend": {
-    "message": "Переводчик"
-  },
-  "consentRevoke": {
-    "message": "Отозвать согласие"
-  },
-  "deeplKey": {
-    "message": "Ключ DeepL"
-  },
-  "deeplKeyPlaceholder": {
-    "message": "ключ API DeepL"
-  },
-  "showKey": {
-    "message": "Показать ключ"
-  },
-  "hideKey": {
-    "message": "Скрыть ключ"
-  },
-  "howtoSummary": {
-    "message": "Как получить ключ DeepL — бесплатно"
-  },
-  "howto1": {
-    "message": "Откройте {a}deepl.com/pro-api{/a} и выберите бесплатный тариф (Free)."
-  },
-  "howto2": {
-    "message": "Зарегистрируйтесь. DeepL попросит банковскую карту для проверки — за бесплатный тариф деньги не списываются."
-  },
-  "howto3": {
-    "message": "В личном кабинете откройте раздел с ключами («API Keys») и скопируйте ключ — он оканчивается на «:fx»."
-  },
-  "howto4": {
-    "message": "Вставьте ключ в поле выше — расширение сразу его проверит."
-  },
-  "howtoFree": {
-    "message": "Бесплатно — 500 000 знаков в месяц. Остаток виден здесь же, под ключом."
-  },
-  "llmService": {
-    "message": "Сервис"
-  },
-  "llmKey": {
-    "message": "Ключ"
   },
   "llmModel": {
     "message": "Модель"
@@ -295,17 +185,8 @@
   "llmModelAria": {
     "message": "Название модели"
   },
-  "llmNote": {
-    "message": "Ключ хранится только в этом браузере. ИИ лучше передаёт смысл и обороты речи, но переводит медленнее DeepL, и каждый перевод оплачивается с вашего счёта у сервиса."
-  },
-  "more": {
-    "message": "Дополнительно"
-  },
   "sourceLang": {
     "message": "Язык оригинала"
-  },
-  "formality": {
-    "message": "Обращение (только DeepL)"
   },
   "formalityDefault": {
     "message": "Как решит переводчик"
@@ -315,24 +196,6 @@
   },
   "formalityLess": {
     "message": "На «ты»"
-  },
-  "formalityNote": {
-    "message": "Работает не для всех языков: немецкий, французский, итальянский, испанский, нидерландский, польский, португальский, русский, японский. Для остальных не меняет ничего."
-  },
-  "displayMode": {
-    "message": "Как показывать перевод"
-  },
-  "displayReplace": {
-    "message": "Вместо текста, на том же месте"
-  },
-  "displayPopover": {
-    "message": "Карточка рядом с текстом"
-  },
-  "displayNote": {
-    "message": "Карточка — только при переводе под курсором; «Перевести страницу» всегда заменяет текст на месте."
-  },
-  "showLangBadge": {
-    "message": "Показывать в карточке язык оригинала (EN → RU)"
   },
   "dispMode": {
     "message": "Подсветка переведённого"
@@ -346,33 +209,6 @@
   "dispNone": {
     "message": "Без подсветки"
   },
-  "dispColor": {
-    "message": "Цвет подсветки"
-  },
-  "dispOpacity": {
-    "message": "Насыщенность подсветки"
-  },
-  "dispBorder": {
-    "message": "Рамка"
-  },
-  "dispBorderStyle": {
-    "message": "Вид рамки"
-  },
-  "borderSolid": {
-    "message": "Сплошная"
-  },
-  "borderDashed": {
-    "message": "Пунктир"
-  },
-  "borderDotted": {
-    "message": "Точки"
-  },
-  "borderDouble": {
-    "message": "Двойная"
-  },
-  "dispBorderColor": {
-    "message": "Цвет рамки"
-  },
   "noTranslate": {
     "message": "Не переводить эти слова"
   },
@@ -382,328 +218,47 @@
   "savedTranslations": {
     "message": "Сохранённые переводы"
   },
-  "clearCache": {
-    "message": "Удалить сохранённые переводы"
-  },
-  "shortcuts": {
-    "message": "Горячие клавиши"
-  },
   "shortcutsEdit": {
     "message": "Сменить сочетания"
   },
   "checkFail": {
     "message": "Не удалось проверить ключ"
   },
-  "noPage": {
-    "message": "На этой странице расширения не работают — это служебная страница Chrome или магазин расширений."
-  },
-  "storeFull": {
-    "message": "хранилище переполнено. Удалите сохранённые переводы в разделе «Дополнительно»"
-  },
-  "settingsNotSaved": {
-    "message": "Настройки не сохранены: $reason$.",
-    "placeholders": {
-      "reason": {
-        "content": "$1",
-        "example": "QUOTA_BYTES quota exceeded"
-      }
-    }
-  },
-  "notSaved": {
-    "message": "Не удалось сохранить: $reason$.",
-    "placeholders": {
-      "reason": {
-        "content": "$1",
-        "example": "QUOTA_BYTES quota exceeded"
-      }
-    }
-  },
-  "hotkeyTip": {
-    "message": "Горячая клавиша: $keys$",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "hudShownTip": {
-    "message": "Мини-панель показана — нажмите, чтобы скрыть"
-  },
-  "hudHiddenTip": {
-    "message": "Показать на странице панель смены языка"
-  },
-  "disclosure": {
-    "message": "Текст, который вы переводите, будет отправляться в $service$ по вашему ключу. Встроенный переводчик ничего не отправляет.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "disclosureAuto": {
-    "message": "Текст, который вы переводите, будет отправляться в $service$ по вашему ключу. Встроенный переводчик ничего не отправляет. Пока вы не согласились, переводит встроенный.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "consentGiven": {
-    "message": "Текст, который вы переводите, отправляется в $service$ по вашему ключу.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "setupNoDeeplKey": {
-    "message": "Перевод не работает: не задан ключ DeepL."
-  },
-  "setupNoDeeplKeyBuiltin": {
-    "message": "Перевод не работает: не задан ключ DeepL. Вставьте ключ или включите встроенный переводчик — он бесплатный и работает без ключа."
-  },
-  "setupNoLlmKey": {
-    "message": "Перевод не работает: не задан ключ ИИ."
-  },
-  "setupNoLlmKeyBuiltin": {
-    "message": "Перевод не работает: не задан ключ ИИ. Вставьте ключ или включите встроенный переводчик — он бесплатный и работает без ключа."
-  },
-  "setupNoConsent": {
-    "message": "Перевод не работает, пока вы не согласитесь. Текст, который вы переводите, будет отправляться в $service$ по вашему ключу. Встроенный переводчик ничего не отправляет.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "setupNoBuiltin": {
-    "message": "Встроенный переводчик недоступен в этом браузере (нужен Chrome 138 или новее на компьютере). Подключите DeepL по своему ключу — бесплатно 500 000 знаков в месяц."
-  },
-  "setupAutoConsent": {
-    "message": "Сейчас переводит встроенный: DeepL получит текст только с вашего согласия. Текст, который вы переводите, будет отправляться в $service$ по вашему ключу. Встроенный переводчик ничего не отправляет.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "setupDeeplLangTo": {
-    "message": "DeepL не переводит на этот язык: $lang$. Выберите другой язык или переводчик.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupDeeplLangFrom": {
-    "message": "DeepL не переводит с этого языка: $lang$. Выберите в «Дополнительно» другой язык оригинала или другой переводчик.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupBuiltinLangTo": {
-    "message": "Встроенный переводчик не переводит на этот язык: $lang$. Выберите другой язык или подключите DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupBuiltinLangFrom": {
-    "message": "Встроенный переводчик не переводит с этого языка: $lang$. Выберите в «Дополнительно» другой язык оригинала или подключите DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupGoKey": {
-    "message": "Вставить ключ"
-  },
-  "setupGoDeepl": {
-    "message": "Выбрать DeepL"
-  },
-  "setupGoLang": {
-    "message": "Выбрать язык"
-  },
-  "setupFixChrome": {
-    "message": "Включить встроенный"
-  },
-  "setupFixKeep": {
-    "message": "Оставить встроенный"
-  },
-  "setupAgreed": {
-    "message": "Готово: текст для перевода теперь уходит в $service$.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "sumBuiltin": {
-    "message": "Встроенный"
-  },
-  "sumAuto": {
-    "message": "DeepL и встроенный"
-  },
-  "sumUnavailable": {
-    "message": "недоступен"
-  },
-  "sumDownload": {
-    "message": "скачать модели"
-  },
-  "sumNoLang": {
-    "message": "нет языка"
-  },
-  "sumNoKey": {
-    "message": "нет ключа"
-  },
-  "sumNoConsent": {
-    "message": "нет согласия"
-  },
-  "sumTip": {
-    "message": "$name$: $status$",
-    "placeholders": {
-      "name": {
-        "content": "$1",
-        "example": "Hover Translator"
-      },
-      "status": {
-        "content": "$2",
-        "example": "no key"
-      }
-    }
-  },
-  "triggerHintDwell": {
-    "message": "Задержите курсор на тексте — он переведётся. Уберёте курсор — вернётся оригинал. Ссылки и кнопки так не переводятся."
-  },
-  "triggerHintKey": {
-    "message": "Наведите курсор на текст, нажмите и отпустите $key$. Ещё раз — вернётся оригинал.",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "dwellValue": {
-    "message": "$sec$ с",
-    "placeholders": {
-      "sec": {
-        "content": "$1",
-        "example": "0.6"
-      }
-    }
-  },
-  "seconds_one": {
-    "message": "$n$ секунда",
+  "quotaUsed_one": {
+    "message": "В этом месяце переведён $n$ знак. Лимит для ключа не задан.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
   },
-  "seconds_few": {
-    "message": "$n$ секунды",
+  "quotaUsed_few": {
+    "message": "В этом месяце переведено $n$ знака. Лимит для ключа не задан.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
   },
-  "seconds_many": {
-    "message": "$n$ секунд",
+  "quotaUsed_many": {
+    "message": "В этом месяце переведено $n$ знаков. Лимит для ключа не задан.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
   },
-  "seconds_other": {
-    "message": "$n$ секунды",
+  "quotaUsed_other": {
+    "message": "В этом месяце переведено $n$ знака. Лимит для ключа не задан.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
-  },
-  "recentLabel": {
-    "message": "Недавние:"
-  },
-  "recentTip": {
-    "message": "Переводить на этот язык"
-  },
-  "quotaLeft_one": {
-    "message": "Осталось $left$ из $limit$ знака на этот месяц.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "quotaLeft_few": {
-    "message": "Осталось $left$ из $limit$ знаков на этот месяц.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "quotaLeft_many": {
-    "message": "Осталось $left$ из $limit$ знаков на этот месяц.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "quotaLeft_other": {
-    "message": "Осталось $left$ из $limit$ знака на этот месяц.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "keyRejected": {
-    "message": "Ключ не подошёл — проверьте, что он скопирован целиком."
   },
   "withDetail": {
     "message": "$text$ ($detail$)",
@@ -721,177 +276,8 @@
   "pasteKeyFirst": {
     "message": "Сначала вставьте ключ."
   },
-  "checkingKey": {
-    "message": "Проверяю ключ…"
-  },
-  "checkingLlmKey": {
-    "message": "Проверяю ключ: перевожу одно слово…"
-  },
-  "keyWorks": {
-    "message": "✓ Ключ работает."
-  },
-  "statsSent_one": {
-    "message": "Отправлено на перевод: $n$ знак.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsSent_few": {
-    "message": "Отправлено на перевод: $n$ знака.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsSent_many": {
-    "message": "Отправлено на перевод: $n$ знаков.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsSent_other": {
-    "message": "Отправлено на перевод: $n$ знака.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsHits_one": {
-    "message": "Взято из сохранённых: $n$ раз ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsHits_few": {
-    "message": "Взято из сохранённых: $n$ раза ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsHits_many": {
-    "message": "Взято из сохранённых: $n$ раз ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsHits_other": {
-    "message": "Взято из сохранённых: $n$ раза ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsFree_one": {
-    "message": "≈$n$ знак бесплатно",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsFree_few": {
-    "message": "≈$n$ знака бесплатно",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsFree_many": {
-    "message": "≈$n$ знаков бесплатно",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsFree_other": {
-    "message": "≈$n$ знака бесплатно",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsKept": {
-    "message": "Хранятся 14 дней."
-  },
-  "tabReload": {
-    "message": "Обновите вкладку, чтобы перевод заработал."
-  },
-  "tabUnknown": {
-    "message": "Перевод на этой вкладке пока не работает. Если это обычный сайт — обновите вкладку."
-  },
-  "tabReloading": {
-    "message": "Обновляю вкладку…"
-  },
-  "tabReloaded": {
-    "message": "Готово — перевод на этой вкладке работает."
-  },
-  "siteOffNow": {
-    "message": "На этом сайте перевод выключен: ни наведения, ни клавиши, ни панели."
-  },
   "keyNotSet": {
     "message": "не назначено"
-  },
-  "keysToggle": {
-    "message": "включить или выключить перевод"
-  },
-  "keysPage": {
-    "message": "перевести страницу"
-  },
-  "keysEsc": {
-    "message": "вернуть оригинал"
-  },
-  "offTurnOn": {
-    "message": "Перевод выключен — включите его переключателем выше."
-  },
-  "siteOffCheck": {
-    "message": "На этом сайте перевод выключен — поставьте галочку «Переводить на этом сайте»."
-  },
-  "siteOffHud": {
-    "message": "На этом сайте перевод выключен — панель не показывается."
   },
   "deleting": {
     "message": "Удаляю…"
@@ -902,98 +288,11 @@
   "tryAgainFailed": {
     "message": "Не получилось — попробуйте ещё раз."
   },
-  "biPrepare": {
-    "message": "Подготовить переводчик"
-  },
-  "biNone": {
-    "message": "Встроенный переводчик недоступен в этом браузере: нужен Google Chrome 138 или новее на компьютере. Подключите DeepL по своему ключу."
-  },
-  "biPairNo": {
-    "message": "Встроенный переводчик не умеет переводить эту пару языков: $pair$. Выберите другой язык или подключите DeepL.",
-    "placeholders": {
-      "pair": {
-        "content": "$1",
-        "example": "English → Russian"
-      }
-    }
-  },
-  "biLangNo": {
-    "message": "Встроенный переводчик не переводит на этот язык: $lang$. Выберите другой язык или подключите DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "biDetector": {
-    "message": "определение языка"
-  },
-  "biReady": {
-    "message": "✓ Готово: $pair$. Перевод идёт на вашем компьютере.",
-    "placeholders": {
-      "pair": {
-        "content": "$1",
-        "example": "English → Russian"
-      }
-    }
-  },
-  "biReadyNoDetector": {
-    "message": "✓ Готово: $pair$. Перевод идёт на вашем компьютере. Определение языка недоступно — укажите исходный язык в настройках.",
-    "placeholders": {
-      "pair": {
-        "content": "$1",
-        "example": "English → Russian"
-      }
-    }
-  },
-  "biGoing": {
-    "message": "Модели уже скачиваются ($what$). Нажмите кнопку, чтобы видеть ход загрузки.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "biNeed": {
-    "message": "Нужно один раз скачать языковые модели: $what$. Это бесплатно, потом перевод работает и без интернета.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "biChecking": {
-    "message": "Проверяю встроенный переводчик…"
-  },
-  "biDownloading": {
-    "message": "Скачиваю языковые модели…"
-  },
-  "biDownloadingPct": {
-    "message": "Скачиваю языковые модели… $pct$%",
-    "placeholders": {
-      "pct": {
-        "content": "$1",
-        "example": "42"
-      }
-    }
-  },
   "biOnceMore": {
     "message": "Осталось совсем немного — нажмите кнопку ещё раз."
   },
   "biFailed": {
     "message": "Не удалось скачать модель. Проверьте интернет и нажмите ещё раз."
-  },
-  "biFailedWhy": {
-    "message": "Не удалось скачать модель: $why$. Проверьте интернет и нажмите ещё раз.",
-    "placeholders": {
-      "why": {
-        "content": "$1",
-        "example": "NetworkError"
-      }
-    }
   },
   "welcomeTitle": {
     "message": "$name$ — начало работы",
@@ -1003,250 +302,6 @@
         "example": "Hover Translator"
       }
     }
-  },
-  "step1": {
-    "message": "На какой язык переводить"
-  },
-  "step1Hint": {
-    "message": "Язык можно сменить в любой момент в окне расширения."
-  },
-  "step2": {
-    "message": "Подготовьте переводчик"
-  },
-  "step2Text": {
-    "message": "Встроенный в Chrome переводчик работает на вашем компьютере: бесплатно, без ключей, текст никуда не отправляется."
-  },
-  "step3": {
-    "message": "Как включать перевод"
-  },
-  "shiftName": {
-    "message": "Клавишей $key$",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "shiftChoice": {
-    "message": "— так советуем. Наведите курсор на текст, нажмите и отпустите Shift. Нажмёте ещё раз — вернётся оригинал. Перевод не включится случайно, когда просто водите мышью или прокручиваете страницу."
-  },
-  "dwellName": {
-    "message": "Наведением."
-  },
-  "dwellChoice": {
-    "message": "Задержите курсор на тексте — он переведётся. Уберёте курсор — вернётся оригинал. Ссылки, кнопки, меню и короткие подписи наведением не переводятся."
-  },
-  "step4": {
-    "message": "Попробуйте"
-  },
-  "step5": {
-    "message": "Закрепите значок на панели"
-  },
-  "pinText": {
-    "message": "Нажмите на значок «Расширения» (кусочек пазла) справа от адресной строки, затем на булавку рядом с «$name$». По значку открываются настройки и кнопка «Перевести страницу», а «!» на нём подскажет, если перевод перестал работать.",
-    "placeholders": {
-      "name": {
-        "content": "$1",
-        "example": "Hover Translator"
-      }
-    }
-  },
-  "pinHint": {
-    "message": "Вкладки, открытые до установки, обновите — перевод заработает на них после обновления."
-  },
-  "extraTitle": {
-    "message": "Для более точного перевода"
-  },
-  "extraText": {
-    "message": "Можно подключить DeepL или ИИ (ChatGPT, Claude) по своему ключу: в окне расширения откройте «Качество перевода», выберите переводчик и вставьте ключ. Ключ DeepL бесплатный — 500 000 знаков в месяц; получить его можно на {a}deepl.com/pro-api{/a} (нужна регистрация). Учтите: тогда текст, который вы переводите, отправляется в DeepL или выбранному сервису ИИ — расширение спросит ваше согласие до первой отправки."
-  },
-  "heroKey": {
-    "message": "Наведите курсор на текст и нажмите $key$ — он переведётся прямо на странице. Работает сразу: без ключей и регистрации.",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "heroDwell": {
-    "message": "Задержите курсор на тексте — он переведётся прямо на странице. Работает сразу: без ключей и регистрации."
-  },
-  "trainerKey": {
-    "message": "Наведите курсор на текст выше, нажмите и отпустите $key$. Нажмёте ещё раз — вернётся оригинал.",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "trainerDwell": {
-    "message": "Задержите курсор на тексте выше. Уберёте курсор — вернётся оригинал."
-  },
-  "trainerPrep": {
-    "message": "Сначала подготовьте переводчик (шаг 2). $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerLang": {
-    "message": "Сначала выберите другой язык (шаг 1). $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoBuiltin": {
-    "message": "Встроенный переводчик в этом браузере недоступен — подключите DeepL (см. ниже). $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoDeeplKey": {
-    "message": "Перевод сейчас не работает: не задан ключ DeepL. Вставьте его в окне расширения («Качество перевода») или выберите там встроенный переводчик. $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoLlmKey": {
-    "message": "Перевод сейчас не работает: не задан ключ ИИ. Вставьте его в окне расширения («Качество перевода») или выберите там встроенный переводчик. $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoConsent": {
-    "message": "Перевод сейчас не работает: нужно ваше согласие на отправку текста в $service$. Дайте его в окне расширения («Качество перевода») или выберите там встроенный переводчик. $how$",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      },
-      "how": {
-        "content": "$2",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "keysEscHint": {
-    "message": "Esc возвращает оригинал везде на странице."
-  },
-  "keysToggleHint": {
-    "message": "$keys$ — включить или выключить перевод.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "keysPageHint": {
-    "message": "$keys$ — перевести страницу целиком.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "keysChangeHint": {
-    "message": "Сочетания можно сменить на странице chrome://extensions/shortcuts."
-  },
-  "dlDetector": {
-    "message": "модель определения языка"
-  },
-  "dlPair": {
-    "message": "языковую модель ($from$ → $to$)",
-    "placeholders": {
-      "from": {
-        "content": "$1",
-        "example": "English"
-      },
-      "to": {
-        "content": "$2",
-        "example": "Japanese"
-      }
-    }
-  },
-  "dlProgress": {
-    "message": "Скачиваю $what$…",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlProgressPct": {
-    "message": "Скачиваю $what$… $pct$%",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      },
-      "pct": {
-        "content": "$2",
-        "example": "42"
-      }
-    }
-  },
-  "dlWait": {
-    "message": "Встроенный переводчик скачивает $what$. Подождите немного и попробуйте ещё раз.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlClick": {
-    "message": "Щёлкните мышью по тексту — и он переведётся. Встроенный переводчик Chrome запускает $what$ только после щелчка; если её ещё нет на компьютере, сначала скачивает — это нужно один раз.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlClickPrep": {
-    "message": "Щёлкните мышью по тексту — и он переведётся. Встроенный переводчик Chrome запускает $what$ только после щелчка; если её ещё нет на компьютере, сначала скачивает — это нужно один раз. Скачать заранее можно и в окне расширения: «Подготовить переводчик».",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlClickSite": {
-    "message": "Щёлкните мышью по тексту — и он переведётся. Языка «$lang$» нет в списке языков Chrome, поэтому на каждом новом сайте Chrome запускает $what$ только после щелчка (если её ещё нет на компьютере — сначала скачивает). Чтобы не щёлкать, добавьте этот язык: настройки Chrome → «Языки».",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "the language model (Spanish → English)"
-      },
-      "lang": {
-        "content": "$2",
-        "example": "Spanish"
-      }
-    }
-  },
-  "detectFail": {
-    "message": "Встроенный переводчик не смог определить язык текста — укажите исходный язык в окне расширения."
   },
   "pairUnavailable": {
     "message": "Встроенный переводчик не умеет переводить эту пару языков: $from$ → $to$.",
@@ -1267,101 +322,11 @@
   "txFail": {
     "message": "Не удалось перевести текст."
   },
-  "fbQuota": {
-    "message": "Лимит DeepL на этот месяц закончился — перевожу встроенным переводчиком Chrome."
-  },
-  "fbNetwork": {
-    "message": "Нет связи с DeepL — перевожу встроенным переводчиком Chrome."
-  },
-  "fbTimeout": {
-    "message": "DeepL не отвечает — перевожу встроенным переводчиком Chrome."
-  },
-  "fbServer": {
-    "message": "DeepL сейчас недоступен — перевожу встроенным переводчиком Chrome."
-  },
-  "builtinOn": {
-    "message": "Включён встроенный переводчик Chrome — он работает без ключа. Сменить можно в окне расширения."
-  },
   "cardLabel": {
     "message": "Перевод"
   },
-  "cardLoading": {
-    "message": "Перевод…"
-  },
-  "cardClose": {
-    "message": "Закрыть (Esc)"
-  },
   "cardCloseAria": {
     "message": "Закрыть перевод"
-  },
-  "offViaKeys": {
-    "message": "Перевод выключен. Включить: $keys$ или значок расширения.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "offViaWindow": {
-    "message": "Перевод выключен. Включить можно в окне расширения."
-  },
-  "siteOffPage": {
-    "message": "На этом сайте перевод выключен. Включить можно в окне расширения: галочка «Переводить на этом сайте»."
-  },
-  "nothingOnPage": {
-    "message": "Переводить нечего: на странице не нашлось текста для перевода."
-  },
-  "translatingPage": {
-    "message": "Перевожу страницу…"
-  },
-  "alreadyInLang": {
-    "message": "Переводить нечего: текст на странице уже на нужном языке."
-  },
-  "visibleInLang": {
-    "message": "Эта часть страницы уже на нужном языке. Остальное переведётся, когда вы до него докрутите."
-  },
-  "scrollToTranslate": {
-    "message": "На экране нет текста для перевода. Остальная страница переведётся, когда вы до неё докрутите."
-  },
-  "doneScroll": {
-    "message": "Готово. Остальное переведётся, когда вы до него докрутите."
-  },
-  "donePage": {
-    "message": "Готово — страница переведена."
-  },
-  "toggledOn": {
-    "message": "Перевод включён."
-  },
-  "toggledOff": {
-    "message": "Перевод выключен."
-  },
-  "toggledOffKeys": {
-    "message": "Перевод выключен. Включить снова — $keys$.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "hudDrag": {
-    "message": "Перетащить панель"
-  },
-  "hudSiteOff": {
-    "message": "Выключить перевод на этом сайте"
-  },
-  "hudHide": {
-    "message": "Скрыть панель"
-  },
-  "siteDisabled": {
-    "message": "Перевод на сайте $site$ выключен. Включить снова можно в окне расширения.",
-    "placeholders": {
-      "site": {
-        "content": "$1",
-        "example": "example.com"
-      }
-    }
   },
   "turnBackOn": {
     "message": "Включить снова"
@@ -1431,7 +396,7 @@
     }
   },
   "deeplBadKey": {
-    "message": "DeepL не принял ключ — проверьте его в окне расширения."
+    "message": "DeepL не принял ключ — проверьте его в настройках расширения."
   },
   "deeplQuota": {
     "message": "Лимит DeepL на этот месяц закончился."
@@ -1491,11 +456,20 @@
     "message": "DeepL прислал непонятный ответ — попробуйте ещё раз."
   },
   "llmBadKey": {
-    "message": "$service$ не принял ключ — проверьте его в окне расширения.",
+    "message": "$service$ не принял ключ — проверьте его в настройках расширения.",
     "placeholders": {
       "service": {
         "content": "$1",
         "example": "DeepL"
+      }
+    }
+  },
+  "llmWrongKey": {
+    "message": "Похоже, это ключ другого сервиса. Вставьте ключ $service$.",
+    "placeholders": {
+      "service": {
+        "content": "$1",
+        "example": "Anthropic"
       }
     }
   },
@@ -1509,7 +483,7 @@
     }
   },
   "llmModelUnknown": {
-    "message": "$service$ не знает модель «$model$» — проверьте название в окне расширения.",
+    "message": "$service$ не знает модель «$model$» — проверьте название в настройках расширения.",
     "placeholders": {
       "service": {
         "content": "$1",
@@ -1678,5 +652,1586 @@
         "example": "Hover Translator"
       }
     }
+  },
+  "pairArrow": {
+    "message": "$from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "intoLang": {
+    "message": "На $lang$",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "dlTitle": {
+    "message": "Скачиваю переводчик"
+  },
+  "dlPct": {
+    "message": "$what$ · $pct$%",
+    "placeholders": {
+      "what": {
+        "content": "$1"
+      },
+      "pct": {
+        "content": "$2"
+      }
+    }
+  },
+  "dlDetectorName": {
+    "message": "Определение языка"
+  },
+  "probTitle": {
+    "message": "Перевод не работает"
+  },
+  "useBuiltin": {
+    "message": "Переводить встроенным"
+  },
+  "badKeyHint": {
+    "message": "Проверьте ключ в настройках. Пока ничего не переводится."
+  },
+  "swAmber": {
+    "message": "Янтарный"
+  },
+  "swGreen": {
+    "message": "Зелёный"
+  },
+  "swBlue": {
+    "message": "Голубой"
+  },
+  "swPink": {
+    "message": "Розовый"
+  },
+  "swLilac": {
+    "message": "Сиреневый"
+  },
+  "swGray": {
+    "message": "Серый"
+  },
+  "csOr": {
+    "message": "или"
+  },
+  "csCloseTip": {
+    "message": "Закрыть · Esc"
+  },
+  "csShowOrig": {
+    "message": "Показать оригинал"
+  },
+  "csOrigShown": {
+    "message": "Показан оригинал"
+  },
+  "csPageDone": {
+    "message": "Страница переведена"
+  },
+  "csNothingTitle": {
+    "message": "Переводить нечего"
+  },
+  "csNothingText": {
+    "message": "На странице нет текста для перевода."
+  },
+  "csAlreadyText": {
+    "message": "Текст на странице уже на нужном языке."
+  },
+  "csVisibleInLang": {
+    "message": "Видимая часть уже на нужном языке. Остальное переведётся при прокрутке."
+  },
+  "csScrollToTranslate": {
+    "message": "На экране нет текста для перевода. Остальное переведётся при прокрутке."
+  },
+  "csFbQuota": {
+    "message": "Лимит DeepL закончился — перевожу встроенным."
+  },
+  "csFbNetwork": {
+    "message": "Нет связи с DeepL — перевожу встроенным."
+  },
+  "csFbTimeout": {
+    "message": "DeepL не отвечает — перевожу встроенным."
+  },
+  "csFbServer": {
+    "message": "DeepL сейчас недоступен — перевожу встроенным."
+  },
+  "csFbBadKey": {
+    "message": "DeepL не принял ключ — пока перевожу встроенным."
+  },
+  "csFailTitle": {
+    "message": "Не удалось перевести"
+  },
+  "csBadKeyTitle": {
+    "message": "$service$ не принял ключ",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "csDetectFail": {
+    "message": "Встроенный переводчик не смог определить язык текста — укажите язык оригинала в настройках."
+  },
+  "csClickTitle": {
+    "message": "Щёлкните по тексту"
+  },
+  "csClickPair": {
+    "message": "Скачаю переводчик для этой пары"
+  },
+  "csClickDetector": {
+    "message": "Chrome включит определение языка"
+  },
+  "csClickSite": {
+    "message": "Языка «$lang$» нет в языках Chrome, поэтому щелчок нужен на каждом сайте",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "csDlWaitTitle": {
+    "message": "Переводчик ещё скачивается"
+  },
+  "csDlWaitText": {
+    "message": "$what$ · попробуйте через минуту",
+    "placeholders": {
+      "what": {
+        "content": "$1"
+      }
+    }
+  },
+  "csSiteOffTitle": {
+    "message": "На этом сайте перевод выключен"
+  },
+  "csSiteOffText": {
+    "message": "Включить можно в окне расширения: «Переводить на $site$».",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "csSiteDisabledTitle": {
+    "message": "Перевод на $site$ выключен",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "csSiteDisabledText": {
+    "message": "Здесь не работают наведение и клавиши"
+  },
+  "csOnTitle": {
+    "message": "Перевод включён"
+  },
+  "csOffTitle": {
+    "message": "Перевод выключен"
+  },
+  "csOffKeys": {
+    "message": "Включить снова — $keys$",
+    "placeholders": {
+      "keys": {
+        "content": "$1"
+      }
+    }
+  },
+  "csOffWindow": {
+    "message": "Включить можно в окне расширения: «Везде»"
+  },
+  "csOffPageKeys": {
+    "message": "Включить: $keys$ или «Везде» в окне расширения",
+    "placeholders": {
+      "keys": {
+        "content": "$1"
+      }
+    }
+  },
+  "csBuiltinOnTitle": {
+    "message": "Переводит встроенный"
+  },
+  "csBuiltinOnText": {
+    "message": "Ему не нужен ключ. Сменить переводчик можно в настройках."
+  },
+  "csCopy": {
+    "message": "Копировать"
+  },
+  "csCopied": {
+    "message": "Скопировано"
+  },
+  "csFabAria": {
+    "message": "$name$ — кнопки перевода",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Hover Translator"
+      }
+    }
+  },
+  "csFabSiteOff": {
+    "message": "Выключить на $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "csFabHide": {
+    "message": "Скрыть кнопку"
+  },
+  "csFabHiddenTitle": {
+    "message": "Кнопка скрыта"
+  },
+  "csFabHiddenText": {
+    "message": "Вернуть её можно в окне расширения и в настройках."
+  },
+  "csFabBack": {
+    "message": "Вернуть"
+  },
+  "csFkMore": {
+    "message": "Ещё"
+  },
+  "csFkLang": {
+    "message": "Язык перевода: $lang$",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "Русский"
+      }
+    }
+  },
+  "csFkFind": {
+    "message": "Найти язык"
+  },
+  "csFkRecent": {
+    "message": "Недавние"
+  },
+  "csFkAll": {
+    "message": "Все языки"
+  },
+  "csFkNone": {
+    "message": "Ничего не нашлось"
+  },
+  "csFkOrKey": {
+    "message": "Или наведите курсор на текст и нажмите $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1",
+        "example": "Shift"
+      }
+    }
+  },
+  "csFkOrDwell": {
+    "message": "Или задержите курсор на тексте"
+  },
+  "csFkStop": {
+    "message": "Остановить перевод"
+  },
+  "csFkStopSub": {
+    "message": "Уже переведённое останется на странице"
+  },
+  "csFkShowTr": {
+    "message": "Показать перевод"
+  },
+  "csFkErrSub": {
+    "message": "$reason$ · щёлкните — что делать",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Не задан ключ DeepL"
+      }
+    }
+  },
+  "ppScope": {
+    "message": "Везде"
+  },
+  "ppScopeAria": {
+    "message": "Перевод везде"
+  },
+  "ppScopeTip": {
+    "message": "Перевод на всех сайтах, кроме выключенных"
+  },
+  "ppScopeTipKey": {
+    "message": "Перевод на всех сайтах, кроме выключенных · $keys$",
+    "placeholders": {
+      "keys": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLang": {
+    "message": "Язык перевода"
+  },
+  "ppRecent": {
+    "message": "Недавние языки"
+  },
+  "ppHintKey": {
+    "message": "Наведите курсор на текст и нажмите $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppHintDwell": {
+    "message": "Задержите курсор на тексте"
+  },
+  "ppAlready": {
+    "message": "Переводится только текст на других языках"
+  },
+  "ppDownload": {
+    "message": "Скачать переводчик"
+  },
+  "ppOffline": {
+    "message": "$pair$ · дальше офлайн",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppDlAgain": {
+    "message": "Нажмите ещё раз, чтобы продолжить"
+  },
+  "ppDownloading": {
+    "message": "Скачивание переводчика"
+  },
+  "ppDownloadingWait": {
+    "message": "Скачивание переводчика…"
+  },
+  "ppBusy": {
+    "message": "Перевожу…"
+  },
+  "ppBusyN": {
+    "message": "$n$ из $total$",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "ppBusyAria": {
+    "message": "Перевод видимой части"
+  },
+  "ppStop": {
+    "message": "Стоп"
+  },
+  "ppRestLater": {
+    "message": "Остальное переведётся при прокрутке"
+  },
+  "ppSegAria": {
+    "message": "Что показывать на странице"
+  },
+  "ppOrig": {
+    "message": "Оригинал"
+  },
+  "ppTr": {
+    "message": "Перевод"
+  },
+  "ppEscHint": {
+    "message": "$pair$ · Esc — оригинал",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppOrigHint": {
+    "message": "$pair$ · показан оригинал",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_one": {
+    "message": "Перевод в $n$ месте",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_few": {
+    "message": "Перевод в $n$ местах",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_many": {
+    "message": "Перевод в $n$ местах",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_other": {
+    "message": "Перевод в $n$ местах",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppShowOrig": {
+    "message": "Показать оригинал"
+  },
+  "ppReload": {
+    "message": "Обновить вкладку"
+  },
+  "ppReloading": {
+    "message": "Обновляю вкладку…"
+  },
+  "ppReloadHint": {
+    "message": "Вкладка открыта до установки расширения"
+  },
+  "ppSiteRow": {
+    "message": "Переводить на $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppSiteOffT": {
+    "message": "На этом сайте выключено"
+  },
+  "ppSiteOffD": {
+    "message": "Здесь не работают наведение и клавиши"
+  },
+  "ppAllOffT": {
+    "message": "Выключено на всех сайтах"
+  },
+  "ppAllOffD": {
+    "message": "Наведение и клавиши не работают"
+  },
+  "ppClosedT": {
+    "message": "Здесь перевод не работает"
+  },
+  "ppClosedD": {
+    "message": "Chrome не пускает сюда расширения"
+  },
+  "ppOpenSettings": {
+    "message": "Открыть настройки"
+  },
+  "ppNoBuiltinT": {
+    "message": "Встроенного переводчика нет в этом браузере"
+  },
+  "ppNoBuiltinD": {
+    "message": "Нужен Chrome 138 или новее на компьютере. Можно подключить DeepL или ИИ по своему ключу."
+  },
+  "ppBiLangT": {
+    "message": "Встроенный не переводит на этот язык"
+  },
+  "ppBiLangFromT": {
+    "message": "Встроенный не переводит с этого языка"
+  },
+  "ppDlLangT": {
+    "message": "DeepL не переводит на этот язык"
+  },
+  "ppDlLangFromT": {
+    "message": "DeepL не переводит с этого языка"
+  },
+  "ppLangDeeplAiD": {
+    "message": "$lang$ есть у DeepL и ИИ. Или выберите другой язык перевода.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLangBiAiD": {
+    "message": "$lang$ есть у встроенного и ИИ. Или выберите другой язык перевода.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLangAiD": {
+    "message": "$lang$ есть у ИИ. Или выберите другой язык перевода.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLangFromD": {
+    "message": "$lang$ выбран языком оригинала в настройках. Выберите там другой язык или переводчик.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPickLang": {
+    "message": "Выбрать другой язык"
+  },
+  "ppDlFailT": {
+    "message": "Не удалось скачать переводчик"
+  },
+  "ppDlFailD": {
+    "message": "Проверьте подключение к интернету и попробуйте ещё раз."
+  },
+  "ppRetry": {
+    "message": "Повторить"
+  },
+  "ppConsentT": {
+    "message": "Отправлять текст в $service$?",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppConsentD": {
+    "message": "Текст, который вы переводите, уйдёт в $service$. Встроенный переводчик ничего не отправляет.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppAllowSend": {
+    "message": "Разрешить отправку"
+  },
+  "ppNoKeyT": {
+    "message": "Нужен ключ $service$",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppNoKeyDeeplD": {
+    "message": "Без ключа DeepL не переводит. Бесплатный ключ — 500 000 знаков в месяц."
+  },
+  "ppNoKeyLlmD": {
+    "message": "Без ключа $name$ не переводит. Ключ выдают в кабинете $service$.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "service": {
+        "content": "$2"
+      }
+    }
+  },
+  "ppAddKey": {
+    "message": "Добавить ключ в настройках"
+  },
+  "ppBadKeyT": {
+    "message": "$service$ не принял ключ",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppBadKeyD": {
+    "message": "Ключ мог быть удалён в кабинете $service$ или вставлен не целиком.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppCheckKey": {
+    "message": "Проверить ключ в настройках"
+  },
+  "ppQuotaT": {
+    "message": "Лимит DeepL на месяц исчерпан"
+  },
+  "ppQuotaD": {
+    "message": "500 000 знаков бесплатного тарифа израсходованы. «Авто» переведёт встроенным, а с новым лимитом вернётся к DeepL."
+  },
+  "ppQuotaOwnD": {
+    "message": "Лимит, заданный для ключа в DeepL, израсходован. «Авто» переведёт встроенным, а с новым лимитом вернётся к DeepL."
+  },
+  "ppAuto": {
+    "message": "Включить «Авто»"
+  },
+  "ppMoneyT": {
+    "message": "На счёте $service$ нет денег",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppMoneyD": {
+    "message": "Пополните счёт или переводите встроенным — он бесплатный."
+  },
+  "ppDeniedT": {
+    "message": "$service$ отказал в доступе",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppDeniedD": {
+    "message": "Например, сервис не работает в вашей стране. Встроенный переводчик работает без него."
+  },
+  "ppNetT": {
+    "message": "Нет связи с $service$",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppNetD": {
+    "message": "Проверьте интернет. Встроенный переводчик работает и без него."
+  },
+  "ppServerT": {
+    "message": "$service$ не отвечает",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppServerD": {
+    "message": "Сбой на стороне сервиса. Встроенный переводчик работает и без него."
+  },
+  "ppRecheck": {
+    "message": "Проверить снова"
+  },
+  "ppChecking": {
+    "message": "Проверяю…"
+  },
+  "ppStatusTip": {
+    "message": "Сменить переводчик"
+  },
+  "ppFab": {
+    "message": "Плавающая кнопка на странице"
+  },
+  "ppFabHide": {
+    "message": "Скрыть плавающую кнопку"
+  },
+  "ppSettings": {
+    "message": "Настройки"
+  },
+  "ppNameBuiltinFull": {
+    "message": "Встроенный переводчик"
+  },
+  "ppNameBuiltin": {
+    "message": "Встроенный"
+  },
+  "ppNameAuto": {
+    "message": "Авто"
+  },
+  "ppFoot": {
+    "message": "$name$: $status$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "status": {
+        "content": "$2"
+      }
+    }
+  },
+  "ppStNeed": {
+    "message": "нужно скачать"
+  },
+  "ppStDl": {
+    "message": "скачивание…"
+  },
+  "ppStNone": {
+    "message": "нет в браузере"
+  },
+  "ppStLang": {
+    "message": "нет языка"
+  },
+  "ppStFail": {
+    "message": "не скачался"
+  },
+  "ppStConsent": {
+    "message": "нужно согласие"
+  },
+  "ppStNoKey": {
+    "message": "нет ключа"
+  },
+  "ppStBadKey": {
+    "message": "ключ не принят"
+  },
+  "ppStQuota": {
+    "message": "лимит исчерпан"
+  },
+  "ppStAutoQuota": {
+    "message": "лимит DeepL"
+  },
+  "ppStNet": {
+    "message": "нет связи"
+  },
+  "ppStServer": {
+    "message": "не отвечает"
+  },
+  "ppStMoney": {
+    "message": "счёт пуст"
+  },
+  "ppStDenied": {
+    "message": "нет доступа"
+  },
+  "wlLeadKey": {
+    "message": "Наведите курсор на текст и нажмите $key$ — перевод появится прямо на странице. Бесплатно и без регистрации: Chrome один раз скачает переводчик.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlLeadDwell": {
+    "message": "Задержите курсор на тексте — перевод появится прямо на странице. Бесплатно и без регистрации: Chrome один раз скачает переводчик."
+  },
+  "wlStep1": {
+    "message": "На какой язык переводить"
+  },
+  "wlStep1Hint": {
+    "message": "Сменить можно в любой момент — в окне расширения."
+  },
+  "wlStep2": {
+    "message": "Скачайте переводчик и попробуйте"
+  },
+  "wlStep2Conn": {
+    "message": "Подключите переводчик"
+  },
+  "wlStep2Desc": {
+    "message": "Встроенный в Chrome переводчик работает на вашем компьютере: без ключей и регистрации, текст никуда не уходит."
+  },
+  "wlDownload": {
+    "message": "Скачать переводчик"
+  },
+  "wlOnce": {
+    "message": "$pair$ · один раз, дальше без интернета",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlOnceMore": {
+    "message": "Осталось совсем немного — нажмите кнопку ещё раз."
+  },
+  "wlWaitCap": {
+    "message": "Попробовать можно будет сразу после загрузки."
+  },
+  "wlDlLabel": {
+    "message": "Скачивание переводчика"
+  },
+  "wlReady": {
+    "message": "Готово: $pair$",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlTryKey": {
+    "message": "Наведите курсор на текст для пробы и нажмите $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlNoKey": {
+    "message": "Без клавиши удобнее?"
+  },
+  "wlToHover": {
+    "message": "Переводить наведением"
+  },
+  "wlTryDwell": {
+    "message": "Задержите курсор на тексте для пробы — он переведётся сам"
+  },
+  "wlIsHover": {
+    "message": "Переводится наведением."
+  },
+  "wlBackKey": {
+    "message": "Вернуть $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlWorks": {
+    "message": "Работает! Так же — на любом сайте"
+  },
+  "wlWorksKey": {
+    "message": "Ещё раз $key$ или Esc — вернётся оригинал.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlWorksDwell": {
+    "message": "Уберёте курсор или нажмёте Esc — вернётся оригинал."
+  },
+  "wlWorksMore": {
+    "message": "Для других языков Chrome скачает переводчик при первом переводе — понадобится щелчок по тексту."
+  },
+  "wlFailT": {
+    "message": "Не удалось скачать переводчик"
+  },
+  "wlFailD": {
+    "message": "Проверьте подключение к интернету и попробуйте ещё раз."
+  },
+  "wlRetry": {
+    "message": "Повторить"
+  },
+  "wlNoT": {
+    "message": "Встроенного переводчика нет в этом браузере"
+  },
+  "wlNoD": {
+    "message": "Нужен Chrome 138 или новее на компьютере. Можно подключить DeepL или ИИ по своему ключу."
+  },
+  "wlProbFix": {
+    "message": "$why$. Исправить можно в настройках.",
+    "placeholders": {
+      "why": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlProbLang": {
+    "message": "$why$. Выберите другой язык выше или подключите DeepL или ИИ в настройках.",
+    "placeholders": {
+      "why": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlPairNo": {
+    "message": "встроенный переводчик не переводит эту пару: $pair$",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlOpenSettings": {
+    "message": "Открыть настройки"
+  },
+  "wlStep3": {
+    "message": "Закрепите значок на панели"
+  },
+  "wlExtensions": {
+    "message": "Расширения"
+  },
+  "wlPinD": {
+    "message": "Нажмите на значок «Расширения» справа от адресной строки, затем на булавку рядом с $name$. По значку — язык, «Перевести страницу» и настройки.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlReload": {
+    "message": "Уже открытые вкладки обновите — до этого перевод на них не работает."
+  },
+  "wlMoreT": {
+    "message": "Нужен перевод точнее?"
+  },
+  "wlMoreD": {
+    "message": "Подключите DeepL или ИИ (ChatGPT, Claude) по своему ключу. У DeepL бесплатно 500 000 знаков в месяц. Перед первой отправкой текста расширение спросит согласие."
+  },
+  "wlMoreGeo": {
+    "message": "DeepL и ИИ доступны не во всех странах."
+  },
+  "opTitle": {
+    "message": "$name$ — настройки",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "opHowTo": {
+    "message": "Как пользоваться"
+  },
+  "opH1": {
+    "message": "Настройки"
+  },
+  "opNavAria": {
+    "message": "Разделы"
+  },
+  "opSecTranslator": {
+    "message": "Переводчик"
+  },
+  "opSecPage": {
+    "message": "На странице"
+  },
+  "opSecLangs": {
+    "message": "Языки"
+  },
+  "opSecSites": {
+    "message": "Сайты и слова"
+  },
+  "opSecKeys": {
+    "message": "Горячие клавиши"
+  },
+  "opSecData": {
+    "message": "Данные"
+  },
+  "opNotSaved": {
+    "message": "Не удалось сохранить: $reason$.",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "opStoreFull": {
+    "message": "хранилище переполнено — удалите сохранённые переводы в разделе «Данные»"
+  },
+  "opTranslatorDesc": {
+    "message": "Встроенный работает на вашем компьютере и ничего не отправляет. DeepL и ИИ переводят точнее, но получают текст, который вы переводите."
+  },
+  "opNotEverywhere": {
+    "message": "DeepL и ИИ доступны не во всех странах."
+  },
+  "opEngBuiltin": {
+    "message": "Встроенный в Chrome"
+  },
+  "opEngBuiltinD": {
+    "message": "Бесплатно и без ключа. Текст не уходит с компьютера."
+  },
+  "opEngBuiltinNoneD": {
+    "message": "Нужен Chrome 138 или новее на компьютере."
+  },
+  "opEngDeeplD": {
+    "message": "Точнее. По своему ключу: бесплатно — 500 000 знаков в месяц."
+  },
+  "opEngAuto": {
+    "message": "Авто: DeepL, а если не вышло — встроенный"
+  },
+  "opEngAutoD": {
+    "message": "Перевод не прервётся, когда кончится лимит DeepL или пропадёт связь."
+  },
+  "opEngAutoNoneD": {
+    "message": "Без встроенного переводчику не на что переключиться."
+  },
+  "opEngLlm": {
+    "message": "ИИ: ChatGPT или Claude"
+  },
+  "opEngLlmD": {
+    "message": "По своему ключу, платно. Лучше передаёт смысл и обороты речи, но медленнее."
+  },
+  "opTagReady": {
+    "message": "Подключён"
+  },
+  "opTagKeyBad": {
+    "message": "Ключ не принят"
+  },
+  "opTagNoBrowser": {
+    "message": "Нет в этом браузере"
+  },
+  "opTagNeedBuiltin": {
+    "message": "Нужен встроенный"
+  },
+  "opBiReady": {
+    "message": "Готов · $pair$",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "opBiNeed": {
+    "message": "Нужно скачать"
+  },
+  "opBiDownloading": {
+    "message": "Скачивание…"
+  },
+  "opBiDownloadingPct": {
+    "message": "Скачивание $pct$%",
+    "placeholders": {
+      "pct": {
+        "content": "$1"
+      }
+    }
+  },
+  "opBiFailed": {
+    "message": "Не скачался"
+  },
+  "opBiNoLang": {
+    "message": "Нет языка"
+  },
+  "opBiDownload": {
+    "message": "Скачать переводчик"
+  },
+  "opBiDownloadShort": {
+    "message": "Скачать"
+  },
+  "opBiOffline": {
+    "message": "$pair$ · дальше офлайн",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "opBiProgress": {
+    "message": "Скачивание переводчика"
+  },
+  "opRetry": {
+    "message": "Повторить"
+  },
+  "opStepsAria": {
+    "message": "Шаги подключения"
+  },
+  "opStepConsent": {
+    "message": "Согласие"
+  },
+  "opStepKey": {
+    "message": "Ключ"
+  },
+  "opStepDone": {
+    "message": "Готово"
+  },
+  "opWaitBuiltin": {
+    "message": "Пока переводит встроенный"
+  },
+  "opWaitOther": {
+    "message": "Пока переводит $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "opConsentQ": {
+    "message": "Отправлять текст в $service$?",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opConsentDeepl": {
+    "message": "Текст, который вы переводите, уйдёт в DeepL. Встроенный переводчик ничего не отправляет."
+  },
+  "opConsentOpenai": {
+    "message": "Текст, который вы переводите, уйдёт в OpenAI (ChatGPT). Согласие на Anthropic спрашивается отдельно."
+  },
+  "opConsentAnthropic": {
+    "message": "Текст, который вы переводите, уйдёт в Anthropic (Claude). Согласие на OpenAI спрашивается отдельно."
+  },
+  "opAllow": {
+    "message": "Разрешить отправку"
+  },
+  "opCancel": {
+    "message": "Отмена"
+  },
+  "opConsentLine": {
+    "message": "Текст, который вы переводите, отправляется в $service$ по вашему ключу.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opRevoke": {
+    "message": "Отозвать согласие"
+  },
+  "opDeeplKey": {
+    "message": "Ключ DeepL"
+  },
+  "opDeeplKeyPh": {
+    "message": "Вставьте ключ DeepL"
+  },
+  "opLlmKey": {
+    "message": "Ключ $service$",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opLlmKeyPh": {
+    "message": "Вставьте ключ $service$",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opShowKey": {
+    "message": "Показать ключ"
+  },
+  "opHideKey": {
+    "message": "Скрыть ключ"
+  },
+  "opCheck": {
+    "message": "Проверить"
+  },
+  "opChecking": {
+    "message": "Проверяю…"
+  },
+  "opKeyOkFree": {
+    "message": "Ключ …$tail$ работает · бесплатный тариф",
+    "placeholders": {
+      "tail": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeyOkPro": {
+    "message": "Ключ …$tail$ работает · платный тариф",
+    "placeholders": {
+      "tail": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeyOk": {
+    "message": "Ключ …$tail$ работает",
+    "placeholders": {
+      "tail": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeyBad": {
+    "message": "DeepL не принял ключ. Скопируйте его заново целиком — у бесплатного ключа в конце «:fx»."
+  },
+  "opLlmKeyBad": {
+    "message": "$service$ не принял ключ. Скопируйте его заново целиком.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opHowGetKey": {
+    "message": "Как получить ключ"
+  },
+  "opQuotaLbl": {
+    "message": "Остаток на этот месяц"
+  },
+  "opQuotaAria": {
+    "message": "Остаток DeepL"
+  },
+  "opQuotaLeft_one": {
+    "message": "$left$ из $n$ знака. Повторный перевод того же текста лимит не тратит.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaLeft_few": {
+    "message": "$left$ из $n$ знаков. Повторный перевод того же текста лимит не тратит.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaLeft_many": {
+    "message": "$left$ из $n$ знаков. Повторный перевод того же текста лимит не тратит.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaLeft_other": {
+    "message": "$left$ из $n$ знака. Повторный перевод того же текста лимит не тратит.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_one": {
+    "message": "$left$ из $n$ знака — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_few": {
+    "message": "$left$ из $n$ знаков — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_many": {
+    "message": "$left$ из $n$ знаков — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_other": {
+    "message": "$left$ из $n$ знака — это лимит, заданный для ключа в DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opService": {
+    "message": "Сервис"
+  },
+  "opModel": {
+    "message": "Модель"
+  },
+  "opAutoConnect": {
+    "message": "Подключите DeepL"
+  },
+  "opAutoQuotaOut": {
+    "message": "Лимит на этот месяц исчерпан"
+  },
+  "opAutoLeft_one": {
+    "message": "Подключён · остался $n$ знак",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoLeft_few": {
+    "message": "Подключён · осталось $n$ знака",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoLeft_many": {
+    "message": "Подключён · осталось $n$ знаков",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoLeft_other": {
+    "message": "Подключён · осталось $n$ знака",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoNote": {
+    "message": "Ключ и согласие — общие с карточкой DeepL. Когда DeepL снова доступен, «Авто» вернётся к нему сам."
+  },
+  "opPageDesc": {
+    "message": "Как вызывать перевод и как его показывать."
+  },
+  "opTrig": {
+    "message": "Как переводить текст"
+  },
+  "opTrigKeyD": {
+    "message": "Наведите курсор на текст и нажмите $key$. Ещё раз — вернётся оригинал.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "opTrigDwellD": {
+    "message": "Задержите курсор на тексте — он переведётся сам. Уведёте курсор раньше — ничего не случится."
+  },
+  "opTrigNone": {
+    "message": "Без клавиши"
+  },
+  "opAltWarn": {
+    "message": "В Windows одиночный Alt открывает меню Chrome — там удобнее Shift."
+  },
+  "opDelay": {
+    "message": "Задержка"
+  },
+  "opMs": {
+    "message": "$n$ мс",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_one": {
+    "message": "$n$ миллисекунда",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_few": {
+    "message": "$n$ миллисекунды",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_many": {
+    "message": "$n$ миллисекунд",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_other": {
+    "message": "$n$ миллисекунды",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opDelayHint": {
+    "message": "Меньше — быстрее, но чаще переводится лишнее."
+  },
+  "opDisp": {
+    "message": "Как показывать перевод"
+  },
+  "opDispD": {
+    "message": "«Перевести страницу» всегда заменяет текст на месте."
+  },
+  "opDispReplace": {
+    "message": "Вместо текста"
+  },
+  "opDispReplaceD": {
+    "message": "Перевод встаёт на место оригинала, ссылки и шрифты сохраняются"
+  },
+  "opDispCard": {
+    "message": "Карточкой рядом"
+  },
+  "opDispCardD": {
+    "message": "Оригинал остаётся, перевод — под ним"
+  },
+  "opHlAutoD": {
+    "message": "Янтарная подложка подстраивается под цвет страницы."
+  },
+  "opHlCustomD": {
+    "message": "Свой цвет — одинаковый на всех сайтах."
+  },
+  "opHlNoneD": {
+    "message": "Переведённый текст ничем не выделяется."
+  },
+  "opColor": {
+    "message": "Цвет"
+  },
+  "opColorOther": {
+    "message": "Другой цвет"
+  },
+  "opSat": {
+    "message": "Насыщенность"
+  },
+  "opDemoLight": {
+    "message": "Так выглядит переведённый текст на светлом сайте."
+  },
+  "opDemoDark": {
+    "message": "А так — на тёмном."
+  },
+  "opBadge": {
+    "message": "Язык оригинала на карточке"
+  },
+  "opBadgeD": {
+    "message": "Например, «$pair$» над переводом.",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "opFab": {
+    "message": "Показывать плавающую кнопку"
+  },
+  "opFabD": {
+    "message": "Кружок у края страницы. Наведите на него — над ним появятся кнопки: перевести страницу и выбрать язык. Если кружок что-то закрывает, перетащите его."
+  },
+  "opTarget": {
+    "message": "Язык перевода"
+  },
+  "opTargetD": {
+    "message": "Его же можно сменить в окне расширения и в меню плавающей кнопки."
+  },
+  "opSourceD": {
+    "message": "Если страница смешанная или язык определяется неверно."
+  },
+  "opSrcAuto": {
+    "message": "Определять сам"
+  },
+  "opFormality": {
+    "message": "Обращение"
+  },
+  "opOnlyDeepl": {
+    "message": "только DeepL"
+  },
+  "opFormalityD": {
+    "message": "Для немецкого, французского, итальянского, испанского, нидерландского, польского, португальского, русского и японского."
+  },
+  "opSitesOff": {
+    "message": "Выключено на сайтах"
+  },
+  "opSitesOffD": {
+    "message": "Здесь не работают ни наведение, ни клавиши, ни плавающая кнопка. Выключить сайт можно в окне расширения."
+  },
+  "opSitesNone": {
+    "message": "Пока ни одного сайта."
+  },
+  "opSiteOn": {
+    "message": "Включить"
+  },
+  "opSiteOnAria": {
+    "message": "Включить на $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeysD": {
+    "message": "Сочетания задаёт Chrome — их можно сменить на его странице."
+  },
+  "opKeyToggle": {
+    "message": "Включить или выключить перевод везде"
+  },
+  "opKeyEsc": {
+    "message": "Вернуть оригинал на странице"
+  },
+  "opKeyEscD": {
+    "message": "Работает всегда, сменить нельзя."
+  },
+  "opKeysOpens": {
+    "message": "Откроется chrome://extensions/shortcuts"
+  },
+  "opSavedD_one": {
+    "message": "$n$ перевод, $size$. Хранятся 14 дней: повторный перевод мгновенный и не тратит лимит DeepL и ИИ.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedD_few": {
+    "message": "$n$ перевода, $size$. Хранятся 14 дней: повторный перевод мгновенный и не тратит лимит DeepL и ИИ.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedD_many": {
+    "message": "$n$ переводов, $size$. Хранятся 14 дней: повторный перевод мгновенный и не тратит лимит DeepL и ИИ.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedD_other": {
+    "message": "$n$ перевода, $size$. Хранятся 14 дней: повторный перевод мгновенный и не тратит лимит DeepL и ИИ.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedNone": {
+    "message": "Пока ничего нет. Переводы DeepL и ИИ хранятся 14 дней: повторный перевод мгновенный и не тратит лимит."
+  },
+  "opDelete": {
+    "message": "Удалить"
+  },
+  "opKeysData": {
+    "message": "Ключи"
+  },
+  "opKeysDataD": {
+    "message": "Ключи DeepL и ИИ хранятся только в этом браузере. Отправляются только своему сервису — при переводе."
+  },
+  "wlDlGoesOn": {
+    "message": "Можно не ждать на этой странице — загрузка продолжится сама."
+  },
+  "opSizeKb": {
+    "message": "$n$ КБ",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opSizeMb": {
+    "message": "$n$ МБ",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opResetT": {
+    "message": "Сбросить настройки"
+  },
+  "opResetD": {
+    "message": "Всё вернётся как после установки. Ключи DeepL и ИИ и сохранённые переводы останутся."
+  },
+  "opReset": {
+    "message": "Сбросить"
+  },
+  "opResetQ": {
+    "message": "Сбросить все настройки?"
+  },
+  "opResetDone": {
+    "message": "Готово: настройки как после установки."
   }
 }

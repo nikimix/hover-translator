@@ -1,0 +1,79 @@
+/* Страница настроек — только своё; токены и компоненты (карточки, шаги, поля, меню разделов) — в ui.css.
+   Превью способа показа, список выключенных сайтов, образец подсветки — из макета Settings / SettingsStates. */
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+.grow { flex: 1; }
+.fs13 { font-size: 13px; }
+.m0 { margin: 0; }
+.blk, .cr-main > label.cr-t { display: block; }
+.w440 { max-width: 440px; }
+.w280 { width: 280px; max-width: 100%; }
+.tag-gap { margin-left: 4px; vertical-align: 1px; }
+#logo { display: inline-flex; }
+
+/* Карточки переводчика: кольцо фокуса — у карточки, когда фокус на её кружке (ui.css), а не на поле ключа внутри. */
+.rcard.is-disabled .rc-head { cursor: not-allowed; }
+.rcard .rc-head .rc-d { display: block; }
+.rc-acts .btn-ghost { padding: 0 12px; }
+/* шаг с галочкой: иконка 14 в кружке 24 */
+.step .n svg { display: block; }
+.rc-sel { width: 420px; max-width: 100%; }
+.quota-t b { color: var(--fg); font-weight: 600; }
+.quota-t.warn-t b { color: inherit; }
+.bi-dl { display: flex; flex-direction: column; gap: 12px; }
+.bi-dl .prog { max-width: 440px; }
+.bi-dl .hint { justify-content: flex-start; text-align: left; }
+.fb-row .btn-sm { margin-left: 4px; }
+.warn-line { color: var(--warn); }
+/* подпись строки цветом состояния: «Готово» после сброса, предупреждение о языке (.cr-d задан позже .ok-t/.warn-t) */
+.cr-d.ok-t { color: var(--ok); }
+.cr-d.warn-t { color: var(--warn); }
+.cr-d.err-t { color: var(--err); }
+.warn-line > span:last-child { color: var(--fg-2); }
+
+/* превью «Как показывать перевод» */
+.pv-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.rcard.pv { flex-direction: column; gap: 16px; padding: 12px 16px 16px; }
+.pv-box { display: flex; flex-direction: column; gap: 8px; width: 100%; height: 120px; padding: 16px; border-radius: 8px; background: var(--surface); position: relative; overflow: hidden; }
+.pv-l { display: block; height: 8px; border-radius: 4px; background: var(--line-strong); flex: none; }
+.pv-mk { background: rgba(255, 207, 74, 0.55); box-shadow: 0 0 0 3px rgba(255, 207, 74, 0.35); }
+.pv-src { outline: 2px solid var(--accent); outline-offset: 3px; }
+.pv-card { display: flex; flex-direction: column; gap: 8px; position: absolute; left: 28px; right: 28px; top: 66px; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line-strong); box-shadow: 0 8px 20px rgba(16, 24, 40, 0.14); }
+.pv-txt { display: flex; gap: 12px; align-items: flex-start; }
+
+/* подсветка: строка с выбором и, для своего цвета, — цвета, насыщенность и образец */
+.hl-top { display: flex; align-items: center; gap: 24px; }
+.hl-more { display: flex; flex-direction: column; gap: 12px; }
+.swatch.custom { background: var(--bg); }
+.swatch.custom.has-color svg { display: none; }
+.hl-demo { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-family: Georgia, "Times New Roman", serif; font-size: 16px; line-height: 26px; }
+.hl-on-l { padding: 16px; background: #ffffff; color: #1f2328; }
+.hl-on-d { padding: 16px; background: #121316; color: #d7dade; }
+.hl-demo .mk { --hl: rgba(255, 207, 74, 0.34); background: var(--hl); box-shadow: 0 0 0 3px var(--hl); border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.hl-demo .mk.dk { --hl: rgba(255, 207, 74, 0.2); }
+
+/* выключенные сайты */
+.site-list { list-style: none; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; }
+.site-list:empty { display: none; }
+.site-list li { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 8px 0 16px; }
+.site-list li + li { border-top: 1px solid var(--line); }
+.sl-ic { display: inline-flex; color: var(--muted); }
+.sl-t { flex: 1; min-width: 0; font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.kbd-none { font-size: 13px; color: var(--muted); }
+
+/* узкое окно: полоса вкладок над содержимым (ui.css); разделы при переходе не прячутся под неё */
+@media (max-width: 880px) {
+  .sec { scroll-margin-top: 81px; }
+  .pg-h1 { margin-top: 8px; }
+}
+@media (max-width: 640px) {
+  .pg-top { padding: 0 16px; }
+  .card-row:not(.col), .hl-top { flex-wrap: wrap; gap: 12px; }
+  .card-row:not(.col) > .cr-ctl, .hl-top > .cr-ctl { flex: 1 1 100%; }
+  .w280 { width: 100%; }
+  .pv-row { grid-template-columns: minmax(0, 1fr); }
+  .inp-row { flex-wrap: wrap; }
+}

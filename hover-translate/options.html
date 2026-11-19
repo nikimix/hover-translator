@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html class="ht page-bg" lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="opTitle"></title>
+  <link rel="icon" href="icons/16.png" />
+  <!-- Токены и компоненты — общие с окном и приветствием (ui.css); здесь своего — только options.css. -->
+  <link rel="stylesheet" href="ui.css" />
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <!-- Страница настроек (options_ui, open_in_tab). Тексты — в _locales/*/messages.json (data-i18n, HT_localize);
+       иконки и всё, что меняется по состоянию (карточки переводчика, списки, клавиши), строит options.js.
+       Порядок разделов — как в меню: Переводчик · На странице · Языки · Сайты и слова · Горячие клавиши · Данные. -->
+  <div class="pg">
+    <header class="pg-top">
+      <span id="logo"></span>
+      <span class="pg-top-t" data-i18n="extShortName"></span>
+      <span class="grow"></span>
+      <a class="btn btn-ghost" href="welcome.html" data-i18n="opHowTo"></a>
+    </header>
+
+    <div class="pg-wrap">
+      <nav class="pg-nav" id="nav" data-i18n-aria-label="opNavAria">
+        <a class="nav-a" href="#translator" data-ic="languages"><span data-i18n="opSecTranslator"></span></a>
+        <a class="nav-a" href="#page" data-ic="pointer"><span data-i18n="opSecPage"></span></a>
+        <a class="nav-a" href="#langs" data-ic="globe"><span data-i18n="opSecLangs"></span></a>
+        <a class="nav-a" href="#sites" data-ic="ban"><span data-i18n="opSecSites"></span></a>
+        <a class="nav-a" href="#keys" data-ic="keyboard"><span data-i18n="opSecKeys"></span></a>
+        <a class="nav-a" href="#data" data-ic="database"><span data-i18n="opSecData"></span></a>
+      </nav>
+
+      <main class="pg-main">
+        <h1 class="pg-h1" data-i18n="opH1"></h1>
+        <!-- Не удалось записать в хранилище (оно общее с сохранёнными переводами и может переполниться). -->
+        <div class="notice notice-err" id="saveErr" role="alert" hidden></div>
+
+        <!-- ===== Переводчик ===== -->
+        <section class="sec" id="translator" aria-labelledby="h-translator">
+          <div>
+            <h2 class="sec-h" id="h-translator" data-i18n="opSecTranslator"></h2>
+            <p class="sec-d" data-i18n="opTranslatorDesc"></p>
+          </div>
+          <!-- Карточки строит options.js: выбор DeepL или ИИ раскрывает шаги «Согласие → Ключ → Готово», а сам
+               переводчик (engine в хранилище) меняется только на «Готово». -->
+          <div class="stack" id="engines" role="radiogroup" aria-labelledby="h-translator"></div>
+          <p class="muted fs13" data-i18n="opNotEverywhere"></p>
+        </section>
+
+        <!-- ===== На странице ===== -->
+        <section class="sec" id="page" aria-labelledby="h-page">
+          <div>
+            <h2 class="sec-h" id="h-page" data-i18n="opSecPage"></h2>
+            <p class="sec-d" data-i18n="opPageDesc"></p>
+          </div>
+          <div class="card">
+            <div class="card-row col">
+              <div>
+                <p class="cr-t" id="trigT" data-i18n="opTrig"></p>
+                <p class="cr-d" id="trigD"></p>
+              </div>
+              <div class="w440"><div class="seg" id="trigger" role="radiogroup" aria-labelledby="trigT">
+                <button type="button" role="radio" data-v="shift"></button>
+                <button type="button" role="radio" data-v="alt"></button>
+                <button type="button" role="radio" data-v="ctrl"></button>
+                <button type="button" role="radio" data-v="dwell" data-i18n="opTrigNone"></button>
+              </div></div>
+              <p class="rc-wait warn-line" id="altWarn" hidden><span data-ic="warn" data-ic-size="16"></span><span data-i18n="opAltWarn"></span></p>
+              <div class="field w440" id="dwellField" hidden>
+                <label class="lbl" for="dwellMs" data-i18n="opDelay"></label>
+                <div class="range-row"><input id="dwellMs" class="range" type="range" /><span class="range-val" id="dwellVal"></span></div>
+                <p class="muted fs13" data-i18n="opDelayHint"></p>
+              </div>
+            </div>
+
+            <div class="card-row col">
+              <div>
+                <p class="cr-t" id="dispT" data-i18n="opDisp"></p>
+                <p class="cr-d" data-i18n="opDispD"></p>
+              </div>
+              <div class="pv-row" role="radiogroup" aria-labelledby="dispT">
+                <label class="rcard pv" id="dispReplace">
+                  <span class="pv-box" aria-hidden="true">
+                    <span class="pv-l" style="width: 92%;"></span><span class="pv-l" style="width: 84%;"></span>
+                    <span class="pv-l pv-mk" style="width: 88%;"></span><span class="pv-l pv-mk" style="width: 56%;"></span>
+                    <span class="pv-l" style="width: 70%;"></span>
+                  </span>
+                  <span class="pv-txt"><input type="radio" name="displayMode" value="replace" /><span class="rc-main"><span class="rc-t" data-i18n="opDispReplace"></span><span class="rc-d" data-i18n="opDispReplaceD"></span></span></span>
+                </label>
+                <label class="rcard pv" id="dispPopover">
+                  <span class="pv-box" aria-hidden="true">
+                    <span class="pv-l" style="width: 92%;"></span><span class="pv-l" style="width: 84%;"></span>
+                    <span class="pv-l pv-src" style="width: 88%;"></span>
+                    <span class="pv-card"><span class="pv-l" style="width: 90%;"></span><span class="pv-l" style="width: 60%;"></span></span>
+                    <span class="pv-l" style="width: 70%;"></span>
+                  </span>
+                  <span class="pv-txt"><input type="radio" name="displayMode" value="popover" /><span class="rc-main"><span class="rc-t" data-i18n="opDispCard"></span><span class="rc-d" data-i18n="opDispCardD"></span></span></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="card-row col" id="hlRow">
+              <div class="hl-top">
+                <div class="cr-main"><label class="cr-t" for="dispMode" data-i18n="dispMode"></label><p class="cr-d" id="hlD"></p></div>
+                <div class="cr-ctl"><div class="sel w280"><select id="dispMode">
+                  <option value="auto" data-i18n="dispAuto"></option>
+                  <option value="custom" data-i18n="dispCustom"></option>
+                  <option value="none" data-i18n="dispNone"></option>
+                </select><span data-ic="chevDown" data-ic-size="16"></span></div></div>
+              </div>
+              <div class="hl-more" id="hlMore" hidden>
+                <div class="field">
+                  <span class="lbl" id="hlColorT" data-i18n="opColor"></span>
+                  <div class="swatches" id="swatches" role="radiogroup" aria-labelledby="hlColorT"></div>
+                </div>
+                <div class="field w440">
+                  <label class="lbl" for="dispOpacity" data-i18n="opSat"></label>
+                  <div class="range-row"><input id="dispOpacity" class="range" type="range" min="10" max="60" step="5" /><span class="range-val" id="opacityVal"></span></div>
+                </div>
+                <div class="hl-demo" aria-hidden="true">
+                  <p class="hl-on-l"><span class="mk" data-i18n="opDemoLight"></span></p>
+                  <p class="hl-on-d"><span class="mk dk" data-i18n="opDemoDark"></span></p>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-row">
+              <div class="cr-main"><p class="cr-t" id="badgeT" data-i18n="opBadge"></p><p class="cr-d" id="badgeD"></p></div>
+              <div class="cr-ctl"><button type="button" class="switch" id="showLangBadge" role="switch" aria-checked="false" aria-labelledby="badgeT"></button></div>
+            </div>
+
+            <!-- Плавающая кнопка (кружок у края страницы) — hudShown; её же показывают и скрывают окно расширения и меню
+                 самого кружка, поэтому переключатель следит за хранилищем. -->
+            <div class="card-row">
+              <div class="cr-main"><p class="cr-t" id="fabT" data-i18n="opFab"></p><p class="cr-d" id="fabD" data-i18n="opFabD"></p></div>
+              <div class="cr-ctl"><button type="button" class="switch" id="hudShown" role="switch" aria-checked="false" aria-labelledby="fabT" aria-describedby="fabD"></button></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Языки ===== -->
+        <section class="sec" id="langs" aria-labelledby="h-langs">
+          <div><h2 class="sec-h" id="h-langs" data-i18n="opSecLangs"></h2></div>
+          <div class="card">
+            <div class="card-row">
+              <div class="cr-main"><label class="cr-t" for="targetLang" data-i18n="opTarget"></label><p class="cr-d" data-i18n="opTargetD"></p><p class="cr-d warn-t" id="targetWarn" hidden></p></div>
+              <div class="cr-ctl"><div class="sel w280"><select id="targetLang"></select><span data-ic="chevDown" data-ic-size="16"></span></div></div>
+            </div>
+            <div class="card-row">
+              <div class="cr-main"><label class="cr-t" for="sourceLang" data-i18n="sourceLang"></label><p class="cr-d" data-i18n="opSourceD"></p><p class="cr-d warn-t" id="sourceWarn" hidden></p></div>
+              <div class="cr-ctl"><div class="sel w280"><select id="sourceLang"></select><span data-ic="chevDown" data-ic-size="16"></span></div></div>
+            </div>
+            <div class="card-row">
+              <div class="cr-main"><p class="cr-t"><label for="formality" data-i18n="opFormality"></label> <span class="tag tag-gap" data-i18n="opOnlyDeepl"></span></p><p class="cr-d" data-i18n="opFormalityD"></p></div>
+              <div class="cr-ctl"><div class="sel w280"><select id="formality">
+                <option value="default" data-i18n="formalityDefault"></option>
+                <option value="more" data-i18n="formalityMore"></option>
+                <option value="less" data-i18n="formalityLess"></option>
+              </select><span data-ic="chevDown" data-ic-size="16"></span></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Сайты и слова ===== -->
+        <section class="sec" id="sites" aria-labelledby="h-sites">
+          <div><h2 class="sec-h" id="h-sites" data-i18n="opSecSites"></h2></div>
+          <div class="card">
+            <div class="card-row col">
+              <div><p class="cr-t" id="sitesT" data-i18n="opSitesOff"></p><p class="cr-d" data-i18n="opSitesOffD"></p></div>
+              <ul class="site-list" id="siteList" aria-labelledby="sitesT"></ul>
+              <p class="muted fs13" id="siteNone" data-i18n="opSitesNone" hidden></p>
+            </div>
+            <div class="card-row col">
+              <div><label class="cr-t blk" for="noTranslate" data-i18n="noTranslate"></label><p class="cr-d" data-i18n="noTranslateNote"></p></div>
+              <textarea id="noTranslate" class="inp" rows="3" placeholder="GitHub, Vue, Kubernetes" spellcheck="false"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Горячие клавиши ===== -->
+        <section class="sec" id="keys" aria-labelledby="h-keys">
+          <div>
+            <h2 class="sec-h" id="h-keys" data-i18n="opSecKeys"></h2>
+            <p class="sec-d" data-i18n="opKeysD"></p>
+          </div>
+          <div class="card">
+            <div class="card-row"><div class="cr-main"><p class="cr-t" data-i18n="translatePage"></p></div><div class="cr-ctl" id="keyPage"></div></div>
+            <div class="card-row"><div class="cr-main"><p class="cr-t" data-i18n="opKeyToggle"></p></div><div class="cr-ctl" id="keyToggle"></div></div>
+            <div class="card-row"><div class="cr-main"><p class="cr-t" data-i18n="opKeyEsc"></p><p class="cr-d" data-i18n="opKeyEscD"></p></div><div class="cr-ctl"><span class="kbd kbd-lg">Esc</span></div></div>
+            <div class="card-row">
+              <div class="cr-main"><p class="cr-d m0" data-i18n="opKeysOpens"></p></div>
+              <div class="cr-ctl"><button type="button" class="btn btn-secondary" id="keysEdit"><span data-ic="external" data-ic-size="16"></span><span data-i18n="shortcutsEdit"></span></button></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Данные ===== -->
+        <section class="sec" id="data" aria-labelledby="h-data">
+          <div><h2 class="sec-h" id="h-data" data-i18n="opSecData"></h2></div>
+          <div class="card">
+            <div class="card-row">
+              <div class="cr-main"><p class="cr-t" data-i18n="savedTranslations"></p><p class="cr-d" id="savedD" aria-live="polite"></p></div>
+              <div class="cr-ctl"><button type="button" class="btn btn-danger" id="clearCache"><span data-ic="trash" data-ic-size="16"></span><span id="clearT" data-i18n="opDelete"></span></button></div>
+            </div>
+            <div class="card-row">
+              <div class="cr-main"><p class="cr-t" data-i18n="opKeysData"></p><p class="cr-d" data-i18n="opKeysDataD"></p></div>
+            </div>
+            <!-- Сбросить настройки: подтверждение на месте — заголовок становится вопросом, вместо «Сбросить» — «Сбросить»
+                 (danger) и «Отмена». Что сбрасывается и что остаётся — options.js (resetValues). -->
+            <div class="card-row" id="resetRow">
+              <div class="cr-main"><p class="cr-t" id="resetT"></p><p class="cr-d" id="resetD" aria-live="polite"></p></div>
+              <div class="cr-ctl rc-acts">
+                <button type="button" class="btn btn-secondary" id="resetBtn"><span data-ic="refresh" data-ic-size="16"></span><span data-i18n="opReset"></span></button>
+                <button type="button" class="btn btn-danger" id="resetYes" aria-describedby="resetT resetD" hidden><span data-ic="refresh" data-ic-size="16"></span><span data-i18n="opReset"></span></button>
+                <button type="button" class="btn btn-ghost" id="resetNo" aria-describedby="resetT resetD" data-i18n="opCancel" hidden></button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="ui.js"></script>
+  <script src="builtin.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

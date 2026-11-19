@@ -1,29 +1,71 @@
-/* Здесь остались только классы, которые вешаются на ЭЛЕМЕНТЫ САМОЙ СТРАНИЦЫ: курсор и пульсация на
-   время перевода и фон ошибки. Свойства с !important — CSS контент-скрипта попадает в author
-   origin перед таблицами страницы, и без !important её собственные правила их перебивают.
+/* Здесь только классы, которые вешаются на ЭЛЕМЕНТЫ САМОЙ СТРАНИЦЫ: «идёт перевод» и «не перевелось».
+   Свойства с !important — CSS контент-скрипта попадает в author origin перед таблицами страницы, и без
+   !important её собственные правила их перебивают. Подсветку переведённого (янтарь, подчёркивание, свой
+   цвет) и обводку абзаца под карточкой content.js ставит inline-стилем и снимает, возвращая прежний.
 
-   Наш собственный UI (карточка перевода и мини-HUD) стилизуется из content.js внутри shadow
-   root — по той же причине: снаружи правила страницы вида «.site select { height:44px }»
-   выигрывали по специфичности и ломали панель. */
+   Наш собственный UI (уведомления, карточка перевода, плавающая кнопка с меню) стилизуется из content.js внутри
+   закрытого shadow root — по той же причине: снаружи правила страницы вида «.site select { height:44px }»
+   выигрывали по специфичности и ломали наши элементы. */
 
-/* Пока идёт перевод — лёгкая пульсация подсветки: видно, что запрос ушёл и абзац сейчас сменится.
-   Начинается с задержкой: перевод из сохранённых приходит мгновенно и мигать не должен. Анимация
-   перекрывает собственный фон элемента только на время перевода. Цвет — как у подсветки перевода:
-   на тёмном фоне светлый (класс ht-loading-dark ставит content.js). */
+/* Идёт перевод: синяя подложка с ореолом 3 px и пульсом 1,2 с. Начинается с задержкой 0,15 с: перевод из
+   сохранённых приходит мгновенно и мигать не должен. На тёмном фоне — светлее (класс ht-loading-dark
+   ставит content.js по фону под абзацем). Анимация перекрывает собственный фон элемента только на время
+   перевода. */
 .ht-loading {
+  --ht-ld: rgba(37, 99, 235, 0.14);
+  --ht-ld-half: rgba(37, 99, 235, 0.07);
   cursor: progress !important;
   animation: ht-pulse 1.2s ease-in-out 0.15s infinite !important;
 }
-.ht-loading-dark { --ht-pulse-bg: rgba(255, 255, 255, 0.2); }
-@keyframes ht-pulse {
-  50% { background-color: var(--ht-pulse-bg, rgba(0, 120, 215, 0.16)); }
+.ht-loading.ht-loading-dark {
+  --ht-ld: rgba(120, 160, 255, 0.28);
+  --ht-ld-half: rgba(120, 160, 255, 0.14);
 }
-/* Без движения: ровный фон на время перевода вместо пульсации. */
+@keyframes ht-pulse {
+  0%, 100% { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
+  50% { background-color: var(--ht-ld-half); box-shadow: 0 0 0 3px var(--ht-ld-half); }
+}
+/* Без движения: ровная подложка (с той же задержкой). */
 @media (prefers-reduced-motion: reduce) {
-  .ht-loading { animation: ht-pulse-still 0.01s 0.15s both !important; }
+  .ht-loading { animation: ht-pulse-still 0.01s linear 0.15s both !important; }
 }
 @keyframes ht-pulse-still {
-  to { background-color: var(--ht-pulse-bg, rgba(0, 120, 215, 0.12)); }
+  to { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
 }
 
-.ht-error { background: rgba(215, 40, 40, 0.14) !important; border-radius: 3px !important; }
+/* Не перевелось: красная подложка .10 с ореолом и «!» 20 после текста — псевдоэлементом, DOM страницы не
+   трогаем. Снимается через несколько секунд; что случилось — в уведомлении. */
+.ht-error {
+  background-color: rgba(215, 40, 40, 0.1) !important;
+  box-shadow: 0 0 0 3px rgba(215, 40, 40, 0.1) !important;
+  border-radius: 2px !important;
+}
+.ht-error::after {
+  content: "!" !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 0 0 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  vertical-align: -3px !important;
+  background: #b42318 !important;
+  color: #ffffff !important;
+  font: 700 13px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+  text-indent: 0 !important;
+  letter-spacing: 0 !important;
+  position: static !important;
+  float: none !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+.ht-error.ht-error-dark::after {
+  background: #ff6b5f !important;
+  color: #1a0b0a !important;
+}

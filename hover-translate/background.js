@@ -494,6 +494,7 @@ function deeplFail(status) {
 // Запрос не дошёл или не дождался ответа. fetch бросает TypeError без подробностей («Failed to
 // fetch»): нет сети, сайт сервиса недоступен или запрос заблокирован.
 function deeplThrown(e) {
+  if (isBadJson(e)) return failure("bad-response", HT_t("deeplBadResponse"));
   return isTimeout(e)
     ? failure("timeout", HT_plural("deeplTimeout", DEEPL_TIMEOUT_MS / 1000))
     : failure("network", HT_t("deeplNetwork"), e && e.message);
@@ -587,10 +588,22 @@ async function llmFail(res, provider, model) {
 }
 function llmThrown(e, provider) {
   const who = llmName(provider);
+  if (isBadJson(e)) return failure("bad-response", HT_t("llmBadResponse"));
   return isTimeout(e)
     ? failure("timeout", HT_plural("llmTimeout", LLM_TIMEOUT_MS / 1000, who))
     : failure("network", HT_t("llmNetwork", who), e && e.message);
 }
+// Ответ пришёл, но это не JSON (страница-заглушка прокси, обрезанный ответ): связь есть, сервис ответил
+// не тем. Без этой проверки res.json() попадал в «нет связи — проверьте интернет» с «Unexpected token '<'».
+function isBadJson(e) { return !!e && e.name === "SyntaxError"; }
+
+// Ключ не того сервиса не отправляем вовсе: ключи Anthropic начинаются с «sk-ant-», у OpenAI такого
+// начала не бывает. Иначе после смены сервиса в окне ключ OpenAI уходил бы в Anthropic, и наоборот.
+function llmKeyMismatch(provider, key) {
+  const ant = /^sk-ant-/.test(String(key || "").trim());
+  return provider === "anthropic" ? !ant : ant;
+}
+
 // Anthropic требует версию API и явное разрешение прямого доступа из браузерного контекста.
 function llmHeaders(provider, key) {
   return provider === "anthropic"
@@ -710,6 +723,7 @@ async function llmTranslateChunk(texts, o, key, provider, model) {
     return failure("too-big", HT_t("llmTooBig"));
   }
   const anthropic = provider === "anthropic";
+  if (llmKeyMismatch(provider, key)) return failure("bad-key", HT_t("llmWrongKey", llmName(provider)));
   const model_ = llmModelOf(provider, model);
   const known = HT_llmModelRow(provider, model_);
   const cap = want + (!known && mayReason(provider, model_) ? LLM_REASONING_TOKENS : 0);
@@ -825,12 +839,19 @@ async function translateMany(items, o, origin, budgetKey) {
     if (!HT_agreed(s.consent, provider)) {
       return failure("no-consent", HT_t("bgNoConsent", HT_PROVIDER_NAMES[provider]));
     }
+    // Ключ, который DeepL уже отклонил, не шлём с каждым абзацем заново — до смены ключа.
+    if (e.via !== "llm" && s.apiKey && s.apiKey === deeplRejectedKey) {
+      noteNetResult(e.via, s.llmProvider, { ok: false, code: "bad-key" });
+      return failure("bad-key", HT_t("deeplBadKey"));
+    }
     await startupReady;                 // суточный счётчик лимита должен быть уже загружен
     const denied = budgetTake(budgetKey, o.by, missTexts.reduce((n, t) => n + t.length, 0));
     if (denied) return denied;
     const r = e.via === "llm"
       ? await llmTranslateMany(missTexts, o, s.llmApiKey, s.llmProvider, s.llmModel)
       : await deeplTranslateChunked(missTexts, o, s.apiKey);
+    if (e.via !== "llm") noteDeeplKey(s.apiKey, r);
+    noteNetResult(e.via, s.llmProvider, r);
     // Пришедшие переводы раскладываем всегда, даже если часть чанков упала: они уже оплачены.
     if (Array.isArray(r.texts) && r.texts.length) {
       store(missTexts.slice(0, r.texts.length), r, keys, need, results, srcOut);
@@ -839,6 +860,36 @@ async function translateMany(items, o, origin, budgetKey) {
   }
 
   return { ok: true, texts: results, srcLangs: srcOut };
+}
+
+// Последний сбой DeepL или ИИ — для окна расширения (состояния «ключ отклонён», «лимит исчерпан», «нет связи»).
+// storage.session.htNetErr = { code, via: "deepl" | "llm", provider, at } — только коды, по которым окну есть что
+// показать; успешный ответ того же сервиса запись снимает. Смена ключа, переводчика или сервиса — тоже (см. ниже).
+const NET_ERR_CODES = new Set(["bad-key", "quota", "money", "network", "timeout", "server", "denied"]);
+function noteNetResult(via, provider, r) {
+  if (!sessionArea || !r) return;
+  if (r.ok) {
+    sessionArea.get("htNetErr").then((g) => {
+      const x = g.htNetErr;
+      if (x && x.via === via && (via !== "llm" || x.provider === provider)) return sessionArea.remove("htNetErr");
+    }).catch(() => {});
+    return;
+  }
+  if (!NET_ERR_CODES.has(r.code)) return;
+  sessionArea.set({ htNetErr: { code: r.code, via, provider: via === "llm" ? provider : "deepl", at: Date.now() } }).catch(() => {});
+}
+chrome.storage.onChanged?.addListener?.((changes, area) => {
+  if (area !== "local" || !sessionArea) return;
+  if (["apiKey", "llmApiKey", "llmProvider", "engine"].some((k) => k in changes)) sessionArea.remove("htNetErr").catch(() => {});
+});
+
+// Ключ DeepL, который сервис отклонил (401/403). Пока в настройках он же, перевод сразу отвечает
+// «ключ не подошёл» без запроса: в режиме «авто» иначе каждое наведение стучалось бы в DeepL впустую.
+// Новый ключ или успешный ответ снимают отметку; после перезапуска воркера — один лишний запрос.
+let deeplRejectedKey = "";
+function noteDeeplKey(key, r) {
+  if (r && r.ok) { if (deeplRejectedKey === key) deeplRejectedKey = ""; }
+  else if (r && r.code === "bad-key") deeplRejectedKey = key;
 }
 
 // Раскладываем ответ движка по кэшу и по слотам результата, считая фактический расход.
@@ -890,11 +941,17 @@ async function checkUsage() {
   if (!apiKey) return failure("no-key", HT_t("noKeyEntered"));
   try {
     const res = await fetch(`${deeplBase(apiKey)}/v2/usage`, { headers: deeplAuth(apiKey), signal: AbortSignal.timeout(DEEPL_TIMEOUT_MS) });
-    if (!res.ok) return deeplFail(res.status);
+    if (!res.ok) { const f = deeplFail(res.status); noteDeeplKey(apiKey, f); noteNetResult("deepl", "", f); return f; }
     const d = await res.json();
-    return { ok: true, used: d.character_count, limit: d.character_limit };
+    noteDeeplKey(apiKey, { ok: true });
+    noteNetResult("deepl", "", { ok: true });
+    // free — ключ бесплатного тарифа: только у него лимит — 500 000 знаков. У платного лимит задаёт сам
+    // владелец ключа в DeepL, а без лимита DeepL присылает 1 000 000 000 000.
+    return { ok: true, used: d.character_count, limit: d.character_limit, free: apiKey.trim().endsWith(":fx") };
   } catch (e) {
-    return deeplThrown(e);
+    const f = deeplThrown(e);
+    noteNetResult("deepl", "", f);
+    return f;
   }
 }
 
@@ -903,11 +960,28 @@ async function checkUsage() {
 // не принимающая параметры запроса прошла бы проверку, а каждый перевод потом падал бы с 400.
 // Стоимость — пара сотен токенов инструкции. Согласия не требует, как и проверка ключа DeepL:
 // переводится слово «Hello» из самого расширения, а не текст страниц.
-async function checkLlm() {
-  const { llmApiKey, llmProvider, llmModel } = await getSettings();
+// o — { provider, key, model } от страницы настроек: проверить сервис и ключ ДО того, как они станут настройками
+// (иначе на время проверки переводил бы ещё не проверенный сервис). Без o — сохранённые настройки.
+async function checkLlm(o) {
+  const saved = await getSettings();
+  const own = o && typeof o.key === "string" && o.key.trim();
+  const llmApiKey = own ? o.key.trim() : saved.llmApiKey;
+  const llmProvider = own ? HT_valid("llmProvider", o.provider) : saved.llmProvider;
+  const llmModel = own ? (typeof o.model === "string" ? o.model.trim().slice(0, 100) : "") : saved.llmModel;
   if (!llmApiKey) return failure("no-key", HT_t("noKeyEntered"));
   const r = await llmTranslateChunk(["Hello"], { targetLang: HT_DEFAULTS.targetLang, terms: [] }, llmApiKey, llmProvider, llmModel);
+  noteNetResult("llm", llmProvider, r);
   return r.ok ? { ok: true } : failure(r.code, r.error, r.detail);
+}
+
+// Сколько переводов сохранено в L3 и сколько они занимают — для раздела «Данные» на странице настроек.
+async function savedInfo() {
+  try {
+    const keys = chrome.storage.local.getKeys ? await chrome.storage.local.getKeys() : Object.keys(await chrome.storage.local.get(null));
+    const entries = keys.filter((k) => k.startsWith(LCACHE_PREFIX)).length;
+    if (lcacheBytes < 0 && entries) await pruneLcache();
+    return { entries, bytes: entries ? Math.max(0, lcacheBytes) : 0 };
+  } catch (e) { return { entries: 0, bytes: 0 }; }
 }
 
 // Порт держим открытым (return true), поэтому ЛЮБОЙ реджект обязан дойти до sendResponse:
@@ -918,6 +992,12 @@ function reply(promise, sendResponse) {
     .then(sendResponse)
     .catch((e) => sendResponse(failure("other", HT_t("internalError"), e && e.message)));
   return true;
+}
+
+function ownPage(sender) {
+  let base = "";
+  try { base = chrome.runtime.getURL(""); } catch (e) { return false; }
+  return !!base && !!sender && typeof sender.url === "string" && sender.url.startsWith(base);
 }
 
 function originOf(sender) {
@@ -1003,7 +1083,7 @@ async function siteBadge(tabId, off) {
 // каждой вкладке: дальше о проблеме напоминает «!» на значке. Так же — сообщение «лимит DeepL на
 // месяц закончился, перевожу встроенным»: лимит не вернётся до следующего месяца, и повторять его
 // на каждой странице незачем.
-const ONCE_KEYS = new Set(Object.keys(HT_PROBLEMS).concat(["deepl-quota"]));
+const ONCE_KEYS = new Set(Object.keys(HT_PROBLEMS).concat(["deepl-quota", "deepl-bad-key"]));
 const noticed = new Set();
 function noticeKey(problem) { return "htNoticed:" + problem; }
 async function noticeOnce(problem) {
@@ -1026,6 +1106,7 @@ async function noticeOnce(problem) {
 // При обновлении ничего не открываем.
 chrome.runtime.onInstalled?.addListener?.(async (details) => {
   updateBadge();
+  chrome.storage.local.remove(HT_OBSOLETE_KEYS).catch(() => {});   // обводка подсветки убрана
   if (details && details.reason === "update") { keepOldTrigger(); return; }
   if (!details || details.reason !== "install") return;
   try {
@@ -1084,16 +1165,14 @@ chrome.commands?.onCommand?.addListener?.(async (command, tab) => {
   }
 });
 
-// «Открыть настройки» из уведомления на странице: окно расширения над значком, а если Chrome его не
-// открыл (старее 127-й версии, окно браузера не в фокусе) — те же настройки во вкладке.
-async function openSettings(sender) {
-  try {
-    await chrome.action.openPopup(sender && sender.tab ? { windowId: sender.tab.windowId } : {});
-    return { ok: true, how: "popup" };
-  } catch (e) {
-    await chrome.tabs.create({ url: chrome.runtime.getURL("popup.html") });
-    return { ok: true, how: "tab" };
-  }
+// «Открыть настройки» (уведомление на странице, окно расширения): страница настроек во вкладке. Если она уже
+// открыта, Chrome переключает на неё. focus — к чему её прокрутить и где поставить фокус (см. options.js):
+// передаём через storage.session, адрес вкладки openOptionsPage не принимает.
+async function openSettings(focus) {
+  const f = typeof focus === "string" && /^[a-z-]{1,40}$/.test(focus) ? focus : "";
+  if (sessionArea) await sessionArea.set({ htFocus: { to: f, at: Date.now() } }).catch(() => {});
+  await chrome.runtime.openOptionsPage();
+  return { ok: true };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -1104,7 +1183,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return reply(translateMany(msg.items || [], msg, originOf(sender), budgetKeyOf(sender)), sendResponse);
   }
   if (msg.type === "noticeOnce") return reply(noticeOnce(String(msg.problem)), sendResponse);
-  if (msg.type === "openSettings") return reply(openSettings(sender), sendResponse);
+  if (msg.type === "openSettings") return reply(openSettings(msg.focus), sendResponse);
+  // Подсказка «Перевести страницу» у кружка показывает настоящее сочетание ("" — не задано или занято).
+  if (msg.type === "shortcut") return reply(shortcutOf(String(msg.name || "")), sendResponse);
   // Esc на странице: вернуть оригинал и во встроенных окнах той же вкладки (у каждого свой скрипт).
   if (msg.type === "restoreTab") {
     if (sender && sender.tab) toTab(sender.tab.id, { type: "restoreAll" });
@@ -1115,11 +1196,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
   if (msg.type === "checkUsage") return reply(checkUsage(), sendResponse);
-  if (msg.type === "checkLlm") return reply(checkLlm(), sendResponse);
+  // Свой сервис и ключ на проверку принимаем только от страниц самого расширения, не от content-скриптов.
+  if (msg.type === "checkLlm") return reply(checkLlm(ownPage(sender) ? msg : null), sendResponse);
   if (msg.type === "clearCache") return reply(clearCache(), sendResponse);
   if (msg.type === "getStats") {
     // Ждём загрузку счётчиков: на холодном воркере иначе уходят нули.
-    return reply(startupReady.then(() => ({ ok: true, chars: stats.chars, hits: stats.hits, saved: stats.saved })), sendResponse);
+    return reply(startupReady.then(savedInfo).then((l3) => ({ ok: true, chars: stats.chars, hits: stats.hits, saved: stats.saved,
+      entries: l3.entries, bytes: l3.bytes })), sendResponse);
   }
   if (msg.type === "resetStats") {
     statsLoaded = true;                 // не даём отложенной загрузке вернуть прежние значения
