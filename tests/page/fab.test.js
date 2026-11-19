@@ -2,18 +2,21 @@
 // сайта 127.0.0.1) с заглушкой chrome.* (fixtures/stub.html). Настоящие события — Input.dispatch* (isTrusted = true).
 // Панель языка изнутри — page/fab-lang.test.js.
 // Проверяет: вид и место по умолчанию (справа внизу в 16, 44, закрытый root, слой 2147483645, разметка столбика);
-// состояния кружка (заливка «переведена», кольцо и «Перевожу… N из M» — к середине экрана); кнопки над кружком:
-// наведение — сразу (появление: прозрачность и сдвиг 4 px), уход — через 300 мс, зазоры 8 px — свои, щелчок
-// закрепляет и не переводит, щелчок мимо / повторный / Esc скрывают; главная кнопка во всех состояниях (idle с
-// клавишей из chrome.commands, busy — «Стоп» при видимой подписи, part, done, orig, needClick, сбой) меняется на
-// месте; подсказки (сразу, одна, по центру своей кнопки в 8 от столбика); «RU» — код по targetLang и панель языка;
-// «⋯» — «Выключить на <сайт>», «Скрыть кнопку» (+ «Вернуть»), «Настройки»; где кнопки, подсказки и панели (вверх,
-// вниз .down, слева, окно 320); перетаскивание (≤ 4 px — щелчок, больше — прилипание к краю в 16, кнопок нет,
+// состояния кружка (заливка «переведена», кольцо и «Перевожу… N из M» — к середине экрана); кнопки над кружком
+// в капсуле: наведение — сразу (появление: прозрачность и сдвиг 4 px), уход — скрыты сразу (в пределах кадра),
+// промежуток 8 до кружка и зазоры 4 между кнопками — свои, щелчок закрепляет и не переводит, щелчок мимо /
+// повторный / Esc скрывают; главная кнопка во всех состояниях (idle с клавишей из chrome.commands, busy — «Стоп» при
+// видимой подписи, part, done, orig, needClick, сбой) меняется на месте и не залита — такая же, как «RU»; подсказки
+// (сразу, одна, по центру своей кнопки в 8 от капсулы); «RU» — код по targetLang и панель языка; «⋯» — «Выключить
+// на <сайт>», «Скрыть кнопку» (+ «Вернуть»), «Настройки»; где капсула (44 × 124 в 8 от кружка, кнопки 36 в 4 от
+// краёв и друг от друга, центры через 40), подсказки и панели (вверх, вниз .down, слева, окно 320 — подсказка
+// сужается и на капсулу не ложится); перетаскивание (≤ 4 px — щелчок, больше — прилипание к краю в 16, кнопок нет,
 // hudPos пишется один раз, место переживает перезагрузку, миграция { left, top }, мусор, узкое и низкое окно);
 // клавиатура (Tab — последним, Tab по кнопкам, Enter / пробел, ↑↓ Home End по направлению столбика, Esc по
 // цепочке); где кружка нет (hudShown, выключенный сайт, enabled = false, iframe); уведомление обходит кружок
-// с кнопками и панелью; цвета кружка и кнопок на светлом и тёмном сайте; поддельные события страницы ничего не делают.
-// Скриншоты — с tests/run.sh --shots.
+// с кнопками и панелью; цвета кружка, капсулы и кнопок на светлом и тёмном сайте (наведение, открытая панель, кольцо
+// фокуса); поддельные события страницы ничего не делают. Скриншоты — с tests/run.sh --shots (капсула в обеих темах —
+// cap-*-light.png, cap-*-dark.png).
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
@@ -73,40 +76,68 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     const posSets = () => ev("__sets.filter((s) => 'hudPos' in s).map((s) => s.hudPos)");
     // Цвета кружка: фон, рамка, иконка (color).
     const look = () => ev("(() => { const g = getComputedStyle(fabRoot().querySelector('.fab')); return [g.backgroundColor, g.borderTopColor, g.color]; })()");
-    // Цвета столбика (фон, рамка, цвет) без наведения на кнопки: главная, «RU» (и цвет кода), «⋯»; подсказка у «⋯»
-    // (курсор на неё и обратно на кружок) и панель «⋯» — фон, рамка, класс dk.
+    // Цвета элемента в нашем root: фон, рамка (цвет, толщина, радиус), тень, цвет текста и иконки, класс dk.
+    const css = (sel) => ev(`(() => { const e = fabRoot().querySelector(${JSON.stringify(sel)}), c = getComputedStyle(e);
+      return { bg: c.backgroundColor, line: c.borderTopColor, bw: c.borderTopWidth, r: c.borderTopLeftRadius, sh: c.boxShadow, fg: c.color, dk: e.classList.contains('dk') }; })()`);
+    // Капсула (фон, рамка, толщина, радиус, dk) и кнопки без наведения — главная, «RU», «⋯» (фон, толщина рамки, тень,
+    // иконка) и цвет кода; наведение на главную и открытая «⋯» (фон, иконка) — через 200 мс после перехода цвета;
+    // подсказка у «⋯» и панель «⋯» — фон, рамка, цвет, dk.
     const barLook = async () => {
-      const g = (sel) => ev(`(() => { const e = fabRoot().querySelector(${JSON.stringify(sel)}), c = getComputedStyle(e); return [c.backgroundColor, c.borderTopColor, c.color, e.classList.contains('dk')]; })()`);
       const fc = mid((await F()).fab);
       await move(fc.x, fc.y); await sleep(250);
-      const out = { main: await g("[data-k=main]"), lang: await g("[data-k=lang]"), code: (await g("[data-k=lang] .code"))[2], more: await g("[data-k=more]"), bar: (await g(".fk"))[3] };
-      await tipAt("more"); out.tip = await g("#fk-tip");
-      await clickIn("[data-k=more]"); out.panel = await g("#fk-more");
+      const k = await css(".fk"), plain = async (sel) => { const x = await css(sel); return [x.bg, x.bw, x.sh, x.fg]; };
+      const out = { cap: [k.bg, k.line, k.bw, k.r, k.dk], main: await plain("[data-k=main]"), lang: await plain("[data-k=lang]"),
+        code: (await css("[data-k=lang] .code")).fg, more: await plain("[data-k=more]") };
+      await tipAt("main"); await sleep(200);
+      const hv = await css("[data-k=main]"); out.hover = [hv.bg, hv.fg];
+      await tipAt("more"); const tp = await css("#fk-tip"); out.tip = [tp.bg, tp.line, tp.fg, tp.dk];
+      await clickIn("[data-k=more]"); await sleep(200);
+      const op = await css("[data-k=more]"), pn = await css("#fk-more");
+      out.open = [op.bg, op.fg]; out.panel = [pn.bg, pn.line, pn.fg, pn.dk];
       await clickIn("[data-k=more]"); await move(fc.x, fc.y); await sleep(250);
       return out;
     };
-    const BAR_LIGHT = { main: ["rgb(37, 99, 235)", "rgb(37, 99, 235)", "rgb(255, 255, 255)", false], lang: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(75, 82, 90)", false],
-      code: "rgb(23, 25, 28)", more: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(75, 82, 90)", false], bar: false,
-      tip: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(23, 25, 28)", false], panel: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(23, 25, 28)", false] };
-    const BAR_DARK = { main: ["rgb(143, 176, 255)", "rgb(143, 176, 255)", "rgb(11, 18, 32)", false], lang: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(212, 215, 220)", false],
-      code: "rgb(232, 233, 235)", more: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(212, 215, 220)", false], bar: true,
-      tip: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(232, 233, 235)", true], panel: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(232, 233, 235)", true] };
+    const NONE = "rgba(0, 0, 0, 0)";
+    const BAR_LIGHT = { cap: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "1px", "22px", false],
+      main: [NONE, "0px", "none", "rgb(75, 82, 90)"], lang: [NONE, "0px", "none", "rgb(75, 82, 90)"], code: "rgb(23, 25, 28)",
+      more: [NONE, "0px", "none", "rgb(75, 82, 90)"], hover: ["rgb(238, 243, 254)", "rgb(29, 78, 216)"],
+      tip: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(23, 25, 28)", false], open: ["rgb(219, 230, 254)", "rgb(29, 78, 216)"],
+      panel: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(23, 25, 28)", false] };
+    const BAR_DARK = { cap: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "1px", "22px", true],
+      main: [NONE, "0px", "none", "rgb(212, 215, 220)"], lang: [NONE, "0px", "none", "rgb(212, 215, 220)"], code: "rgb(232, 233, 235)",
+      more: [NONE, "0px", "none", "rgb(212, 215, 220)"], hover: ["rgb(54, 58, 65)", "rgb(169, 194, 255)"],
+      tip: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(232, 233, 235)", true], open: ["rgb(64, 68, 76)", "rgb(169, 194, 255)"],
+      panel: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(232, 233, 235)", true] };
+    // Главная — такая же, как «RU»: фон, рамка и тень те же (своей заливки нет — фон капсулы), иконка того же цвета,
+    // при сбое — красная. Без наведения: курсор — на кружке, через 200 мс после перехода цвета.
+    const sameAsRu = async (what, bad) => {
+      const fc = mid((await F()).fab);
+      await move(fc.x, fc.y); await sleep(200);
+      const m = await css("[data-k=main]"), l = await css("[data-k=lang]");
+      assert.deepStrictEqual([m.bg, m.bw, m.sh], [l.bg, l.bw, l.sh], what + ": главная не залита — фон, рамка и тень как у «RU»: " + JSON.stringify({ m, l }));
+      assert.ok(m.bg === NONE && m.fg === (bad ? "rgb(217, 45, 32)" : l.fg), what + ": без своей заливки, иконка " + (bad ? "красная" : "как у «RU»") + ": " + JSON.stringify({ m, l }));
+    };
     // Кнопка столбика по data-k из fabInfo(); подсказка у кнопки k после наведения на неё.
     const btn = (x, k) => x.btns.find((q) => q.k === k);
     const tipAt = async (k) => { const p = await point(`[data-k=${k}]`); assert.ok(p, "нет кнопки " + k); await move(p.x, p.y); await sleep(40); return (await F()).tip; };
-    // Подсказка — по центру кнопки k по вертикали и в 8 от столбика к середине экрана (right — кружок справа).
+    // Подсказка — по центру кнопки k по вертикали и в 8 от капсулы (x.bar) к середине экрана (right — кружок справа).
     const tipBeside = (x, k, right) => {
-      const bb = btn(x, k).box, tb = x.tip.box;
-      return Math.abs((tb.t + tb.b) / 2 - (bb.t + bb.b) / 2) <= 1 && (right ? bb.l - tb.r : tb.l - bb.r) === 8;
+      const bb = btn(x, k).box, tb = x.tip.box, cap = x.bar;
+      return Math.abs((tb.t + tb.b) / 2 - (bb.t + bb.b) / 2) <= 1 && (right ? cap.l - tb.r : tb.l - cap.r) === 8;
     };
     const PAIR = "Английский → русский";            // пара языков в подсказках (страница lang=en, перевод — RU)
-    // Журнал показов кнопок со временем страницы: [мс, показаны, прозрачность и сдвиг столбика в этот миг].
-    // mark() — начало отсчёта (до события).
-    const watch = () => ev(`(() => { const r = fabRoot(); window.__fl = []; let last = fabInfo().open;
+    // Журнал показов кнопок со временем страницы: [мс, показаны, прозрачность и сдвиг капсулы в этот миг]; __lv —
+    // уходы курсора с хоста (pointerleave): [время события, время, когда до нашего обработчика дошла очередь —
+    // обработчик content.js на хосте раньше, он подписан первым]. mark() — начало отсчёта (до события), чистит оба.
+    const watch = () => ev(`(() => { const r = fabRoot(); window.__fl = []; window.__lv = []; let last = fabInfo().open;
+      r.host.addEventListener("pointerleave", (e) => __lv.push([e.timeStamp, performance.now()]));
       new MutationObserver(() => { const o = fabInfo() && fabInfo().open; if (o !== last) { last = o; const g = getComputedStyle(r.querySelector('.fk'));
         __fl.push([performance.now(), o, +g.opacity, g.transform]); } })
         .observe(r, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "class", "style"] }); return true; })()`);
-    const mark = () => ev("window.__fl.length = 0; performance.now()");
+    const mark = () => ev("window.__fl.length = 0; window.__lv.length = 0; performance.now()");
+    // Скрытие после ухода курсора с хоста: lag — мс от события (с доставкой события на страницу), inEvent — скрыты
+    // ещё в обработке этого события (null — не скрылись или ухода не было).
+    const hideLag = () => ev("(() => { const h = __fl.find((e) => e[1] === false), l = __lv[0]; return h && l ? { lag: Math.round((h[0] - l[0]) * 10) / 10, inEvent: h[0] <= l[1] } : null; })()");
     const firstAt = async (t0, open) => { const e = (await ev("__fl")).find(([, o]) => o === open); return e ? Math.round(e[0] - t0) : null; };
 
     // ---- 1. Вид и место по умолчанию ----
@@ -174,7 +205,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await ev("window.__bgDelay = 0; true");
     ok(`состояния: идёт перевод — кольцо и подпись «${bz.want}» со стороны середины экрана (счёт растёт), закончен — кольца и подписи нет, заливка #2563eb; Esc — без заливки; перевод клавишей (part) — без заливки`);
 
-    // ---- 3. Наведение — кнопки сразу, уход — 300 мс, зазоры свои; щелчок закрепляет и не переводит ----
+    // ---- 3. Наведение — кнопки сразу, уход — скрыты сразу, промежуток до кружка и зазоры свои; щелчок закрепляет ----
     await load({ hudShown: true });
     await away();
     await watch();
@@ -185,36 +216,40 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     const openedAt = await firstAt(t0, true);
     f = await F();
     assert.ok(openedAt !== null && openedAt <= 120, "кнопки — сразу при наведении, без задержки 200 мс: " + openedAt);
-    assert.deepStrictEqual([f.expanded, f.down, f.tip, f.panel], ["true", false, null, ""], "aria-expanded=true, столбик вверх, подсказки и панели нет");
-    // появление: в миг показа столбик прозрачен и сдвинут на 4 px к кружку, через 120 мс — на месте
+    assert.deepStrictEqual([f.expanded, f.down, f.tip, f.panel], ["true", false, null, ""], "aria-expanded=true, капсула вверх, подсказки и панели нет");
+    // появление: в миг показа капсула прозрачна и сдвинута на 4 px к кружку, через 120 мс — на месте
     const appear = (await ev("__fl")).find((e) => e[1]);
     assert.ok(appear[2] < 0.5 && /matrix\(1, 0, 0, 1, 0, 4\)/.test(appear[3]), "появление: прозрачность от 0 и сдвиг 4 px от кружка: " + JSON.stringify(appear));
     await sleep(200);
-    assert.deepStrictEqual(await ev("(() => { const g = getComputedStyle(fabRoot().querySelector('.fk')); return [g.opacity, g.transform]; })()"), ["1", "none"], "через 200 мс — непрозрачный, на месте");
-    // уход — скрыть через 300 мс
-    t0 = await mark();
-    await away();
-    assert.ok(await until(async () => !(await F()).open, 2000), "ушли — кнопки скрылись");
-    const closedAt = await firstAt(t0, false);
-    assert.ok(closedAt >= 280 && closedAt <= 460, "скрылись через 300 мс (не раньше и не позже): " + closedAt);
-    assert.strictEqual((await F()).expanded, "false");
-    // вернулся до 300 мс — отмена
-    await move(c.x, c.y); await sleep(40); await away(); await sleep(150);
-    let lp = await point("[data-k=lang]");
-    await move(lp.x, lp.y); await sleep(450);
-    assert.ok((await F()).open, "ушёл и вернулся на кнопку до 300 мс — кнопки остались");
-    // зазоры 8 px между кнопками и до кружка — часть столбика: курсор, стоящий в зазоре, не «ушёл»
-    await move(c.x, c.y); await sleep(40);
-    t0 = await mark();
-    for (let y = c.y; y >= c.y - 150; y -= 4) { await move(c.x, y); await sleep(8); }
+    assert.deepStrictEqual(await ev("(() => { const g = getComputedStyle(fabRoot().querySelector('.fk')); return [g.opacity, g.transform]; })()"), ["1", "none"], "через 200 мс — непрозрачная, на месте");
+    // уход — скрыть сразу: к концу события ухода капсулы уже нет (без задержки и затухания)
+    await mark();
+    await move(EMPTY.x, EMPTY.y);
     f = await F();
-    const gaps = [f.fab.t - 4, btn(f, "main").box.t - 4, btn(f, "lang").box.t - 4];          // середины трёх зазоров
-    for (const gy of gaps) { await move(c.x, gy); await sleep(450); }
+    const hid = await hideLag(), closedAt = hid && hid.lag;
+    assert.ok(!f.open && f.expanded === "false", "ушли с кружка — кнопки скрыты сразу, без ожидания: " + JSON.stringify(f));
+    assert.ok(hid && hid.inEvent && hid.lag <= 50, "скрыты в том же событии ухода курсора (в пределах кадра): " + JSON.stringify(hid));
+    // вернулся — снова сразу
+    await move(c.x, c.y);
+    assert.ok((await F()).open, "вернулся на кружок — кнопки снова, сразу");
+    // промежуток 8 между кружком и капсулой и зазоры 4 между кнопками — часть капсулы: прямое движение с кружка на
+    // капсулу (шаг 2 px) кнопки не скрывает; курсор, стоящий в промежутке (у кружка, посередине, у капсулы, у краёв)
+    // и в зазорах, — тоже
     f = await F();
-    assert.ok(f.open && (await ev("__fl.length")) === 0, "путь кружок → главная → язык → «⋯» и по 450 мс в каждом зазоре — кнопки не мигали: " + JSON.stringify({ gaps, fl: await ev("__fl") }));
+    await mark();
+    for (let y = c.y; y >= f.bar.t + 2; y -= 2) await move(c.x, y);
+    f = await F();
+    const holds = [[c.x, f.fab.t - 1], [c.x, f.fab.t - 4], [c.x, f.bar.b], [f.fab.l, f.fab.t - 4], [f.fab.r - 1, f.fab.t - 4],
+      [c.x, btn(f, "main").box.t - 2], [c.x, btn(f, "lang").box.t - 2]];
+    for (const [hx, hy] of holds) { await move(hx, hy); await sleep(120); }
+    f = await F();
+    assert.ok(f.open && (await ev("__fl.length")) === 0 && (await ev("__lv.length")) === 0,
+      "путь кружок → промежуток 8 → капсула (шаг 2 px), курсор в промежутке и в зазорах — кнопки не мигали: " + JSON.stringify({ holds, fl: await ev("__fl") }));
     assert.ok(f.tip === null, "в зазоре подсказки нет");
-    await away();
-    assert.ok(await until(async () => !(await F()).open, 2000), "ушли со столбика — скрылись");
+    // вбок из промежутка (3 px от края капсулы) — уже не наше: скрыты сразу
+    await move(f.fab.l - 3, f.fab.t - 4);
+    f = await F();
+    assert.ok(!f.open, "из промежутка вбок — скрыты сразу: " + JSON.stringify(f));
     // щелчок: закрепляет, страницу не переводит
     await ev("window.__calls.length = 0; true");
     await clickFab();
@@ -257,14 +292,15 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     assert.strictEqual(calm[3], "none", "prefers-reduced-motion — без сдвига: " + JSON.stringify(calm));
     await t.cmd("Emulation.setEmulatedMedia", { features: [] });
     await away();
-    ok(`кнопки над кружком: наведение — сразу (${openedAt} мс), появление — прозрачность и сдвиг 4 px (без сдвига при «меньше движения»); уход — через 300 мс (${closedAt}), вернулся — отмена; зазоры 8 px — свои; щелчок закрепляет и не переводит; щелчок мимо, повторный щелчок, Esc (фокус на кружок, перевод цел) скрывают; Esc без кнопок — оригинал`);
+    ok(`кнопки над кружком: наведение — сразу (${openedAt} мс), появление — прозрачность и сдвиг 4 px (без сдвига при «меньше движения»); уход — скрыты сразу (${closedAt} мс после ухода), вернулся — снова сразу; промежуток 8 до кружка и зазоры 4 — свои (прямое движение кружок → капсула не скрывает), вбок из промежутка — скрыты; щелчок закрепляет и не переводит; щелчок мимо, повторный щелчок, Esc (фокус на кружок, перевод цел) скрывают; Esc без кнопок — оригинал`);
 
     // ---- 4. Главная кнопка во всех состояниях, подсказки, «RU», «⋯» ----
     await load({ hudShown: true });
     await away();
     await clickFab();
     f = await F();
-    assert.deepStrictEqual(f.btns.map((x) => `${x.k}:${x.act}:${x.cls}`), ["main:translate:pri", "lang:null:", "more:null:"], "главная (залита — перевести), «RU», «⋯»");
+    assert.deepStrictEqual(f.btns.map((x) => `${x.k}:${x.act}:${x.cls}`), ["main:translate:", "lang:null:", "more:null:"], "главная (перевести, не залита), «RU», «⋯»");
+    await sameAsRu("idle");
     assert.deepStrictEqual(await ev("typeCalls('shortcut')"), [{ type: "shortcut", name: "translate-page" }], "при показе кнопок спросили у background сочетание «Перевести страницу»");
     // idle: подсказка у главной — «Перевести страницу» (без клавиши: в chrome.commands пусто) + второй способ
     let tp = await tipAt("main");
@@ -305,14 +341,16 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     assert.ok(f.pill && f.pill.startsWith(await T("ppBusy")) && f.ring && !cross(f.pillBox, f.bar) && !cross(f.pillBox, f.tip.box) && inside(f.pillBox, await vp()),
       "подпись «Перевожу… N из M» и кольцо — у кружка, кнопки и подсказку не закрывают: " + JSON.stringify({ pill: f.pill, pb: f.pillBox, bar: f.bar, tip: f.tip.box }));
     await t.shot("bar-busy.png", { clip: { x: 500, y: 500, width: 500, height: 300, scale: 1 } });
+    await sameAsRu("busy");
     // «Стоп» после первых пачек — part: «Перевести страницу» с числом переведённого
     assert.ok(await until(async () => (await state()).count > 0, 3000), "первые пачки пришли");
     await clickIn("[data-k=main]");
     s = await state();
     f = await F();
-    assert.ok(s.page === "part" && btn(f, "main").act === "translate" && btn(f, "main").cls === "pri" && f.tip.t === await T("translatePage")
+    assert.ok(s.page === "part" && btn(f, "main").act === "translate" && btn(f, "main").cls === "" && f.tip.t === await T("translatePage")
       && f.tip.sub === await T("ppEscHint", await ev(`HT_plural('ppPartDone', ${s.count})`)), "после «Стопа» — part: " + JSON.stringify({ s, tip: f.tip }));
     await t.shot("bar-part.png", { clip: { x: 500, y: 500, width: 500, height: 300, scale: 1 } });
+    await sameAsRu("part");
     // done: «Показать оригинал» с чипом Esc и парой языков
     await ev("window.__bgDelay = 0; true");
     await clickIn("[data-k=main]");
@@ -321,12 +359,14 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     f = await F();
     assert.deepStrictEqual([f.open, btn(f, "main").act, btn(f, "main").cls, f.tip.t, f.tip.kbd, f.tip.sub, f.focus], [true, "orig", "", await T("csShowOrig"), "Esc", PAIR, "main"], "done: " + JSON.stringify(f.tip));
     await t.shot("bar-done.png", { clip: { x: 500, y: 500, width: 500, height: 300, scale: 1 } });
+    await sameAsRu("done");
     // orig: «Показать перевод»
     await clickIn("[data-k=main]");
     assert.ok(await until(async () => (await state()).page === "orig", 1500) && !(await tr("#p1")), "«Показать оригинал» — оригинал");
     f = await F();
-    assert.deepStrictEqual([f.open, btn(f, "main").act, btn(f, "main").cls, f.tip.t, f.tip.kbd, f.tip.sub], [true, "tr", "pri", await T("csFkShowTr"), null, await T("ppOrigHint", PAIR)], "orig: " + JSON.stringify(f.tip));
+    assert.deepStrictEqual([f.open, btn(f, "main").act, btn(f, "main").cls, f.tip.t, f.tip.kbd, f.tip.sub], [true, "tr", "", await T("csFkShowTr"), null, await T("ppOrigHint", PAIR)], "orig: " + JSON.stringify(f.tip));
     await t.shot("bar-orig.png", { clip: { x: 500, y: 500, width: 500, height: 300, scale: 1 } });
+    await sameAsRu("orig");
     await clickIn("[data-k=main]");
     assert.ok(await until(async () => (await state()).page === "done", 3000) && await tr("#p1"), "«Показать перевод» — снова перевод");
     assert.ok((await F()).open && await ev("fabRoot().querySelector('[data-k=main]').__ht === 1"), "кнопки остаются, главная — та же кнопка");
@@ -338,7 +378,8 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await move(c.x, c.y); await sleep(60);
     tp = await tipAt("main");
     f = await F();
-    assert.deepStrictEqual([btn(f, "main").act, btn(f, "main").cls, tp.t, tp.sub], ["translate", "pri", await T("translatePage"), await T("csClickPair")], "needClick: " + JSON.stringify(tp));
+    assert.deepStrictEqual([btn(f, "main").act, btn(f, "main").cls, tp.t, tp.sub], ["translate", "", await T("translatePage"), await T("csClickPair")], "needClick: " + JSON.stringify(tp));
+    await sameAsRu("needClick");
     await clickIn("[data-k=main]");
     assert.ok(await until(async () => (await state()).page === "done", 4000) && await tr("#p1"), "щелчок по главной — страница переведена");
     // сбой: нет ключа DeepL — «!» (.bad), щелчок — уведомление с причиной и что делать; страницу не переводит
@@ -352,11 +393,12 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     assert.ok(btn(f, "main").act === "err" && btn(f, "main").cls === "bad" && f.dot === "err" && tp.t === await T("probTitle") && !tp.kbd
       && tp.sub.endsWith(errTail) && tp.sub.length > errTail.length + 3, "сбой — «!», подсказка «Перевод не работает · <причина> · щёлкните — что делать»: " + JSON.stringify({ b: f.btns[0], tp }));
     await t.shot("bar-err.png", { clip: { x: 500, y: 500, width: 500, height: 300, scale: 1 } });
+    await sameAsRu("сбой", true);
     await clickIn("[data-k=main]"); await sleep(150);
     const errToast = (await toastsNow()).find((x) => x.startsWith("err:"));
     assert.ok(errToast && errToast.startsWith("err:" + await T("probTitle")), "щелчок по «!» — уведомление «Перевод не работает»: " + JSON.stringify(await toastsNow()));
     assert.strictEqual(await ev("trCalls().length"), 0, "без ключа текст никуда не ушёл");
-    ok(`главная кнопка меняется на месте (та же кнопка, фокус на ней): idle — залита, «${await T("translatePage")}» + клавиша из chrome.commands (если есть) + «наведите… Shift» / «задержите…»; busy — «Стоп» (подпись «Перевожу… N из M» у кружка видна); part — число переведённого; done — «Показать оригинал» с Esc и парой; orig — «Показать перевод»; needClick — подсказка о щелчке, щелчок переводит; сбой — «!», щелчок — уведомление; подсказки сразу, одна, по центру своей кнопки в 8 от столбика`);
+    ok(`главная кнопка меняется на месте (та же кнопка, фокус на ней) и во всех состояниях не залита — фон, рамка, тень и иконка как у «RU» (сбой — красная иконка): idle — «${await T("translatePage")}» + клавиша из chrome.commands (если есть) + «наведите… Shift» / «задержите…»; busy — «Стоп» (подпись «Перевожу… N из M» у кружка видна); part — число переведённого; done — «Показать оригинал» с Esc и парой; orig — «Показать перевод»; needClick — подсказка о щелчке, щелчок переводит; сбой — «!», щелчок — уведомление; подсказки сразу, одна, по центру своей кнопки в 8 от капсулы`);
 
     // «RU»: код — по targetLang; щелчок — панель языка (#fk-lang), повторный — закрыть; при панели подсказок нет
     await load({ hudShown: true, targetLang: "EN-US" });
@@ -374,7 +416,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await clickIn("[data-k=lang]");
     f = await F();
     assert.deepStrictEqual([f.panel, await langA(), btn(f, "lang").cls, f.tip, f.open], ["lang", ["true", "false"], "is-open", null, true], "щелчок по «RU» — панель языка, кнопка нажата, подсказки нет");
-    lp = await point("[data-k=more]");
+    const lp = await point("[data-k=more]");
     await move(lp.x, lp.y); await sleep(80);
     assert.strictEqual((await F()).tip, null, "при открытой панели подсказок нет и у других кнопок");
     await t.shot("bar-lang-open.png", { clip: { x: 500, y: 400, width: 500, height: 400, scale: 1 } });
@@ -387,7 +429,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await clickIn("[data-k=lang]");
     await clickIn("[data-k=more]");
     f = await F();
-    assert.deepStrictEqual([f.panel, await langA(), f.btns.map((x) => x.cls).join()], ["more", ["false", "true"], "pri,,is-open"], "«⋯» при панели языка — панель «⋯», языка — закрыта");
+    assert.deepStrictEqual([f.panel, await langA(), f.btns.map((x) => x.cls).join()], ["more", ["false", "true"], ",,is-open"], "«⋯» при панели языка — панель «⋯», языка — закрыта");
     ok("«RU»: код по targetLang (EN-US → EN, PT-BR → PT), подсказка «Язык перевода: …»; щелчок — панель #fk-lang (aria-expanded, кнопка нажата, подсказок нет, уход курсора не скрывает), повторный — закрыть; панели — по одной");
 
     // «⋯»: пункты
@@ -435,40 +477,46 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     assert.deepStrictEqual(await toastsNow(), [], "после «Вернуть» уведомление закрыто");
     ok("«⋯»: «Выключить на 127.0.0.1» — оригинал, кружок скрыт, «Перевод на 127.0.0.1 выключен» + «Включить снова» (возвращает); «Скрыть кнопку» — hudShown = false, «Кнопка скрыта» с «Вернуть» (> 6 с на экране), «Вернуть» — hudShown = true; «Настройки» → openSettings { focus: page }; выбор пункта скрывает всё");
 
-    // ---- 5. Где кнопки, подсказки и панели ----
-    // Столбик — по оси кружка, кнопки 36 через 8, в 8 от кружка: вверх (главная ближе всех) или вниз (.down), если
-    // над кружком нет 8 + 124 + 16. Подсказки — в 8 от кнопок к середине экрана; панели: язык — вровень с низом
-    // кружка (вниз — с верхом), «⋯» — вровень с дальним краем своей кнопки. Всё — в окне.
+    // ---- 5. Где капсула, кнопки, подсказки и панели ----
+    // Капсула 44 × 124 по оси кружка в 8 от него: вверх (главная ближе всех) или вниз (.down), если над кружком нет
+    // 8 + 124 + 16; кнопки 36 внутри — ровно по оси, в 4 от краёв капсулы и друг от друга, центры через 40.
+    // Подсказки — по центру своей кнопки в 8 от капсулы к середине экрана (и в окне 320: подсказка сужается до места
+    // сбоку, пояснение переносится, на капсулу не ложится; заголовок — в одну строку); панели: язык — вровень с низом
+    // кружка (вниз — с верхом), «⋯» — вровень с дальним краем своей кнопки, обе в 8 от капсулы. Всё — в окне.
+    const tLines = () => ev("(() => { const t = fabRoot().querySelector('#fk-tip .t'); return Math.round(t.getBoundingClientRect().height); })()");
     const placeBar = async (pos, name, w = 1000, h = 800) => {
       await viewport(w, h);
       await load({ hudShown: true, hudPos: pos });
       await move(w > 700 ? 650 : 10, Math.round(h / 2)); await sleep(40);
       await clickFab();
       const vv = await vp(), x = await F(), right = pos ? pos.side === "right" : true;
-      const B = x.btns.map((q) => q.box), fb = x.fab, axis = Math.round(fb.l + fb.w / 2);
+      const B = x.btns.map((q) => q.box), fb = x.fab, K = x.bar, axis = Math.round(fb.l + fb.w / 2);
       assert.ok(x.open && x.btns.length === 3, name + ": кнопки показаны");
-      assert.ok(B.every((q) => q.w === 36 && q.h === 36 && Math.abs(q.l + 18 - axis) <= 1 && inside(q, vv)), name + ": кнопки 36 по оси кружка, в окне: " + JSON.stringify({ B, fb }));
-      const gapsNow = x.down ? [B[0].t - fb.b, B[1].t - B[0].b, B[2].t - B[1].b] : [fb.t - B[0].b, B[0].t - B[1].b, B[1].t - B[2].b];
-      assert.deepStrictEqual(gapsNow, [8, 8, 8], name + ": зазоры 8 — до кружка и между кнопками, главная ближе всех: " + JSON.stringify({ B, fb, down: x.down }));
+      assert.ok(K.w === 44 && K.h === 124 && K.l === fb.l && inside(K, vv) && (x.down ? K.t - fb.b : fb.t - K.b) === 8,
+        name + ": капсула 44 × 124 по оси кружка, в 8 от него, в окне: " + JSON.stringify({ K, fb, down: x.down }));
+      assert.ok(B.every((q) => q.w === 36 && q.h === 36 && Math.abs(q.l + 18 - axis) <= 1 && q.l - K.l === 4 && K.r - q.r === 4),
+        name + ": кнопки 36 внутри капсулы ровно по оси (по 4 до её краёв): " + JSON.stringify({ B, K }));
+      const ins = x.down ? [B[0].t - K.t, B[1].t - B[0].b, B[2].t - B[1].b, K.b - B[2].b] : [K.b - B[0].b, B[0].t - B[1].b, B[1].t - B[2].b, B[2].t - K.t];
+      assert.deepStrictEqual(ins, [4, 4, 4, 4], name + ": от края капсулы до кнопки и между кнопками — 4, главная ближе всех к кружку: " + JSON.stringify({ B, K, down: x.down }));
+      const mids = B.map((q) => q.t + q.h / 2);
+      assert.deepStrictEqual([mids[1] - mids[0], mids[2] - mids[1]].map(Math.abs), [40, 40], name + ": центры кнопок через 40: " + JSON.stringify(mids));
       const tips = [];
       for (const k of ["main", "lang", "more"]) {
         await tipAt(k);
         const y = await F();
-        assert.ok(y.tip && inside(y.tip.box, vv) && (vv.w < 360 || tipBeside(y, k, right)), `${name}: подсказка «${k}» — по центру кнопки, в 8 ${right ? "слева" : "справа"}, в окне: ` + JSON.stringify({ tip: y.tip.box, b: btn(y, k).box }));
-        // в окне уже 360 длинная подсказка (до 320) сдвигается внутрь окна и может лечь на кнопки — здесь только кружок
-        assert.ok(!(vv.w < 360 ? [fb] : B.concat([fb])).some((q) => cross(q, y.tip.box)), `${name}: подсказка «${k}» кнопки и кружок не закрывает: ` + JSON.stringify({ tip: y.tip.box, B, fb, vv }));
+        assert.ok(y.tip && inside(y.tip.box, vv) && tipBeside(y, k, right), `${name}: подсказка «${k}» — по центру кнопки, в 8 ${right ? "слева" : "справа"} от капсулы, в окне: ` + JSON.stringify({ tip: y.tip.box, b: btn(y, k).box, K: y.bar }));
+        assert.ok(![K, fb].some((q) => cross(q, y.tip.box)), `${name}: подсказка «${k}» капсулу и кружок не закрывает: ` + JSON.stringify({ tip: y.tip.box, K, fb, vv }));
+        assert.ok(await tLines() <= 20, `${name}: заголовок подсказки «${k}» — в одну строку: ` + await tLines());
         tips.push(y.tip.box);
       }
       const panels = {};
       for (const k of ["more", "lang"]) {
         await clickIn(`[data-k=${k}]`);
         const y = await F(), P = y.panelBox, kb = btn(y, k).box;
-        assert.ok(y.panel === k && inside(P, vv) && P.l >= 8 && P.r <= vv.w - 8 && !B.concat([fb]).some((q) => cross(q, P)), `${name}: панель «${k}» в окне (поле 8), кнопки и кружок не закрывает: ` + JSON.stringify({ P, B, fb, vv }));
-        if (vv.w >= 360) {
-          assert.strictEqual(right ? B[0].l - P.r : P.l - B[0].r, 8, `${name}: панель «${k}» — в 8 от кнопок к середине экрана`);
-          const edge = k === "lang" ? (x.down ? P.t - fb.t : P.b - fb.b) : (x.down ? P.b - kb.b : P.t - kb.t);
-          assert.ok(Math.abs(edge) <= 1, `${name}: панель «${k}» вровень с ${k === "lang" ? (x.down ? "верхом" : "низом") + " кружка" : "дальним краем «⋯»"}: ` + JSON.stringify({ P, kb, fb }));
-        }
+        assert.ok(y.panel === k && inside(P, vv) && P.l >= 8 && P.r <= vv.w - 8 && ![K, fb].some((q) => cross(q, P)), `${name}: панель «${k}» в окне (поле 8), капсулу и кружок не закрывает: ` + JSON.stringify({ P, K, fb, vv }));
+        assert.strictEqual(right ? K.l - P.r : P.l - K.r, 8, `${name}: панель «${k}» — в 8 от капсулы к середине экрана: ` + JSON.stringify({ P, K }));
+        const edge = k === "lang" ? (x.down ? P.t - fb.t : P.b - fb.b) : (x.down ? P.b - kb.b : P.t - kb.t);
+        assert.ok(Math.abs(edge) <= 1, `${name}: панель «${k}» вровень с ${k === "lang" ? (x.down ? "верхом" : "низом") + " кружка" : "дальним краем «⋯»"}: ` + JSON.stringify({ P, kb, fb }));
         panels[k] = P;
         if (k === "more") await t.shot(`bar-at-${name}.png`, { clip: { x: 0, y: 0, width: w, height: h, scale: w > 700 ? 0.5 : 1 } });
       }
@@ -484,10 +532,11 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     // граница: над кружком ровно 8 + 124 + 16 — ещё вверх, на 1 меньше — вниз
     assert.strictEqual((await placeBar({ side: "right", top: 148 }, "edge-148")).x.down, false, "top 148 — вверх");
     assert.strictEqual((await placeBar({ side: "right", top: 147 }, "edge-147")).x.down, true, "top 147 — вниз");
-    // узкое окно 320: кнопки, подсказки и панели — в окне; панели налезают на текст, но не на кнопки
+    // узкое окно 320 (кружок справа и слева): подсказки и панели — в 8 от капсулы, в окне, капсулу не закрывают
     const narrow = await placeBar(null, "narrow-320", 320, 600);
+    await placeBar({ side: "left", top: 300 }, "narrow-320-left", 320, 600);
     await viewport(1000, 800);
-    ok(`кнопки — по оси кружка через 8 (${where.join("; ")}; граница — top 148/147), подсказки — по центру своей кнопки в 8 к середине экрана, панели языка и «⋯» — вровень с кружком / дальним краем «⋯» в 8 от кнопок; окно 320 — всё в окне, кнопки не закрыты (панель «⋯» ${narrow.panels.more.w} px)`);
+    ok(`капсула 44 × 124 по оси кружка в 8 от него, кнопки 36 в 4 от краёв и друг от друга, центры через 40 (${where.join("; ")}; граница — top 148/147); подсказки — по центру своей кнопки в 8 от капсулы, заголовок в одну строку; панели языка и «⋯» — вровень с кружком / дальним краем «⋯» в 8 от капсулы; окно 320 — подсказка сужается (${narrow.tips[0].w} px) и капсулу не закрывает, всё в окне`);
 
     // ---- 6. Перетаскивание ----
     await load({ hudShown: true });
@@ -625,6 +674,9 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
       const x = await F();
       seq.push(x.focus);
       assert.ok(x.open && x.focus === want && x.tip && x.tip.of === want && tipBeside(x, want, true), `Tab — «${want}» с подсказкой по центру: ` + JSON.stringify({ focus: x.focus, tip: x.tip }));
+      const ring = await css(`[data-k=${want}]`);
+      assert.ok(/^rgb\(37, 99, 235\) 0px 0px 0px 2px inset$/.test(ring.sh) && (await ev(`getComputedStyle(fabRoot().querySelector('[data-k=${want}]')).outlineStyle`)) === "none",
+        `фокус на «${want}» — кольцо 2 px акцентом по краю кнопки, внутри капсулы: ` + JSON.stringify(ring));
     }
     assert.strictEqual(await ev("fabRoot().querySelectorAll('[aria-describedby]').length"), 1, "подсказка одна");
     await t.shot("bar-kb-more.png", { clip: { x: 500, y: 500, width: 500, height: 300, scale: 1 } });
@@ -700,7 +752,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     for (const kk of [DOWN, DOWN, DOWN, UP, HOME, END]) navDown.push(await keyTo(...kk));
     assert.deepStrictEqual(navDown, ["lang", "more", "more", "lang", "main", "more"], "в .down: ↓ ↓ ↓ ↑ Home End");
     await esc();
-    ok(`клавиатура: Tab с последнего поля — на кружок (рамка и ореол 3 px), кнопки показаны; Shift+Tab — обратно (скрыты); Tab по кнопкам (${seq.join(" → ")}) с подсказками, из «⋯» — дальше без ловушки; Enter и пробел на кружке — закрепить, фокус на главную, не переводят; ↑ ↓ Home End по направлению столбика (вверх и в .down), на краях стоп; главная с клавиатуры меняется на месте, фокус на ней; «⋯» — фокус на пункт, по кругу; «RU» — фокус в поле; Esc: панель (фокус на её кнопку) → кнопки (фокус на кружок) → оригинал`);
+    ok(`клавиатура: Tab с последнего поля — на кружок (рамка и ореол 3 px), кнопки показаны; Shift+Tab — обратно (скрыты); Tab по кнопкам (${seq.join(" → ")}) с подсказками и кольцом 2 px внутри капсулы, из «⋯» — дальше без ловушки; Enter и пробел на кружке — закрепить, фокус на главную, не переводят; ↑ ↓ Home End по направлению столбика (вверх и в .down), на краях стоп; главная с клавиатуры меняется на месте, фокус на ней; «⋯» — фокус на пункт, по кругу; «RU» — фокус в поле; Esc: панель (фокус на её кнопку) → кнопки (фокус на кружок) → оригинал`);
 
     // ---- 8. Где кружка нет ----
     await load({ hudShown: false });
@@ -742,7 +794,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await clickFab();
     f = await F();
     tb = await toastBox();
-    const barAll = f.btns.map((q) => q.box);
+    const barAll = f.btns.map((q) => q.box).concat([f.bar]);
     assert.ok(f.open && tb && !barAll.some((q) => cross(tb, q)) && !cross(tb, f.fab) && inside(tb, v), "кнопки уведомление не закрывает: " + JSON.stringify({ tb, btns: barAll, fab: f.fab }));
     await t.shot("toast-and-bar.png");
     await clickIn("[data-k=more]");
@@ -780,7 +832,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await away();
     assert.deepStrictEqual([(await F()).dk, ...(await look())], [false, "rgb(255, 255, 255)", "rgb(201, 206, 213)", "rgb(37, 99, 235)"], "светлый сайт при тёмной теме системы — светлый кружок");
     await clickFab();
-    assert.deepStrictEqual(await barLook(), BAR_LIGHT, "кнопки на светлом сайте: главная #2563eb, обычные белые с рамкой #c9ced5, подсказка и панели светлые");
+    assert.deepStrictEqual(await barLook(), BAR_LIGHT, "капсула на светлом сайте: белая, рамка #c9ced5 1 px, радиус 22; кнопки без рамок и заливки (главная тоже), иконки #4b525a; наведение #eef3fe / #1d4ed8, открытая панель #dbe6fe; подсказка и панели светлые");
     await t.shot("bar-light.png", { clip: { x: 500, y: 400, width: 500, height: 400, scale: 1 } });
     await click(EMPTY.x, EMPTY.y); await sleep(100);
     await t.cmd("Emulation.setEmulatedMedia", { features: [] });
@@ -811,7 +863,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await unband(); await sleep(400);
     await t.shot("fab-dark.png", { clip: { x: 600, y: 600, width: 400, height: 200, scale: 1 } });
     await clickFab();
-    assert.deepStrictEqual(await barLook(), BAR_DARK, "кнопки на тёмном сайте: главная #8fb0ff, обычные #2a2d33 с рамкой rgba(255,255,255,.4), подсказка и панели тёмные");
+    assert.deepStrictEqual(await barLook(), BAR_DARK, "капсула на тёмном сайте: #2a2d33, рамка rgba(255,255,255,.4); кнопки без рамок и заливки, иконки #d4d7dc; наведение #363a41 / #a9c2ff, открытая панель #40444c; подсказка и панели тёмные");
     await t.shot("bar-dark.png", { clip: { x: 500, y: 400, width: 500, height: 400, scale: 1 } });
     await click(EMPTY.x, EMPTY.y); await sleep(100);
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
@@ -819,7 +871,70 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await away(); await sleep(250);
     assert.deepStrictEqual((await look()).slice(0, 1).concat((await F()).on), ["rgb(143, 176, 255)", true], "переведена на тёмном — заливка #8fb0ff");
     await t.shot("fab-dark-on.png", { clip: { x: 600, y: 600, width: 400, height: 200, scale: 1 } });
-    ok("цвета по фону сайта: светлый — белый с рамкой #c9ced5 (и при тёмной теме системы), тёмный — #2a2d33, рамка rgba(255,255,255,.4), иконка #8fb0ff, «переведена» — #8fb0ff; кнопки: главная #2563eb / #8fb0ff, обычные белые / #2a2d33 с рамкой, подсказка и панели — по теме; полоса другого цвета через центр окна тему не меняет");
+    ok("цвета по фону сайта: светлый — белый с рамкой #c9ced5 (и при тёмной теме системы), тёмный — #2a2d33, рамка rgba(255,255,255,.4), иконка #8fb0ff, «переведена» — #8fb0ff; капсула — белая / #2a2d33 с рамкой, кнопки в ней без рамок и заливки (главная тоже), наведение и открытая панель — круг, подсказка и панели — по теме; полоса другого цвета через центр окна тему не меняет");
+
+    // ---- 10б. Капсула в обеих темах: снимки для глаз (с --shots) ----
+    // Наведение на главную (idle, подсказка с клавишей), «Стоп», «Показать оригинал», фокус с клавиатуры, «!»,
+    // открытые панели языка и «⋯», капсула вниз, окно 320 — на светлом и тёмном сайте, масштаб 2.
+    const gallery = async (dark) => {
+      const sfx = dark ? "dark" : "light", extra = dark ? "&dark=1" : "";
+      const CLIP = { x: 560, y: 560, width: 440, height: 240, scale: 2 }, TALL = { x: 500, y: 380, width: 500, height: 420, scale: 2 };
+      const hoverMain = async () => { const fc = mid((await F()).fab); await move(fc.x, fc.y); await sleep(40); const tp = await tipAt("main"); await sleep(200); return tp; };
+      await load({ hudShown: true }, extra);
+      await away();
+      await ev("window.__shortcut = 'Alt+Shift+G'; true");
+      let tp = await hoverMain();
+      assert.ok(tp && tp.kbd === "Alt+Shift+G" && (await F()).dk === dark, sfx + ": подсказка главной с клавишей: " + JSON.stringify(tp));
+      await t.shot(`cap-idle-${sfx}.png`, { clip: CLIP });
+      await ev("window.__bgDelay = 700; sendCmd({ type: 'translatePage', via: 'popup' }); true");
+      await sleep(150);
+      tp = await hoverMain();
+      assert.strictEqual(tp.t, await T("csFkStop"), sfx + ": «Стоп»");
+      await t.shot(`cap-busy-${sfx}.png`, { clip: CLIP });
+      await ev("window.__bgDelay = 0; true");
+      assert.ok(await until(async () => (await state()).page === "done", 5000), sfx + ": перевод закончен");
+      await sleep(100);
+      tp = await hoverMain();
+      assert.strictEqual(tp.t, await T("csShowOrig"), sfx + ": «Показать оригинал»");
+      await t.shot(`cap-done-${sfx}.png`, { clip: CLIP });
+      await away();
+      await ev("document.querySelector('#inp').focus(); true");
+      await tab(); await tab();
+      assert.strictEqual((await F()).focus, "main", sfx + ": Tab — фокус на главной");
+      await sleep(200);
+      await t.shot(`cap-focus-${sfx}.png`, { clip: CLIP });
+      await load({ hudShown: true, apiKey: "" }, extra);
+      await away();
+      tp = await hoverMain();
+      assert.strictEqual(btn(await F(), "main").cls, "bad", sfx + ": сбой — «!»");
+      await t.shot(`cap-err-${sfx}.png`, { clip: CLIP });
+      await load({ hudShown: true }, extra);
+      await away();
+      await clickFab();
+      await clickIn("[data-k=lang]"); await sleep(150);
+      assert.strictEqual((await F()).panel, "lang");
+      await t.shot(`cap-lang-${sfx}.png`, { clip: TALL });
+      await clickIn("[data-k=more]"); await sleep(150);
+      assert.strictEqual((await F()).panel, "more");
+      await t.shot(`cap-more-${sfx}.png`, { clip: TALL });
+      await esc(); await esc();
+      await load({ hudShown: true, hudPos: { side: "right", top: 100 } }, extra);
+      await away();
+      tp = await hoverMain();
+      assert.ok((await F()).down, sfx + ": кружок вверху — капсула вниз");
+      await t.shot(`cap-down-${sfx}.png`, { clip: { x: 560, y: 80, width: 440, height: 240, scale: 2 } });
+      await viewport(320, 600);
+      await load({ hudShown: true }, extra);
+      await ev("window.__shortcut = 'Alt+Shift+G'; true");
+      tp = await hoverMain();
+      const y = await F();
+      assert.ok(y.tip && !cross(y.tip.box, y.bar) && tipBeside(y, "main", true) && await tLines() <= 20, sfx + ": окно 320 — подсказка с клавишей сужается, заголовок в одну строку, на капсулу не ложится: " + JSON.stringify({ tip: y.tip.box, K: y.bar }));
+      await t.shot(`cap-320-${sfx}.png`, { clip: { x: 0, y: 380, width: 320, height: 220, scale: 2 } });
+      await viewport(1000, 800);
+    };
+    await gallery(false);
+    await gallery(true);
+    ok("капсула в обеих темах: idle с клавишей, «Стоп», «Показать оригинал», фокус с клавиатуры, «!», панели языка и «⋯», вниз, окно 320 (снимки cap-*-light / cap-*-dark)");
 
     // ---- 10а. Сайт сменил тему вслед за системой плавно (Хабр: @media в CSS, transition фона .2s) ----
     // В миг события matchMedia фон ещё прежний, а DOM не меняется — кружок и уведомление перепроверяют тему чуть позже.

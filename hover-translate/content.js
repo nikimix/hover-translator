@@ -1511,7 +1511,7 @@
       overflow-wrap: anywhere;
     }
 
-    /* плавающая кнопка: кружок 44 у края окна, над ним (или под ним) столбик кнопок. Цвета — по фону сайта, как у
+    /* плавающая кнопка: кружок 44 у края окна, над ним (или под ним) капсула с кнопками. Цвета — по фону сайта, как у
        уведомлений: светлый — белое и рамка #c9ced5, тёмный (.dk) — #2a2d33 и рамка rgba(255,255,255,.4); акцент — #2563eb
        и #8fb0ff (текст на нём #0b1220). Кольцо, подпись и точка мышь не ловят: щёлкнуть можно только сам кружок. */
     [hidden] { display: none !important; }
@@ -1567,50 +1567,52 @@
     .fab-pill.left { left: auto; right: 54px; }
     .dk .fab-pill { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
 
-    /* кнопки над кружком: столбик круглых кнопок 36 по оси кружка, в 8 от кружка и друг от
-       друга — главная (действие страницы), язык перевода (код), «⋯». Вверх растёт через column-reverse (главная ближе
-       всех к кружку), места над кружком мало — вниз (.down). Промежутки — часть столбика (padding со стороны кружка и
-       gap): курсор в зазоре не «уходит». Цвета — как у кружка; главная залита акцентом, пока её действие — перевести.
-       Появляется за 120 мс: прозрачность и сдвиг на 4 px от кружка. Подсказка и панели — сбоку, к середине экрана. */
+    /* кнопки над кружком: три круглые кнопки 36 на одной подложке шириной с кружок
+       (44: рамка 1, поле 3, радиус 22, зазор между кнопками 4) по оси кружка, в 8 от него — главная (действие
+       страницы), язык перевода (код), «⋯». Вверх растёт через column-reverse (главная ближе всех к кружку), места над
+       кружком мало — вниз (.down). Кнопки без своих рамок и заливки, главная — такая же, как остальные: наведение —
+       круг #eef3fe, открытая панель и нажатие — #dbe6fe, сбой «!» — красная иконка. Промежуток 8 до кружка — часть
+       капсулы (::after со стороны кружка): курсор в нём не «уходит». Цвета подложки — как у кружка. Появляется за
+       120 мс: прозрачность и сдвиг на 4 px от кружка. Подсказка и панели — сбоку, к середине экрана. */
     .fk {
-      position: absolute; left: 0; top: 0; display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
-      width: 44px; padding: 0 0 8px; transition: opacity 0.12s ease-out, transform 0.12s ease-out;
+      position: absolute; left: 0; top: 0; display: flex; flex-direction: column-reverse; align-items: center; gap: 4px;
+      width: 44px; padding: 3px; border: 1px solid #c9ced5; border-radius: 22px; background: #ffffff;
+      box-shadow: 0 1px 2px rgba(15, 20, 25, 0.08), 0 6px 20px rgba(15, 20, 25, 0.16);
+      transition: opacity 0.12s ease-out, transform 0.12s ease-out;
     }
-    .fk.down { flex-direction: column; padding: 8px 0 0; }
+    .fk::after { content: ""; position: absolute; left: -1px; right: -1px; top: 100%; height: 9px; }
+    .fk.down { flex-direction: column; }
+    .fk.down::after { top: auto; bottom: 100%; }
+    .fk.dk { background: #2a2d33; border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 20px rgba(0, 0, 0, 0.55); }
     @starting-style {
       .fk { opacity: 0; transform: translateY(4px); }
       .fk.down { transform: translateY(-4px); }
     }
     .fk-btn {
       position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; width: 36px;
-      height: 36px; padding: 0; border: 1px solid #c9ced5; border-radius: 50%; background: #ffffff; color: #4b525a;
-      box-shadow: 0 1px 2px rgba(15, 20, 25, 0.08), 0 4px 14px rgba(15, 20, 25, 0.14); font-size: 13px; line-height: 1;
-      font-weight: 600; letter-spacing: 0.02em; cursor: pointer; -webkit-tap-highlight-color: transparent;
-      transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+      height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #4b525a; font-size: 13px;
+      line-height: 1; font-weight: 600; letter-spacing: 0.02em; cursor: pointer; -webkit-tap-highlight-color: transparent;
+      transition: background-color 0.12s, color 0.12s;
     }
     .fk-btn .code, .fk-btn .stp { color: #17191c; }
-    .fk-btn:hover { background: #eef3fe; border-color: #c3d4fb; color: #1d4ed8; }
+    .fk-btn:hover { background: #eef3fe; color: #1d4ed8; }
     .fk-btn:hover .code, .fk-btn.is-open .code { color: #1d4ed8; }
-    .fk-btn.is-open, .fk-btn:not(.pri):active { background: #dbe6fe; border-color: #a9c2f8; color: #1d4ed8; }
-    .ui .fk-btn:focus-visible { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35), 0 4px 14px rgba(15, 20, 25, 0.14); }
-    .fk-btn.pri { background: #2563eb; border-color: #2563eb; color: #ffffff; }
-    .fk-btn.pri:hover { background: #1d4ed8; border-color: #1d4ed8; color: #ffffff; }
-    .ui .fk-btn.pri:focus-visible { border-color: #2563eb; box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px rgba(37, 99, 235, 0.6), 0 4px 14px rgba(15, 20, 25, 0.14); }
-    .fk-btn.bad { border-color: #e7a19a; color: #d92d20; }
-    .fk-btn.bad:hover { background: #fdf0ef; border-color: #d92d20; color: #b42318; }
-    .fk.dk .fk-btn { background: #2a2d33; border-color: rgba(255, 255, 255, 0.4); color: #d4d7dc; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.5); }
+    .fk-btn.is-open, .fk-btn:active { background: #dbe6fe; color: #1d4ed8; }
+    /* фокус с клавиатуры — кольцо 2 px по краю кнопки, внутри капсулы */
+    .ui .fk-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #2563eb; }
+    .fk-btn.bad { color: #d92d20; }
+    .fk-btn.bad:hover { background: #fdf0ef; color: #b42318; }
+    .fk.dk .fk-btn { color: #d4d7dc; }
     .fk.dk .fk-btn .code, .fk.dk .fk-btn .stp { color: #e8e9eb; }
-    .fk.dk .fk-btn:hover { background: #363a41; border-color: rgba(255, 255, 255, 0.55); color: #a9c2ff; }
+    .fk.dk .fk-btn:hover { background: #363a41; color: #a9c2ff; }
     .fk.dk .fk-btn:hover .code, .fk.dk .fk-btn.is-open .code { color: #a9c2ff; }
-    .fk.dk .fk-btn.is-open, .fk.dk .fk-btn:not(.pri):active { background: #40444c; border-color: rgba(255, 255, 255, 0.55); color: #a9c2ff; }
-    .ui .fk.dk .fk-btn:focus-visible { border-color: #8fb0ff; box-shadow: 0 0 0 3px rgba(143, 176, 255, 0.45), 0 4px 14px rgba(0, 0, 0, 0.5); }
-    .fk.dk .fk-btn.pri { background: #8fb0ff; border-color: #8fb0ff; color: #0b1220; }
-    .fk.dk .fk-btn.pri:hover { background: #a9c2ff; border-color: #a9c2ff; color: #0b1220; }
-    .ui .fk.dk .fk-btn.pri:focus-visible { border-color: #8fb0ff; box-shadow: 0 0 0 2px #121316, 0 0 0 5px rgba(143, 176, 255, 0.7), 0 4px 14px rgba(0, 0, 0, 0.5); }
-    .fk.dk .fk-btn.bad { border-color: rgba(255, 107, 95, 0.7); color: #ff6b5f; }
-    .fk.dk .fk-btn.bad:hover { background: #3a2a2a; border-color: #ff6b5f; color: #ff8a80; }
+    .fk.dk .fk-btn.is-open, .fk.dk .fk-btn:active { background: #40444c; color: #a9c2ff; }
+    .ui .fk.dk .fk-btn:focus-visible { box-shadow: inset 0 0 0 2px #8fb0ff; }
+    .fk.dk .fk-btn.bad { color: #ff6b5f; }
+    .fk.dk .fk-btn.bad:hover { background: #3a2a2a; color: #ff8a80; }
     /* подсказка — как подпись «Перевожу…»: рамка, r8, 13/500, пояснение 12 серым, клавиша — чип 18. Мышь не ловит:
-       курсор, ушедший на неё, ушёл со столбика. */
+       курсор, ушедший на неё, ушёл с капсулы. Ширина — по тексту, не больше 320 и места сбоку от капсулы (placeTip):
+       длинное пояснение переносится; заголовок — в одну строку, пока помещается. */
     .fk-tip {
       position: absolute; left: 0; top: 0; z-index: 2; display: flex; flex-direction: column; width: max-content;
       max-width: 320px; padding: 5px 10px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
@@ -1618,14 +1620,14 @@
       pointer-events: none;
     }
     .fk-tip.dk { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
-    .fk-tip .t { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .fk-tip .t { display: flex; align-items: center; gap: 6px; }
     .fk-tip .sub { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--muted); }
     .fk-kbd {
       display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border: 1px solid var(--kbd-line);
       border-bottom-width: 2px; border-radius: 4px; background: var(--kbd-bg); color: var(--fg); font-size: 11px;
-      line-height: 1; font-weight: 500;
+      line-height: 1; font-weight: 500; white-space: nowrap; flex: none;
     }
-    /* панели у столбика: язык (240, поиск и строки 36) и «⋯» (пункты 36) */
+    /* панели у капсулы: язык (240, поиск и строки 36) и «⋯» (пункты 36) */
     .fk-pop {
       position: absolute; left: 0; top: 0; z-index: 2; width: 240px; padding: 6px; border: 1px solid var(--line);
       border-radius: 12px; background: var(--bg); color: var(--fg); box-shadow: 0 12px 32px rgba(15, 20, 25, 0.18);
@@ -3231,21 +3233,22 @@
   }
 
   // ---- плавающая кнопка: кружок 44 у края окна и кнопки над ним ----
-  // Кружок показывает,
-  // что со страницей: переведена — залит акцентом; идёт перевод — кольцо с долей готового и подпись «Перевожу… N из M»
-  // со стороны середины экрана; янтарная точка — ждём щелчка по тексту; красная — перевод не работает (что делать,
-  // говорит уведомление). Наведение на кружок сразу показывает над ним (места мало — под ним) столбик кнопок 36:
-  // главная — действие страницы (перевести → «Стоп» → «Показать оригинал»), язык перевода (код), «⋯» (выключить на
-  // сайте, скрыть кнопку, настройки). Уход с кружка и кнопок скрывает их через 300 мс; щелчок по кружку закрепляет
-  // (до щелчка мимо, Esc или повторного щелчка). Страницу щелчок по кружку не переводит. Подсказка у кнопки — сразу
-  // при наведении и при фокусе с клавиатуры.
+  // Кружок показывает, что со страницей: переведена — залит акцентом; идёт перевод — кольцо с долей
+  // готового и подпись «Перевожу… N из M» со стороны середины экрана; янтарная точка — ждём щелчка по тексту;
+  // красная — перевод не работает (что делать, говорит уведомление). Наведение на кружок сразу показывает над ним
+  // (места мало — под ним) капсулу шириной с кружок с тремя кнопками 36: главная — действие страницы (перевести →
+  // «Стоп» → «Показать оригинал»), язык перевода (код), «⋯» (выключить на сайте, скрыть кнопку, настройки). Уход
+  // курсора с кружка и капсулы скрывает её сразу; щелчок по кружку закрепляет (до щелчка мимо, Esc или повторного
+  // щелчка). Страницу щелчок по кружку не переводит. Подсказка у кнопки — сразу при наведении и при фокусе
+  // с клавиатуры.
   // Кружок тащат за него самого: сдвиг больше 4 px — перетаскивание; отпустили — за 200 мс прилипает к ближайшему
   // краю (16 px), по высоте где отпустили. Место одно на все сайты (hudPos), пишется один раз — при отпускании:
   // каждая запись будит скрипты во всех вкладках.
-  const FAB = 44, FAB_EDGE = 16, FAB_GAP = 8;            // кружок, отступ от края окна, зазор до кнопок и между ними
-  const FK_BTN = 36, FK_COL = 3 * FK_BTN + 2 * FAB_GAP;  // кнопка столбика и сам столбик (124)
-  const FK_SIDE = FAB_GAP - (FAB - FK_BTN) / 2;          // подсказка и панели — в 8 от кнопок, то есть в 4 от кружка
-  const FAB_CLOSE_MS = 300, FAB_SNAP_MS = 200, FAB_DRAG_PX = 4;
+  const FAB = 44, FAB_EDGE = 16, FAB_GAP = 8;            // кружок, отступ от края окна, зазор до капсулы
+  // Капсула шириной с кружок: кнопки 36 через 4, от края капсулы до кнопки 4 (рамка 1 + поле 3); высота 124.
+  const FK_BTN = 36, FK_GAP = 4, FK_PAD = 4, FK_COL = 3 * FK_BTN + 2 * FK_GAP + 2 * FK_PAD;
+  const FK_SIDE = FAB_GAP;                               // подсказка и панели — в 8 от капсулы (и от кружка)
+  const FAB_SNAP_MS = 200, FAB_DRAG_PX = 4;
   const RING_C = 2 * Math.PI * 25;                      // длина кольца r 25 (в квадрате 54)
 
   function buildFab() {
@@ -3257,7 +3260,7 @@
     // не «Tab до кружка»); mainKey — что нарисовано на главной кнопке, mainSpec — её описание; tipFor — кнопка
     // с подсказкой; keys — сочетание «Перевести страницу» из chrome.commands ("" — не задано).
     const f = { host, root, open: "", panel: "", press: null, drag: null, noClick: false, noHover: false, quiet: false,
-      mainKey: "", mainSpec: null, tipFor: null, keys: "", timers: { close: 0, snap: 0 } };
+      mainKey: "", mainSpec: null, tipFor: null, keys: "", timers: { snap: 0 } };
     f.btn = h("button", { type: "button", class: "fab", "aria-label": HT_t("csFabAria", extName()), "aria-expanded": "false",
       "aria-controls": "fk" }, icon("languages", 20));
     f.ring = svgEl("svg", { class: "fab-ring", width: 54, height: 54, viewBox: "0 0 54 54", "aria-hidden": "true" });
@@ -3302,12 +3305,11 @@
     f.ui = h("div", { class: "ui fab-box" }, f.w, f.fk, f.tip, f.langPop, f.morePop);
     root.appendChild(f.ui);
 
-    // Наведение на кружок — кнопки сразу; ушли с кружка, кнопок и панели — скрыть через 300 мс (вернулись — отмена;
-    // зазоры между кнопками и до кружка — часть столбика). Палец (сенсорный экран) наведения не знает — у него
-    // только щелчок.
+    // Наведение на кружок — кнопки сразу; ушли с кружка, капсулы и панели — сразу скрыть (промежуток 8 между капсулой
+    // и кружком — часть капсулы, см. .fk::after). Палец (сенсорный экран) наведения не знает — у него только щелчок.
     f.btn.addEventListener("pointerenter", (e) => { if (e.isTrusted && e.pointerType !== "touch") fabHoverIn(); });
     f.btn.addEventListener("pointerleave", (e) => { if (e.isTrusted) f.noHover = false; });
-    host.addEventListener("pointerenter", (e) => { if (e.isTrusted) { clearTimeout(f.timers.close); themeFab(); } });
+    host.addEventListener("pointerenter", (e) => { if (e.isTrusted) themeFab(); });
     host.addEventListener("pointerleave", (e) => { if (e.isTrusted && e.pointerType !== "touch") fabHoverOut(); });
     f.btn.addEventListener("pointerdown", fabDown);
     f.btn.addEventListener("pointermove", fabMove);
@@ -3323,20 +3325,15 @@
   }
 
   function fabHoverIn() {
-    if (!fab) return;
-    clearTimeout(fab.timers.close);
-    if (fab.open || fab.drag || fab.press || fab.noHover) return;
+    if (!fab || fab.open || fab.drag || fab.press || fab.noHover) return;
     openMenu("hover", false);
   }
+  // Курсор ушёл — скрыть сразу, без задержки и затухания. Открыта панель — ждём её (закроют щелчок мимо, Esc или
+  // выбор; курсор, оставшийся снаружи, скроет кнопки следом — см. hidePanel). Фокус с клавиатуры на кружке — скроет
+  // его уход.
   function fabHoverOut() {
-    if (!fab || fab.open !== "hover") return;
-    clearTimeout(fab.timers.close);
-    fab.timers.close = setTimeout(() => {
-      // Курсор снова над нами — не скрываем. Открыта панель — ждём её (закроют щелчок мимо, Esc или выбор; курсор,
-      // оставшийся снаружи, скроет кнопки следом — см. hidePanel). Фокус с клавиатуры на кружке — скроет его уход.
-      if (!fab || fab.open !== "hover" || hovered(fab.host) || fab.panel || kbFocus()) return;
-      closeMenu(false);
-    }, FAB_CLOSE_MS);
+    if (!fab || fab.open !== "hover" || fab.panel || kbFocus()) return;
+    closeMenu(false);
   }
   function hovered(el) { try { return el.matches(":hover"); } catch (e) { return false; } }
   function focusVisible(el) { try { return el.matches(":focus-visible"); } catch (e) { return false; } }
@@ -3363,7 +3360,7 @@
       return;
     }
     if (!kb) return;
-    if (fab.open === "hover") { fab.open = "pin"; clearTimeout(fab.timers.close); }
+    if (fab.open === "hover") fab.open = "pin";
     if (t.classList.contains("fk-btn")) showTip(t);
   }
   // Фокус ушёл с кнопки — её подсказка тоже (если курсор не над ней). Ушёл на страницу (Tab из последней кнопки,
@@ -3477,23 +3474,27 @@
   }
   function sideFab() { if (fab) fab.pill.classList.toggle("left", fabOnRight()); }
 
-  // Столбик — по оси кружка: вверх, если над кружком хватает места (8 + столбик 124 + 16 до края окна), иначе вниз.
-  // Подсказка и панели — сбоку, к середине экрана, в 8 от кнопок; не помещаются — сдвиг внутрь окна (поле 8).
+  // Капсула — по оси кружка, в 8 от него: вверх, если над кружком хватает места (8 + капсула 124 + 16 до края окна),
+  // иначе вниз. Подсказка и панели — сбоку, к середине экрана, в 8 от капсулы; не помещаются — сдвиг внутрь окна
+  // (поле 8).
   function placeMenu() {
     if (!fab || !fab.open) return;
     const r = fab.host.getBoundingClientRect();
     const down = r.top - FAB_GAP - FK_COL < FAB_EDGE;
     fab.fk.classList.toggle("down", down);
-    fab.fk.style.top = (down ? FAB : -(FAB_GAP + FK_COL)) + "px";
+    fab.fk.style.top = (down ? FAB + FAB_GAP : -(FAB_GAP + FK_COL)) + "px";
     if (fab.tipFor) placeTip();
     if (fab.panel) placePanel();
   }
   function fabBtns() { return [fab.mainBtn, fab.langBtn, fab.moreBtn]; }
-  // Середина i-й кнопки (0 — главная) от верха кружка. Считаем, а не меряем: при появлении столбик ещё едет.
+  // Середина i-й кнопки (0 — главная) от верха кружка: центры через 40 (36 + 4). Считаем, а не меряем: при появлении
+  // капсула ещё едет.
   function btnMid(i) {
-    const d = FAB_GAP + FK_BTN / 2 + i * (FK_BTN + FAB_GAP);
+    const d = FAB_GAP + FK_PAD + FK_BTN / 2 + i * (FK_BTN + FK_GAP);
     return fab.fk.classList.contains("down") ? FAB + d : -d;
   }
+  // Место сбоку от капсулы до края окна (поле 8) — со стороны середины экрана.
+  function sideRoom(r) { return (fabOnRight() ? r.left - FK_SIDE : viewSize().w - r.right - FK_SIDE) - 8; }
   // Поставить элемент (его left/top — от кружка) в точку x, y окна, сдвинув внутрь окна с полем 8.
   function putAt(el, r, x, y) {
     const vs = viewSize();
@@ -3502,18 +3503,19 @@
     el.style.left = Math.round(x - r.left) + "px";
     el.style.top = Math.round(y - r.top) + "px";
   }
-  // Подсказка — по центру своей кнопки по вертикали.
+  // Подсказка — по центру своей кнопки по вертикали. Не шире места сбоку от капсулы (узкое окно): длинное пояснение
+  // переносится, заголовок — тоже, если и он не влезает, — но на капсулу подсказка не ложится.
   function placeTip() {
-    const t = fab.tip, r = fab.host.getBoundingClientRect();
+    const t = fab.tip, r = fab.host.getBoundingClientRect(), room = sideRoom(r);
+    t.style.maxWidth = room < 320 ? Math.max(120, room) + "px" : "";
     const x = fabOnRight() ? r.left - FK_SIDE - t.offsetWidth : r.right + FK_SIDE;
     putAt(t, r, x, r.top + btnMid(fabBtns().indexOf(fab.tipFor)) - t.offsetHeight / 2);
   }
   // Панель языка — вровень с низом кружка (кнопки вниз — с верхом); «⋯» — вровень с дальним краем своей кнопки.
-  // Узкое окно: панель не шире места сбоку от кнопок (но не уже 160) — пусть налезает на текст страницы, не на кнопки.
+  // Узкое окно: панель не шире места сбоку от капсулы (но не уже 160) — пусть налезает на текст страницы, не на капсулу.
   function placePanel() {
-    const [p] = panelParts(fab.panel), r = fab.host.getBoundingClientRect(), vs = viewSize(), right = fabOnRight();
-    const room = (right ? r.left - FK_SIDE : vs.w - r.right - FK_SIDE) - 8;
-    p.style.maxWidth = room < 240 ? Math.max(160, room) + "px" : "";
+    const [p] = panelParts(fab.panel), r = fab.host.getBoundingClientRect(), right = fabOnRight(), room = sideRoom(r);
+    p.style.maxWidth = room < 300 ? Math.max(160, room) + "px" : "";      // язык — 240, «⋯» — до 300
     const down = fab.fk.classList.contains("down"), ph = p.offsetHeight;
     const x = right ? r.left - FK_SIDE - p.offsetWidth : r.right + FK_SIDE;
     let y;
@@ -3530,7 +3532,6 @@
   function panelOpen() { return !!(fab && fab.panel); }
   function openMenu(mode, byKeyboard) {
     if (!fab) return;
-    clearTimeout(fab.timers.close);
     const was = !!fab.open;
     fab.open = mode;
     if (!was) {
@@ -3546,7 +3547,6 @@
   }
   function closeMenu(refocus) {
     if (!fab || !fab.open) return;
-    clearTimeout(fab.timers.close);
     fab.open = "";
     closePanel(false);
     hideTip();
@@ -3889,13 +3889,13 @@
   function mainSpec(page) {
     if (page === "busy") return { act: "stop", cls: "", icon: "stop", t: HT_t("csFkStop"), kbd: "", sub: HT_t("csFkStopSub") };
     if (page === "done") return { act: "orig", cls: "", icon: "undo", t: HT_t("csShowOrig"), kbd: "Esc", sub: menuPair() };
-    if (page === "orig") return { act: "tr", cls: "pri", icon: "languages", t: HT_t("csFkShowTr"), kbd: "", sub: HT_t("ppOrigHint", menuPair()) };
+    if (page === "orig") return { act: "tr", cls: "", icon: "languages", t: HT_t("csFkShowTr"), kbd: "", sub: HT_t("ppOrigHint", menuPair()) };
     const p = problem();
     if (p || failErr) {
       const why = p ? HT_problemText(p, "short", netState()) : failNote ? failNote.reason : "";
       return { act: "err", cls: "bad", icon: "alert", t: HT_t("probTitle"), kbd: "", sub: why ? HT_t("csFkErrSub", bare(why)) : "" };
     }
-    const s = { act: "translate", cls: "pri", icon: "languages", t: HT_t("translatePage"), kbd: fab.keys };
+    const s = { act: "translate", cls: "", icon: "languages", t: HT_t("translatePage"), kbd: fab.keys };
     const count = shownCount();
     if (page === "part" && count > 0) s.sub = HT_t("ppEscHint", HT_plural("ppPartDone", count));
     else if (needClick) s.sub = HT_t("csClickPair");

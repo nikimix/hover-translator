@@ -61,7 +61,8 @@
       on: b.classList.contains("on"), drag: b.classList.contains("is-drag"), dk: !!w && w.classList.contains("dk"),
       ring: shown(r.querySelector(".fab-ring")), pill: shown(pill) ? pill.textContent : null, pillBox: shown(pill) ? box(pill) : null,
       dot: dots.length ? dots.join(",") : null,
-      // столбик кнопок (.fk): показан ли, вниз ли (.down), его кнопки по порядку DOM (main, lang, more) с местом
+      // капсула с кнопками (.fk): показана ли, вниз ли (.down), её место (bar), кнопки по порядку DOM (main, lang, more)
+      // с местом; cls — и прежний .pri (залитая главная), чтобы проверки его заметили
       open, down: !!k && k.classList.contains("down"), expanded: b.getAttribute("aria-expanded"),
       fab: box(b), bar: open ? box(k) : null,
       btns: open ? [...k.querySelectorAll(".fk-btn")].map((x) => ({ k: x.getAttribute("data-k"), act: x.getAttribute("data-act"),

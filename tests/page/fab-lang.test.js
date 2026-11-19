@@ -7,8 +7,8 @@
 // кнопка); поле не прыгает при наборе; ↑ ↓ Enter — запись targetLang и recentLangs как в окне расширения, панель
 // закрыта, на кнопке новый код, фокус на «RU»; щелчок по строке — то же; Esc — панель, второй Esc — столбик; Tab —
 // к «⋯», Shift+Tab — к «RU»; Shift в поле (курсор над абзацем) — набор, абзац не переводится; щелчок мимо —
-// закрыть; поддельные события ничего не пишут; панель не выходит за окно
-// и не закрывает кнопки (справа внизу, слева вверху, окно 360). Скриншоты в обеих темах — с tests/run.sh --shots.
+// закрыть; поддельные события ничего не пишут; панель не выходит за окно и не закрывает капсулу с кнопками
+// (справа внизу, слева вверху, окно 360), стоит в 8 от капсулы. Скриншоты в обеих темах — с tests/run.sh --shots.
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
@@ -30,7 +30,7 @@ const HELPERS = `window.langInfo = () => {
   const pop = r.querySelector("#fk-lang"), fk = r.querySelector("#fk"), btn = r.querySelector(".fk-btn[data-k=lang]"), q = pop.querySelector("input");
   const shown = (e) => !!e && !e.closest("[hidden]") && e.getClientRects().length > 0;
   const box = (e) => { const b = e.getBoundingClientRect(); return { l: Math.round(b.left), t: Math.round(b.top), r: Math.round(b.right), b: Math.round(b.bottom), w: Math.round(b.width), h: Math.round(b.height) }; };
-  const btns = [...fk.querySelectorAll(".fk-btn")].filter(shown).map(box);
+  const btns = [...fk.querySelectorAll(".fk-btn")].filter(shown).map(box), cap = shown(fk) ? box(fk) : null;
   const a = r.activeElement;
   const none = pop.querySelector(".fk-none");
   return {
@@ -46,7 +46,7 @@ const HELPERS = `window.langInfo = () => {
     focus: !a ? null : a === btn ? "lang" : a === q ? "q" : a.classList.contains("fab") ? "fab" : a.getAttribute("data-k") || a.className,
     fab: box(r.querySelector(".fab")), pop: shown(pop) ? box(pop) : null, find: shown(pop) ? box(pop.querySelector(".fk-find")) : null,
     list: shown(pop) ? (() => { const l = pop.querySelector(".fk-list"); return { h: l.clientHeight, sh: l.scrollHeight, st: l.scrollTop }; })() : null,
-    btns, down: fk.classList.contains("down"), dk: pop.classList.contains("dk"),
+    btns, cap, down: fk.classList.contains("down"), dk: pop.classList.contains("dk"),
   };
 }; true`;
 
@@ -110,12 +110,13 @@ const HELPERS = `window.langInfo = () => {
       await enter();
       return L();
     };
-    // Панель на месте: в окне (поле 8), не закрывает кружок и кнопки; сбоку от кнопок — к середине экрана.
+    // Панель на месте: в окне (поле 8), не закрывает кружок и капсулу с кнопками; в 8 от капсулы — к середине экрана.
     const placed = async (what) => {
       const x = await L(), v = await vp();
       assert.ok(x.open && x.pop, what + ": панель открыта");
       assert.ok(x.pop.l >= 8 && x.pop.t >= 8 && x.pop.r <= v.w - 8 && x.pop.b <= v.h - 8, what + ": панель в окне с полем 8: " + JSON.stringify({ pop: x.pop, v }));
-      assert.ok(!cross(x.pop, x.fab) && !x.btns.some((q) => cross(x.pop, q)), what + ": не закрывает кружок и кнопки: " + JSON.stringify(x));
+      assert.ok(x.cap && !cross(x.pop, x.fab) && !cross(x.pop, x.cap) && !x.btns.some((q) => cross(x.pop, q)), what + ": не закрывает кружок и капсулу: " + JSON.stringify(x));
+      assert.ok(x.pop.r === x.cap.l - 8 || x.pop.l === x.cap.r + 8, what + ": в 8 от капсулы: " + JSON.stringify({ pop: x.pop, cap: x.cap }));
       return x;
     };
     const names = async (codes) => { const o = []; for (const c of codes) o.push(await nameOf(c)); return o; };
@@ -134,8 +135,8 @@ const HELPERS = `window.langInfo = () => {
     assert.deepStrictEqual(x.rows.map((r) => r.sel), [true, false, false, false, false], "текущий — .sel с галочкой");
     assert.ok(x.rows.every((r) => r.tag === "BUTTON" && r.role === "option" && r.shown), "строки — кнопки role=option");
     assert.ok(x.rows.every((r) => !r.focus) && !x.ad, "без набора строки под фокусом нет");
-    assert.ok(!x.down && x.pop.b === x.fab.b && x.pop.r === x.fab.l - 4 && x.pop.w === 240,
-      "кружок справа внизу: панель 240 вровень с низом кружка, в 8 от кнопок (в 4 от кружка): " + JSON.stringify({ pop: x.pop, fab: x.fab }));
+    assert.ok(!x.down && x.pop.b === x.fab.b && x.pop.r === x.cap.l - 8 && x.pop.w === 240,
+      "кружок справа внизу: панель 240 вровень с низом кружка, в 8 от капсулы: " + JSON.stringify({ pop: x.pop, fab: x.fab, cap: x.cap }));
     await placed("справа внизу");
     await t.shot("lang-light.png", { clip: { x: 640, y: 440, width: 360, height: 360, scale: 2 } });
     ok(`щелчок по «RU» — панель (кнопка «нажата», aria-expanded=true), фокус мышью не в поле; «${x.gl}»: ${x.rows.map((r) => r.nm + (r.cd ? " · " + r.cd : "") + (r.sel ? " ✓" : "")).join(", ")}; вровень с низом кружка, 240, в окне`);
@@ -354,7 +355,7 @@ const HELPERS = `window.langInfo = () => {
     // ---- 7. Место: слева вверху, узкое окно ----
     await load({ hudShown: true, recentLangs: RECENT, hudPos: { side: "left", top: 16 } });
     x = await openByMouse();
-    assert.ok(x.down && x.pop.t === x.fab.t && x.pop.l === x.fab.r + 4, "слева вверху: кнопки вниз, панель вровень с верхом кружка, справа от кнопок: " + JSON.stringify({ pop: x.pop, fab: x.fab }));
+    assert.ok(x.down && x.pop.t === x.fab.t && x.pop.l === x.cap.r + 8, "слева вверху: кнопки вниз, панель вровень с верхом кружка, в 8 справа от капсулы: " + JSON.stringify({ pop: x.pop, fab: x.fab, cap: x.cap }));
     await placed("слева вверху");
     await clickIn(".fk-find input"); await type("а");
     await placed("слева вверху, много совпадений");
