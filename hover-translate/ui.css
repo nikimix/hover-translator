@@ -5,7 +5,7 @@
    Отступы: 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48. Высота: поля и кнопки 40, чипы и маленькие кнопки 32,
    иконки-кнопки 36, переключатель 40×24, строка с переключателем 44. Фокус с клавиатуры у всех один: край акцентом и
    мягкий ореол 3 px вплотную (--ring), см. «фокус». Контролы форм — свои, а не системные: список (и раскрытый список),
-   переключатели-кружки, флажки, ползунок — рамки --field / --field-h, радиус 8, один вид выключенного.
+   переключатели-кружки, ползунок — рамки --field / --field-h, радиус 8, один вид выключенного.
    Тема — по системной (prefers-color-scheme). Шрифт — Inter, упакованный в расширение (fonts/, лицензия OFL):
    переменный, начертания 400–600; латиница и кириллица, остальные письменности — системным шрифтом.
    На чужих сайтах (content.js) — системный шрифт и свои цвета: см. там. */
@@ -67,10 +67,8 @@
   --pop-line: #e4e7eb;
   --err-ring: rgba(180, 35, 24, 0.22);
   --thumb-shadow: 0 1px 2px rgba(16, 24, 40, 0.2), 0 1px 3px rgba(16, 24, 40, 0.1);
-  /* галочка (lucide check): маска — для цвета текста, картинка — цветом --accent-fg на заливке флажка */
+  /* галочка (lucide check) выбранного пункта списка: маска — красится цветом текста */
   --ck-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
-  --ck-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
-  --mk: rgba(255, 207, 74, 0.34);
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 20px;
@@ -124,9 +122,7 @@
     --pop-line: #45484e;
     --err-ring: rgba(255, 138, 128, 0.3);
     --thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
-    --ck-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230b1220' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
-    --mk: rgba(255, 207, 74, 0.2);
-  }
+    }
 }
 /* Сброс без веса (:where) — иначе он перебивает цвет и шрифт кнопок. */
 :where(.ht) *, :where(.ht) *::before, :where(.ht) *::after { box-sizing: border-box; }
@@ -140,7 +136,6 @@ html.ht body { font-family: inherit; font-size: inherit; line-height: inherit; c
 @media (prefers-reduced-motion: reduce) {
   .ht *, .ht *::before, .ht *::after { transition: none !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
-.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ================= окно расширения ================= */
 /* Рамку, скругление и тень окна рисует Chrome — у окна их нет. */
@@ -193,7 +188,6 @@ html.ht body { font-family: inherit; font-size: inherit; line-height: inherit; c
 .sel { position: relative; }
 .sel select { appearance: none; -webkit-appearance: none; display: block; width: 100%; height: 40px; padding: 0 40px 0 12px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 14px; cursor: pointer; text-overflow: ellipsis; }
 .sel select:hover { border-color: var(--field-h); }
-.sel select:disabled { background: var(--surface); border-color: var(--line); color: var(--off); cursor: not-allowed; }
 .sel svg { position: absolute; right: 12px; top: 50%; margin-top: -8px; pointer-events: none; color: var(--muted); transition: transform 0.15s; }
 /* Раскрытый список — свой, а не системный (настраиваемый select, Chrome 135+): тень как у карточек, поверхность
    --pop-bg и рамка --pop-line (в тёмной теме чуть светлее карточки — иначе список сливается с ней), радиус 8; пункты
@@ -220,14 +214,12 @@ html.ht body { font-family: inherit; font-size: inherit; line-height: inherit; c
   .sel option:checked { color: var(--accent-ink); font-weight: 500; }
   .sel option::checkmark { order: 1; flex: none; margin-inline-start: auto; content: ""; width: 16px; height: 16px; background: currentColor;
     -webkit-mask: var(--ck-mask) center / 16px no-repeat; mask: var(--ck-mask) center / 16px no-repeat; }
-  .sel option:disabled { color: var(--off); background: transparent; cursor: default; }
 }
 .inp { display: block; width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--field); border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 14px; }
 .inp::placeholder { color: var(--muted); }
 .inp:hover { border-color: var(--field-h); }
 .inp.is-err { border-color: var(--err); }
 .inp.is-ok { border-color: var(--ok); }
-.inp:disabled { background: var(--surface); border-color: var(--line); color: var(--off); }
 textarea.inp { height: auto; min-height: 80px; padding: 8px 12px; line-height: 20px; resize: vertical; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; letter-spacing: 0.02em; }
 .mono::placeholder { font-family: Inter, system-ui, sans-serif; font-size: 14px; letter-spacing: 0; }
@@ -239,18 +231,14 @@ textarea.inp { height: auto; min-height: 80px; padding: 8px 12px; line-height: 2
 .inp-msg svg { flex: none; margin-top: 2px; }
 .inp-msg span { text-wrap: pretty; }
 
-/* Переключатели-кружки и флажки — свои: 16 px, рамка --field (наведение — --field-h), выбранный — акцентом (у кружка
-   толстое кольцо с точкой, у флажка заливка с галочкой). Своего кольца фокуса у кружка в карточке нет — его рисует
-   карточка (см. «фокус»). */
-.ht input[type="radio"], .ht input[type="checkbox"] { appearance: none; -webkit-appearance: none; flex: none; display: inline-block; width: 16px; height: 16px; margin: 0; border: 1px solid var(--field); background: var(--bg) no-repeat center / 12px; vertical-align: -3px; cursor: pointer; transition: border-color 0.12s, background-color 0.12s, border-width 0.12s; }
+/* Переключатели-кружки — свои: 16 px, рамка --field (наведение — --field-h), выбранный — толстое кольцо акцентом с
+   точкой. Своего кольца фокуса у кружка в карточке нет — его рисует карточка (см. «фокус»). */
+.ht input[type="radio"] { appearance: none; -webkit-appearance: none; flex: none; display: inline-block; width: 16px; height: 16px; margin: 0; border: 1px solid var(--field); background: var(--bg) no-repeat center / 12px; vertical-align: -3px; cursor: pointer; transition: border-color 0.12s, background-color 0.12s, border-width 0.12s; }
 .ht input[type="radio"] { border-radius: 50%; }
-.ht input[type="checkbox"] { border-radius: 4px; }
-.ht input[type="radio"]:hover, .ht input[type="checkbox"]:hover, .rcard:not(.is-disabled):hover input[type="radio"], .rcard:not(.is-disabled):hover input[type="checkbox"] { border-color: var(--field-h); }
+.ht input[type="radio"]:hover, .rcard:not(.is-disabled):hover input[type="radio"] { border-color: var(--field-h); }
 .ht input[type="radio"]:checked, .rcard:not(.is-disabled):hover input[type="radio"]:checked { border: 5px solid var(--accent); background-color: var(--accent-fg); }
-.ht input[type="checkbox"]:checked, .rcard:not(.is-disabled):hover input[type="checkbox"]:checked { border-color: var(--accent); background-color: var(--accent); background-image: var(--ck-img); }
-.ht input[type="radio"]:disabled, .ht input[type="checkbox"]:disabled { border-color: var(--line-strong); background-color: var(--surface); cursor: not-allowed; }
+.ht input[type="radio"]:disabled { border-color: var(--line-strong); background-color: var(--surface); cursor: not-allowed; }
 .ht input[type="radio"]:disabled:checked { border-color: var(--line-strong); background-color: var(--surface); }
-.ht input[type="checkbox"]:disabled:checked { border-color: var(--line-strong); background-color: var(--line-strong); }
 
 /* Ползунок — свой: дорожка 4 (--line-strong), пройденная часть акцентом (--p — доля 0…1, ставит HT_ui.rangeFill), бегунок
    18 — белый с кольцом акцента и тенью; наведение — кольцо темнее, нажатие — ореол, фокус с клавиатуры — общий ореол. */
@@ -261,9 +249,6 @@ textarea.inp { height: auto; min-height: 80px; padding: 8px 12px; line-height: 2
 .range:active::-webkit-slider-thumb { border-color: var(--accent-p); box-shadow: var(--thumb-shadow), 0 0 0 4px var(--accent-sel); cursor: grabbing; }
 .range:focus-visible { outline: none; }
 .range:focus-visible::-webkit-slider-thumb { box-shadow: var(--thumb-shadow), 0 0 0 3px var(--ring); }
-.range:disabled { cursor: not-allowed; }
-.range:disabled::-webkit-slider-runnable-track { background: var(--line); }
-.range:disabled::-webkit-slider-thumb { border-color: var(--line-strong); background: var(--surface); box-shadow: none; }
 
 .chips { display: flex; gap: 8px; flex-wrap: nowrap; overflow: hidden; }
 .chip { display: inline-flex; align-items: center; flex: none; height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--fg); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
@@ -286,7 +271,6 @@ textarea.inp { height: auto; min-height: 80px; padding: 8px 12px; line-height: 2
 .btn-danger:hover { background: var(--err-bg); border-color: var(--err); }
 .btn-danger:active { background: var(--err-press); border-color: var(--err); }
 .btn:disabled { background: var(--surface); border-color: var(--line); color: var(--off); cursor: not-allowed; }
-.btn-ghost:disabled { background: transparent; border-color: transparent; }
 .btn[aria-busy="true"] { cursor: progress; }
 .btn[aria-busy="true"]:disabled { color: var(--fg-2); }
 .btn-block { width: 100%; }
@@ -294,14 +278,12 @@ textarea.inp { height: auto; min-height: 80px; padding: 8px 12px; line-height: 2
 .link-btn { position: relative; display: inline-flex; align-items: center; height: 20px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--accent-ink); font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 .link-btn::after { content: ""; position: absolute; inset: -2px 0; } /* область нажатия 24 px, строка остаётся 20 */
 .link-btn:hover { background: var(--accent-soft); }
-a.link { color: var(--accent-ink); font-weight: 500; text-underline-offset: 3px; }
 
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
 .icon-btn:hover { background: var(--hover); color: var(--fg); }
 .icon-btn:active { background: var(--press); color: var(--fg); }
 .icon-btn[aria-pressed="true"] { background: var(--accent-sel); color: var(--accent-ink); box-shadow: inset 0 0 0 1px var(--accent); }
 .icon-btn[aria-pressed="true"]:not(:disabled):hover, .icon-btn[aria-pressed="true"]:not(:disabled):active { background: var(--accent-line); }   /* нажатая тоже отзывается на наведение */
-.icon-btn:disabled { color: var(--off); background: transparent; box-shadow: none; cursor: not-allowed; }
 
 
 /* ================= переключатель ================= */
@@ -319,7 +301,6 @@ a.link { color: var(--accent-ink); font-weight: 500; text-underline-offset: 3px;
 .seg button { flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .seg button:hover { color: var(--fg); background: var(--hover); }
 .seg button[aria-checked="true"] { background: var(--seg-on); color: var(--fg); font-weight: 600; box-shadow: var(--seg-shadow); }
-.seg button:disabled { background: transparent; color: var(--off); cursor: not-allowed; }
 
 /* ================= клавиши ================= */
 .kbd { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); color: var(--fg); font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; }
@@ -370,7 +351,7 @@ a.link { color: var(--accent-ink); font-weight: 500; text-underline-offset: 3px;
 .rcard.is-disabled { cursor: not-allowed; background: var(--surface); border-color: var(--line); }
 .rcard.is-disabled .rc-t, .rcard.is-disabled .rc-d { color: var(--off); }
 .rcard.is-disabled .tag { background: var(--press); color: var(--fg-2); }
-.rcard input[type="radio"], .rcard input[type="checkbox"] { margin: 2px 0 0; }
+.rcard input[type="radio"] { margin: 2px 0 0; }
 .rc-main { flex: 1; min-width: 0; }
 .rc-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 600; }
 .rc-d { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
@@ -475,14 +456,13 @@ html.ht.page-bg, html.ht.page-bg body { background: var(--page); }
 .inp:focus, .sel select:focus { outline: none; }
 .btn:focus-visible, .icon-btn:focus-visible, .chip:focus-visible, .switch:focus-visible, .status:focus-visible, .link-btn:focus-visible,
 .link-ext:focus-visible, .seg button:focus-visible, .sel select:focus-visible, .inp:focus-visible, .nav-a:focus-visible, .swatch:focus-visible,
-.swatch:has(input:focus-visible), .rcard:has(input[type="radio"]:focus-visible), .ht input[type="radio"]:focus-visible, .ht input[type="checkbox"]:focus-visible { outline: 3px solid var(--ring); outline-offset: 0; }
+.swatch:has(input:focus-visible), .rcard:has(input[type="radio"]:focus-visible), .ht input[type="radio"]:focus-visible { outline: 3px solid var(--ring); outline-offset: 0; }
 .btn-secondary:focus-visible, .btn-danger:focus-visible, .chip:focus-visible, .sel select:focus-visible, .inp:focus-visible,
-.swatch:focus-visible, .swatch:has(input:focus-visible), .rcard:has(input[type="radio"]:focus-visible), .ht input[type="radio"]:focus-visible,
-.ht input[type="checkbox"]:focus-visible { border-color: var(--accent); }
+.swatch:focus-visible, .swatch:has(input:focus-visible), .rcard:has(input[type="radio"]:focus-visible), .ht input[type="radio"]:focus-visible { border-color: var(--accent); }
 .btn-ghost:focus-visible, .icon-btn:focus-visible, .status:focus-visible, .link-btn:focus-visible, .link-ext:focus-visible,
 .nav-a:focus-visible, .seg button:focus-visible, .switch:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 /* кружок в карточке: кольцо — у карточки, не у кружка */
-.rcard input[type="radio"]:focus-visible, .rcard input[type="checkbox"]:focus-visible { outline: none; }
+.rcard input[type="radio"]:focus-visible { outline: none; }
 .rcard input[type="radio"]:not(:checked):focus-visible { border-color: var(--field-h); }
 /* поле с ошибкой остаётся красным и под фокусом */
 .inp.is-err:focus-visible { border-color: var(--err); outline-color: var(--err-ring); }

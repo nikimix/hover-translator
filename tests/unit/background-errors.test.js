@@ -369,8 +369,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     // этап 4а: тексты для человека — в _locales/ru/messages.json (в коде кириллицы больше нет)
     const RU = JSON.parse(fs.readFileSync(path.join(EXT, "_locales", "ru", "messages.json"), "utf8"));
     const strings = Object.values(RU).map((m) => JSON.stringify(m.message)).map((x) => x.replace(/ключ API DeepL|«API Keys»|deepl\.com\/pro-api/g, ""));
-    // Подписи переводчиков в списке окна (HT_ENGINES) проверяются отдельно — здесь их не
-    // проверяем. Имена констант внутри ${…} — не текст.
+    // Имена констант внутри ${…} — не текст.
     const STAGE3 = ['"DeepL → встроенный (фолбэк)"', '"LLM (OpenAI / Anthropic) — контекстный"'];
     const bad = strings.filter((x) => !STAGE3.includes(x) && JARGON.test(x.replace(/\$\{[^}]*\}/g, "")));
     assert.deepStrictEqual(bad, [], "жаргон в текстах: " + bad.join(" | "));

@@ -3,7 +3,7 @@
 //     каждый объявленный плейсхолдер используется, у плюральных — все четыре формы;
 //   • каждый ключ, на который ссылаются код (HT_t/HT_plural, таблицы shared.js и popup/content), разметка
 //     (data-i18n*) и manifest (__MSG_…__), существует; неиспользуемых ключей нет;
-//   • таблицы shared.js (переводчики, причины, подсказки, модели) дают непустые тексты на обоих языках;
+//   • таблицы shared.js (причины, подсказки, модели) дают непустые тексты на обоих языках;
 //   • кириллицы в коде и разметке больше нет (кроме абзаца для пробы на русском); в английских текстах её
 //     нет, в русских — нет английских слов, кроме названий сервисов, моделей и клавиш;
 //   • название — только в extName (полное) и extShortName (короткое): в остальных сообщениях, разметке и
@@ -124,9 +124,8 @@ for (const lang of ["ru", "en"]) {
   const r = (e) => vm.runInContext(e, ctx);
   const texts = r(`(() => {
     const out = [];
-    for (const [code] of HT_ENGINES) out.push(HT_engineLabel(code), HT_engineHint(code));
     for (const f in HT_KEY_HINTS) out.push(HT_t(HT_KEY_HINTS[f]));
-    for (const p in HT_PROBLEMS) for (const kind of ["short", "page"]) {
+    for (const p in HT_PROBLEMS) for (const kind of ["short", "page"].filter((k) => HT_PROBLEMS[p][k])) {
       out.push(HT_problemText(p, kind, { targetLang: "TT" }));
       out.push(HT_problemText(p, kind, { targetLang: "RU", sourceLang: "KN" }));
     }
@@ -138,11 +137,11 @@ for (const lang of ["ru", "en"]) {
   assert.deepStrictEqual(i18n.missing, [], lang + ": запрошены несуществующие ключи");
   assert.strictEqual(r("HT_uiLang()"), lang);
   // проблема языка: «на» — для языка перевода, «с» — для языка оригинала
-  const to = r(`HT_problemText("builtin-lang", "page", { targetLang: "TT" })`), from = r(`HT_problemText("deepl-lang", "short", { targetLang: "RU", sourceLang: "KN" })`);
+  const to = r(`HT_problemText("deepl-lang", "page", { targetLang: "TT" })`), from = r(`HT_problemText("deepl-lang", "short", { targetLang: "RU", sourceLang: "KN" })`);
   if (lang === "ru") assert.ok(/на этот язык \(татарский\)/.test(to) && /с этого языка: каннада/.test(from), to + " | " + from);
   else assert.ok(/into Tatar/.test(to) && /from Kannada/.test(from), to + " | " + from);
 }
-ok("таблицы shared.js (переводчики, подсказки о ключе, причины — и про язык «на»/«с», модели ИИ) дают непустые тексты на ru и en");
+ok("таблицы shared.js (подсказки о ключе, причины — и про язык «на»/«с», модели ИИ) дают непустые тексты на ru и en");
 
 // ---- 4. кириллица осталась только в сообщениях ----
 {

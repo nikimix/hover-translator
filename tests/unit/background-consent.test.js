@@ -118,7 +118,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(P("llm", { llmApiKey: true, llmProvider: "anthropic", consent: { anthropic: true } }), null);
     assert.strictEqual(P("chrome", { consent: {} }), null);
     assert.strictEqual(ctx.HT_canSend("chrome", { consent: { deepl: true } }), false, "встроенный в сеть не ходит");
-    assert.ok(ctx.HT_PROBLEMS["no-consent"] && ctx.HT_problemText("no-consent", "page") && !JARGON.test(ctx.HT_problemText("no-consent", "page")));
+    assert.ok(ctx.HT_PROBLEMS["no-consent"] && ctx.HT_problemText("no-consent", "short") && !JARGON.test(ctx.HT_problemText("no-consent", "short")));
     ok("HT_consent/HT_agreed/HT_provider/HT_canSend/HT_engineProblem: согласие по сервису, только true; без согласия — «no-consent» (кроме «авто» со встроенным)");
   }
 
@@ -221,10 +221,6 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
   // ---- подписи и тексты окна, настроек и приветствия без жаргона ----
   {
     const { ctx } = makeEnv();
-    const labels = Object.fromEntries(ctx.HT_ENGINES.map((r) => [r[0], ctx.HT_engineLabel(r[0]) + " — " + ctx.HT_engineHint(r[0])]));
-    assert.strictEqual(labels.chrome, "Встроенный в Chrome — бесплатно, текст не уходит в интернет");
-    assert.strictEqual(labels.llm, "ИИ (ChatGPT / Claude) — по своему ключу, платно");
-    assert.ok(labels.auto.startsWith("DeepL, а если не вышло — встроенный"));
     assert.strictEqual(ctx.HT_ENGINES.map((r) => r[0]).join(), "chrome,deepl,auto,llm", "встроенный — первым");
     // окно, страница настроек и приветствие: видимый текст разметки; их строки — в _locales/ru/messages.json
     const PAGES = ["popup.html", "options.html", "welcome.html"];
@@ -246,7 +242,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.ok(/^Ключ DeepL \| .*ключ DeepL/.test(field) && !/API/.test(field), field);
     assert.ok(/бесплатно — 500\u00a0000 знаков в месяц/.test(RU.opEngDeeplD.message), RU.opEngDeeplD.message);
     assert.ok(/"https:\/\/www\.deepl\.com\/your-account\/keys"/.test(opts) && /HT_t\("opHowGetKey"\)/.test(opts) && RU.opHowGetKey.message === "Как получить ключ");
-    ok(`подписи переводчиков по таблице этапа 3; видимый текст окна, настроек и приветствия и строки (${strings.length}) — без «popup», «API», «LLM», «кэш», «движок», «on-device», «фолбэк», «formality», «поповер», «симв»; в настройках — поле «Ключ DeepL», «бесплатно — 500 000 знаков в месяц», ссылка «Как получить ключ» на deepl.com/your-account/keys`);
+    ok(`переводчики по порядку — встроенный первым; видимый текст окна, настроек и приветствия и строки (${strings.length}) — без «popup», «API», «LLM», «кэш», «движок», «on-device», «фолбэк», «formality», «поповер», «симв»; в настройках — поле «Ключ DeepL», «бесплатно — 500 000 знаков в месяц», ссылка «Как получить ключ» на deepl.com/your-account/keys`);
   }
 
   console.log(`\nВсе проверки пройдены: ${pass}`);

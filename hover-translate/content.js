@@ -326,7 +326,7 @@
     const main = settingsAct(problemFocus(p), true);
     problemToast = notice(problemDesc(p), 12000, {
       title: HT_t("probTitle"), icon: "err", kind: "err",
-      actions: local ? [main] : [main, ACT.builtin], closable: true,
+      actions: local ? [main] : [main, ACT.builtin],
     });
   }
   let problemToast = null;            // уведомление «Перевод не работает»: причину устранили — закрываем
@@ -347,8 +347,6 @@
   function openSettings(focus) { send({ type: "openSettings", focus: focus || "" }).catch(() => {}); }
   function settingsAct(focus, primary) { return { label: HT_t("openSettings"), run: () => openSettings(focus), primary: !!primary }; }
   const ACT = {
-    settings: settingsAct(""),
-    settingsMain: settingsAct("", true),
     builtin: { label: HT_t("useBuiltin"), run: useBuiltin },
   };
   function useBuiltin() {
@@ -1427,7 +1425,7 @@
     :where(svg) { display: block; flex: none; }
     .ui {
       --bg: #ffffff; --line: #c9ced5; --fg: #17191c; --muted: #4b525a; --muted-2: #5d646d; --hover: #eef0f3;
-      --sep: #e4e7eb; --btn-bg: #ffffff; --btn-line: #858b94; --btn-line-h: #5d646d; --pri: #2563eb; --pri-h: #1d4ed8;
+      --btn-bg: #ffffff; --btn-line: #858b94; --btn-line-h: #5d646d; --pri: #2563eb; --pri-h: #1d4ed8;
       --pri-fg: #ffffff; --ok: #157a3c; --err: #b42318; --track: #e3e6ea; --bar: #2563eb; --kbd-bg: #f5f6f8;
       --kbd-line: #c9ced5; --shadow: 0 12px 32px rgba(15, 20, 25, 0.16); --focus: #2563eb; --halo: rgba(37, 99, 235, 0.35);
       --hi-fg: #17191c;
@@ -1440,7 +1438,7 @@
     }
     .ui.dk {
       --bg: #2a2d33; --line: rgba(255, 255, 255, 0.4); --fg: #e8e9eb; --muted: #b9bec5; --muted-2: #b9bec5; --hover: #363a41;
-      --sep: rgba(255, 255, 255, 0.16); --btn-bg: transparent; --btn-line: rgba(255, 255, 255, 0.4);
+      --btn-bg: transparent; --btn-line: rgba(255, 255, 255, 0.4);
       --btn-line-h: rgba(255, 255, 255, 0.55); --pri: #8fb0ff; --pri-h: #a9c2ff; --pri-fg: #0b1220; --ok: #4ccf86;
       --err: #ff8a80; --track: rgba(255, 255, 255, 0.16); --bar: #8fb0ff; --kbd-bg: rgba(255, 255, 255, 0.08);
       --kbd-line: rgba(255, 255, 255, 0.4); --shadow: 0 12px 32px rgba(0, 0, 0, 0.6); --focus: #8fb0ff; --halo: rgba(143, 176, 255, 0.45);
@@ -1645,7 +1643,7 @@
     }
     .fk-find input::placeholder { color: #6a717a; opacity: 1; }
     .fk-pop.dk .fk-find input::placeholder { color: #9aa0a8; }
-    .fk-find:focus-within, .fk-find.is-focus { border-color: var(--focus); box-shadow: 0 0 0 3px var(--halo); }
+    .fk-find:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px var(--halo); }
     .fk-gl { padding: 10px 10px 4px; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--muted); }
     .fk-opt {
       display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0;
@@ -1660,7 +1658,6 @@
     .fk-opt mark { background: none; color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
     .fk-opt:hover { background: var(--hover); }
     .ui .fk-opt:focus-visible, .fk-opt.is-focus { outline: none; background: var(--hover); box-shadow: inset 0 0 0 2px var(--focus); }
-    .fk-sep { height: 1px; margin: 6px -6px; background: var(--sep); }
     /* список языков: видно 6 строк, дальше прокрутка (панель не растёт); «Ничего не нашлось» — строка, не кнопка */
     .fk-list { max-height: 216px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
     .fk-none { padding: 8px 10px; color: var(--muted); }
