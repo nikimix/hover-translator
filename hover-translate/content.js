@@ -494,11 +494,18 @@
     return true;
   }
 
-  // Текстовые узлы внутри owner, пригодные для перевода (в порядке обхода).
+  // Узел уже держит живая строка: вложенный владелец переведён наведением, а страница берёт внешний, или наоборот.
+  function heldByLine(node) {
+    const rec = nodeRecs.get(node);
+    return !!rec && lineByOwner.get(rec.line.owner) === rec.line;
+  }
+
+  // Текстовые узлы внутри owner, пригодные для перевода (в порядке обхода). Узлы чужой живой строки не берём:
+  // newEntry перезаписал бы её запись, и откат той строки этот узел пропустил бы — перевод остался бы навсегда.
   function collectTextNodes(owner) {
     const out = [];
     const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => acceptTextNode(node, owner) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+      acceptNode: (node) => acceptTextNode(node, owner) && !heldByLine(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
     });
     for (let n = walker.nextNode(); n; n = walker.nextNode()) out.push(n);
     return out;
@@ -2044,19 +2051,28 @@
   // лимит применялся до фильтрации, поэтому повторный запуск снова упирался в те же первые 500
   // элементов (переведённый owner всё ещё проходит isTopInlineContainer и isTextTarget), фильтр
   // выбрасывал их все, и хвост длинной страницы не переводился никогда — сколько ни жми кнопку.
+  //
+  // Владельцы бывают вложенными: в <li><a><div>(Top)</div></a></li> (оглавление Википедии) верхним строчным
+  // контейнером считается и li (его ребёнок <a> строчный), и div (у его родителя <a> блочный ребёнок). Берём
+  // внешний — его строка переводит и узлы внутреннего. Раньше брали оба: две строки на одних узлах, и после
+  // «Показать оригинал» часть текста оставалась переведённой. Обход идёт в порядке документа, поэтому потомки
+  // взятого (или уже переведённого) владельца идут сразу за ним.
   function collectCandidates() {
     const all = document.body ? document.body.querySelectorAll("*") : [];
     const out = [];
     const memo = new Map();   // живёт только этот обход: структура DOM за него не меняется
+    let taken = null;         // последний взятый или уже переведённый владелец
     for (const el of all) {
+      if (taken && taken.contains(el)) continue;     // вложенный: его узлы переводит строка внешнего
       if (!isTopInlineContainer(el, memo)) continue; // дешёвая структурная проверка раньше textContent
       const line = lineByOwner.get(el);
       if (line) {
-        if (inFlight.has(el) || lineAlive(line)) continue; // в работе или действительно переведён
+        if (inFlight.has(el) || lineAlive(line)) { taken = el; continue; } // в работе или действительно переведён
         restoreLine(line);                                 // каркас перетёр перевод — чистим и переводим заново
       }
       if (!isTextTarget(el)) continue;
       out.push(el);
+      taken = el;
       if (out.length >= PAGE_MAX) break;
     }
     return out;

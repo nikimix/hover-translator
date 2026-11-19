@@ -571,6 +571,33 @@ function pageHelpers() {
       ok("панель, которую сайт отсоединял, возвращается на языке оригинала");
     });
 
+    // ---- 12. Вложенные элементы ----
+    // В <li><a><div>(Top)</div></a></li> верхним строчным контейнером считаются и li, и div. Страница переводила оба
+    // на одних и тех же текстовых узлах, и после отката часть текста оставалась переведённой: «(Top)» на Википедии,
+    // «Docusaurus» в шапке, пункты мега-меню MDN.
+    await block("12. Вложенные элементы (оглавление Википедии, шапка Docusaurus, мега-меню MDN): «Перевести страницу», затем Esc", async () => {
+      await load();
+      const NESTED = ["#toc", "#navbar", "#mega"];
+      const TEXTS = ["(Top)", "Introduction to running", "Caring for your shoes", "Docusaurus", "Documentation", "References",
+        "Elements", "HTML: Markup language", "See all…"];
+      const before = await ev("__texts()");
+      await ev("__keep()");
+      await translatePage();
+      await ev("__q('#s-nested').scrollIntoView({ block: 'center' }); true");
+      const done = async () => { for (const s of NESTED) if (!(await allTr(s))) return false; return true; };
+      assert.ok(await until(done, 3000), "не переведены: " + JSON.stringify(await ev(`${JSON.stringify(NESTED)}.map((s) => __textsIn(s))`)));
+      const sent = await ev("trCalls().flatMap((c) => c.items)");
+      const times = TEXTS.map((s) => s + ": " + sent.filter((x) => x === s).length).filter((s) => !s.endsWith(": 1"));
+      await esc();
+      await sleep(300);
+      assert.deepStrictEqual(await ev("__ru()"), [], "после Esc перевода не осталось");
+      assert.deepStrictEqual(await ev("__texts()"), before, "тексты — как до перевода");
+      assert.deepStrictEqual(await ev("__moved()"), []);
+      ok("Esc: ни одного переведённого узла, все тексты и текстовые узлы — как до перевода");
+      assert.deepStrictEqual(times, [], "каждый текст вложенных элементов отправлен на перевод ровно один раз");
+      ok("вложенные элементы переводятся один раз — внешним элементом, внутренний второй строкой не переводится");
+    });
+
     console.log("");
     if (failed.length) {
       console.log(`Не пройдено блоков: ${failed.length} — ${failed.join("; ")}`);

@@ -26,6 +26,7 @@
   #tip { position: absolute; padding: 4px 8px; background: #222; color: #fff; font-size: 13px; }
   #feed li { margin: 0 0 8px; }
   #spacer { height: 600px; }
+  .navbar__logo { display: inline-block; width: 16px; height: 16px; margin-right: 6px; background: #446; vertical-align: -2px; }
 </style>
 <script>
   // Заглушка chrome.* для content.js — как в stub.html (там подробности): хранилище, сообщения,
@@ -177,6 +178,20 @@
   <section id="s-fw">
     <h2>Live order status</h2>
     <div id="fw"></div>
+  </section>
+
+  <!-- Вложенные «владельцы»: верхний строчный контейнер — и внешний элемент, и внутренний (у родителя внутреннего
+       есть блочный ребёнок). Оглавление Википедии (li ⊃ div), шапка Docusaurus (div.navbar__items ⊃ b.navbar__title),
+       мега-меню MDN (div.menu__tab ⊃ button, li, div и ссылка). -->
+  <section id="s-nested">
+    <h2>Site navigation</h2>
+    <ul id="toc">
+      <li id="tocTop"><a href="#top"><div class="toc-text">(Top)</div></a></li>
+      <li id="tocIntro"><a href="#s-buttons"><div class="toc-text"><span class="toc-num">1</span> <span>Introduction to running</span></div></a></li>
+      <li id="tocCare"><a href="#s-widgets"><div class="toc-text"><span class="toc-num">2</span> <span>Caring for your shoes</span></div></a></li>
+    </ul>
+    <div id="navbar"><div class="navbar__items"><a class="navbar__brand" href="#top"><div class="navbar__logo"></div><b class="navbar__title">Docusaurus</b></a> <a class="navbar__link" href="#s-feed">Documentation</a></div></div>
+    <div id="mega"><div class="menu__tab"><span class="menu__wrap"><button class="menu__tab-button" type="button">References</button><div class="menu__panel"><ul><li><a href="#s-form"><div>Elements</div></a></li><li><a href="#s-editor"><div>HTML: Markup language</div></a></li></ul><a href="#s-modal">See all…</a></div></span></div></div>
   </section>
 
   <section id="s-feed">
