@@ -2098,9 +2098,14 @@
   }
 
   // Остальное — по мере появления в зоне видимости (с запасом 300 px).
-  function observeRest(rest) {
+  // later — видимое, что не перевелось из-за сбоя или не дошло до очереди: его пробуем снова, когда его
+  // прокрутят с экрана и обратно (или по новому «Перевести страницу»), а не сразу — сразу та же пачка
+  // упала бы так же. Первое сообщение observer-а о таком элементе («виден») пропускаем.
+  function observeRest(rest, later) {
+    const wait = new Set(later);
     pageObserver = new IntersectionObserver((entries, observer) => {
       for (const e of entries) {
+        if (wait.delete(e.target) && e.isIntersecting) continue;
         if (!e.isIntersecting) continue;
         observer.unobserve(e.target);
         if (!lineByOwner.has(e.target)) pendingObserved.add(e.target);
@@ -2108,7 +2113,7 @@
       clearTimeout(flushTimer);
       flushTimer = setTimeout(flushObserved, 150);
     }, { rootMargin: "300px" });
-    for (const el of rest) pageObserver.observe(el);
+    for (const el of rest.concat(later || [])) pageObserver.observe(el);
   }
 
   // Выполнить задания по FIRST_PARALLEL одновременно; run(job) → продолжать ли (false — остановиться).
@@ -2198,14 +2203,20 @@
     const jobs = [];
     const size = firstBatch(visible.length);
     for (let i = 0; i < visible.length; i += size) jobs.push(visible.slice(i, i + size));
+    const left = new Set(jobs);    // пачки, до которых очередь не дошла
+    const missed = [];             // видимое, что не перевелось: доберём при прокрутке или повторе
     await runParallel(jobs, async (chunk) => {
+      left.delete(chunk);
       const r = await translatePageChunk(chunk, gen);
       sum.wrote += r.wrote;
-      if (r.failed) sum.failed = true;
+      if (r.failed) { sum.failed = true; missed.push(...chunk); }
       if (gen === pageGen && pageBusy) { pageBusy.done = Math.min(pageBusy.total, pageBusy.done + chunk.length); pushState(); }
-      return gen === pageGen && !r.failed;      // ошибка — одна на всех: дальше не шлём
+      // Сбой одной пачки («не определил язык», «нужна модель пары») остальным не мешает; общий для всех (сеть,
+      // ключ, лимит) — дальше не шлём.
+      return gen === pageGen && !r.stop;
     });
     if (gen !== pageGen) return;   // «Стоп», Esc, новый запуск или смена языка — состояние ведут они
+    for (const chunk of left) missed.push(...chunk);
 
     pageBusy = null;
     if (sum.failed && !sum.wrote) {
@@ -2215,9 +2226,11 @@
       pushState();
       return;
     }
-    if (rest.length) observeRest(rest);
+    if (rest.length || missed.length) observeRest(rest, missed);
     if (sum.wrote || wasActive) {
-      if (sum.wrote) showPageDone();
+      // Что-то не перевелось — «Страница переведена» было бы неправдой: остаётся уведомление о сбое (или
+      // «Щёлкните по тексту») от этой пачки.
+      if (sum.wrote && !sum.failed) showPageDone();
     } else if (rest.length) {
       // Видимая часть уже на нужном языке (или на экране нет текста); остальное — при прокрутке.
       notice(HT_t(visible.length ? "csVisibleInLang" : "csScrollToTranslate"), 6000);
@@ -2227,6 +2240,15 @@
       notice(HT_t("csAlreadyText"), 5000, { title: HT_t("csNothingTitle") });
     }
     pushState();
+  }
+
+  // Сбой, общий для всех пачек: следующая упала бы так же — нет ключа или согласия, ключ отклонён, лимит,
+  // деньги, частые запросы, сервис или сеть недоступны, модель ИИ, переводчик не знает выбранный язык.
+  // Прочее — беда одной пачки: язык не определился, нужна модель этой пары, сервис не принял именно этот текст.
+  const PAGE_WIDE = new Set(["no-key", "no-consent", "bad-key", "quota", "money", "rate", "server", "network",
+    "timeout", "model", "denied", "limit", "lang"]);
+  function pageWide(out) {
+    return PAGE_WIDE.has(out.code) && !(out.code === "lang" && out.focus === "source-lang");
   }
 
   // Возвращает { wrote: сколько элементов переведено, failed: была ли ошибка }.
@@ -2282,7 +2304,7 @@
     const cancelled = gen !== pageGen;
     if (cancelled || out.error || !results) {
       for (const line of lineObjs) { inFlight.delete(line.owner); dropLine(line); }
-      if (out.error && !cancelled) { showFail(null, out, true); return { wrote: 0, failed: true }; }
+      if (out.error && !cancelled) { showFail(null, out, true); return { wrote: 0, failed: true, stop: pageWide(out) }; }
       return none;
     }
 

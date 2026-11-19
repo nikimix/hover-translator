@@ -401,6 +401,38 @@ const SHIFT = 8;
     assert.strictEqual(await ev("document.querySelector('#p3').getAttribute('style')"), "background-color: rgb(1, 2, 3);", "свой inline-стиль страницы вернулся");
     ok("подсветка: янтарь .34 / .20 с ореолом, на кремовом — подчёркивание #b07a00, свой цвет с насыщенностью, «без подсветки»; свой стиль страницы возвращается");
 
+    // ---- 8б. «Перевести страницу»: сбой одной пачки не останавливает остальные и не даёт «Страница переведена» ----
+    const pageNow = async () => (await ev("sendCmd('getHudState')")).page;
+    await load({ trigger: "shift" });
+    // ошибку получает только пачка с #p2 (видимых больше 8 — по 2 в пачке); остальные переводятся как обычно
+    await ev(`window.__bgReply = (m) => m.items.some((s) => s.startsWith("Another paragraph"))
+      ? { ok: false, code: "other", error: "DeepL не принял запрос.", detail: "код ответа 400" }
+      : { ok: true, texts: m.items.map((s) => "[" + m.targetLang + "] " + s), srcLangs: m.items.map(() => "en") }; true`);
+    const p2Calls = () => ev("trCalls().filter((c) => c.items.some((s) => s.startsWith('Another paragraph'))).length");
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await pageNow()) === "done", 3000), "видимое обработано — «done»");
+    assert.ok(!(await tr("#p2")), "пачка с ошибкой не переведена");
+    for (const sel of ["#p3", "#plink", "#dark", "#edge"]) assert.ok(await tr(sel), sel + ": очередь после сбоя не остановилась");
+    ts = await toastsNow();
+    assert.ok(ts.length === 1 && ts[0].startsWith("err:Не удалось перевестиDeepL не принял запрос."), "уведомление о сбое: " + JSON.stringify(ts));
+    await sleep(400);
+    assert.ok(!/Страница переведена/.test((await toastsNow()).join()), "не «Страница переведена»");
+    assert.strictEqual(await p2Calls(), 1, "упавшую пачку сразу не повторяем");
+    // недопереведённое — при прокрутке с экрана и обратно
+    await ev("window.__bgReply = null; window.scrollTo(0, document.body.scrollHeight); true"); await sleep(400);
+    await ev("window.scrollTo(0, 0); true");
+    assert.ok(await until(() => tr("#p2"), 2000), "при прокрутке обратно #p2 переведён");
+    assert.strictEqual(await p2Calls(), 2);
+    // общий сбой (лимит DeepL, встроенного нет) по-прежнему останавливает очередь: только пачки, ушедшие сразу
+    await load({ trigger: "shift" }, "&builtin=none");
+    await ev(`window.__bgReply = () => ({ ok: false, code: "quota", error: "Лимит DeepL на этот месяц закончился.", detail: "код ответа 456" }); true`);
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await toastsNow()).length, 2000));
+    await sleep(300);
+    assert.ok(await calls() <= 3, "после общего сбоя дальше не шлём: " + await calls());
+    assert.strictEqual(await pageNow(), "idle", "ничего не переведено — страница не переведена");
+    ok("«Перевести страницу»: сбой одной пачки — остальные переводятся, уведомление о сбое вместо «Страница переведена», упавшее — при прокрутке; общий сбой (лимит) останавливает очередь");
+
     // ---- 9. Выключить на этом сайте ----
     await load({ trigger: "shift", disabledSites: ["127.0.0.1", 5, "<script>"], hudShown: true });
     assert.deepStrictEqual(await ev("sendCmd('getHudState')"), { ok: true, hud: false, site: "127.0.0.1", siteOff: true, lang: "en", page: "idle", done: 0, total: 0, count: 0, src: "" });
