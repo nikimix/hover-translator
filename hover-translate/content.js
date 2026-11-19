@@ -2983,16 +2983,26 @@
   }, true);
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
-  // или aria-modal, раскрытое всплывающее меню или список (см. popupOpen). Наши хосты [data-ht-ui] не в счёт: меню
-  // кружка, карточка и уведомления живут в закрытом shadow root, их Esc разбирает escRestore.
+  // или aria-modal, раскрытое всплывающее меню или список (см. popupOpen), панель или окно без ARIA поверх всей
+  // страницы (см. siteLayer). Наши хосты [data-ht-ui] не в счёт: меню кружка, карточка и уведомления живут
+  // в закрытом shadow root, их Esc разбирает escRestore.
   // Селекторы, которых этот Chrome не знает, отбрасываем: одна ошибка в списке сломала бы весь querySelectorAll.
   const SITE_OPEN = [":modal", ":popover-open", "[role=dialog]", "[role=alertdialog]", "[aria-modal=true]"]
     .filter((s) => { try { return CSS.supports("selector(" + s + ")"); } catch (e) { return false; } }).join(",");
-  // Что у сайта открыто сейчас (элементы); пусто — ничего.
+  // Что у сайта открыто сейчас: [{ el, held }]; пусто — ничего. held — открытое держит человек: меню, которое он
+  // только что открыл (фокус на его кнопке или внутри него), или слой поверх всей страницы. Такое Esc не откатывает,
+  // даже если сайт Esc не услышал (см. escRestore).
   function siteOpenEls() {
     const out = [];
-    if (SITE_OPEN) for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) out.push(el);
-    for (const el of document.querySelectorAll('[aria-expanded="true"]')) if (!isOurUi(el) && onScreen(el) && popupOpen(el)) out.push(el);
+    if (SITE_OPEN) for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) out.push({ el, held: false });
+    const a = document.activeElement;
+    for (const el of document.querySelectorAll('[aria-expanded="true"]')) {
+      if (isOurUi(el) || !onScreen(el)) continue;
+      const pop = popupOpen(el);
+      if (pop) out.push({ el, held: !!a && a !== document.body && (el.contains(a) || pop.contains(a)) });
+    }
+    const layer = siteLayer();
+    if (layer) out.push({ el: layer, held: true });
     return out;
   }
   // Открытое так и осталось открытым: на месте, видно, у кнопки по-прежнему aria-expanded=true.
@@ -3002,20 +3012,53 @@
   // aria-expanded=true — это и раскрытое меню, и раскрытый раздел оглавления или аккордеон (на сайтах документации
   // они раскрыты всегда). Открытым считаем только всплывающее: у кнопки aria-haspopup, или то, чем она управляет
   // (aria-controls, иначе соседний элемент), — меню, список или окно, либо лежит поверх страницы (absolute, fixed).
+  // Возвращает всплывающее (без него — саму кнопку с aria-haspopup) или null.
   function popupOpen(el) {
-    const hp = el.getAttribute("aria-haspopup");
-    if (hp && hp !== "false") return true;
     const ids = (el.getAttribute("aria-controls") || el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean);
     // Без ссылки — соседний элемент, но только с текстом: значок в поле ввода (лупа, absolute) меню не делает.
     const sib = el.nextElementSibling;
     const targets = ids.length ? ids.map((id) => document.getElementById(id)) : (sib && /\p{L}/u.test(sib.textContent) ? [sib] : []);
+    const hp = el.getAttribute("aria-haspopup");
+    if (hp && hp !== "false") return targets.find((t) => t && !isOurUi(t)) || el;
     for (const t of targets) {
-      if (!t || isOurUi(t) || !onScreen(t)) continue;
-      if (/^(menu|menubar|listbox|dialog)$/.test(t.getAttribute("role") || "")) return true;
-      const pos = getComputedStyle(t).position;
-      if (pos === "absolute" || pos === "fixed") return true;
+      if (!t || isOurUi(t)) continue;
+      // Сама обёртка без позиции, а поверх страницы — её ребёнок (The Guardian «Edition»: div → ul absolute; обёртка
+      // тогда нулевой высоты, поэтому видимым должен быть тот, кого проверяем). Ребёнок — только с текстом:
+      // значок-стрелка absolute в раскрытом разделе оглавления меню не делает.
+      for (const x of [t, ...Array.from(t.children).slice(0, 3)]) {
+        if (!onScreen(x) || (x !== t && !/\p{L}/u.test(x.textContent))) continue;
+        if (/^(menu|menubar|listbox|dialog)$/.test(x.getAttribute("role") || "")) return t;
+        const pos = getComputedStyle(x).position;
+        if (pos === "absolute" || pos === "fixed") return t;
+      }
     }
-    return false;
+    return null;
+  }
+  // Панель или окно сайта без ARIA (панель фильтров Allbirds: кнопка без aria-атрибутов, слой div.fixed.inset-0
+  // с затемнением и размытием страницы, без role). Окно сайта — видимый слой position: fixed поверх страницы
+  // на ≥ 80 % окна, который что-то рисует (фон или backdrop-filter — сам или его ребёнок во весь слой) и ловит
+  // щелчки (pointer-events не none). Ищем по пяти точкам окна: верхний (не наш) элемент в точке и его предки.
+  // Не в счёт: шапка (мала); прозрачный слой (открытого человек не видит, а так выглядят обёртки и ловушки
+  // щелчков сайтов); pointer-events: none (эффекты поверх страницы, контейнеры уведомлений); фон страницы под
+  // содержимым и оболочка, внутри которой вся страница, — под слоем в точке нет страницы, только его предки.
+  function siteLayer() {
+    const W = innerWidth, H = innerHeight, de = document.documentElement, body = document.body;
+    const whole = (r) => Math.max(0, Math.min(r.right, W) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, H) - Math.max(r.top, 0)) >= 0.8 * W * H;
+    // Прозрачный фон: rgba(…, 0) или «/ 0)» (oklab, color() у Tailwind 4).
+    const paints = (cs) => !/^transparent$|^rgba\(.*,\s*0\)$|\/\s*0\)$/.test(cs.backgroundColor) || cs.backgroundImage !== "none"
+      || (cs.backdropFilter || "none") !== "none";
+    for (const [fx, fy] of [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+      const stack = document.elementsFromPoint(W * fx, H * fy).filter((e) => !isOurUi(e));
+      let drawn = false;
+      for (let e = stack[0]; e && e !== body && e !== de; e = e.parentElement) {
+        const cs = getComputedStyle(e);
+        const big = whole(e.getBoundingClientRect());
+        if (big && paints(cs)) drawn = true;
+        if (cs.position === "fixed" && big && drawn && cs.pointerEvents !== "none" && onScreen(e)
+          && stack.some((x) => !e.contains(x) && !x.contains(e))) return e;
+      }
+    }
+    return null;
   }
   // Элемент виден: не спрятан (display, visibility, прозрачность) и хоть краем в окне. Окна и меню, которые сайт
   // держит в разметке скрытыми или унёс за край экрана, открытыми не считаем.
@@ -3040,11 +3083,14 @@
     if (currentToast) currentToast.close();
     // У сайта открыто окно или меню — Esc закрывает его (это делает сайт), перевод остаётся. Наша карточка
     // закрывается, как и раньше: её абзац мог быть в этом окне. Сайт Esc не услышал и открытое не закрыл
-    // (подсказки поиска Википедии без фокуса в поле) — через 250 мс Esc наш: возвращаем оригинал.
+    // (подсказки поиска Википедии без фокуса в поле, баннер cookie) — через 250 мс Esc наш: возвращаем оригинал.
+    // Но открытое держит человек (меню, которое он только что открыл, слой поверх всей страницы; см. siteOpenEls) —
+    // Esc только сайту, даже неуслышанный: The Guardian и Allbirds меню и панели по Esc не закрывают.
     const open = siteOpenEls();
     if (!open.length) { escBack(); return; }
     for (const owner of Array.from(popovers.keys())) removePopover(owner);
-    setTimeout(() => { if (!dead && open.every(stillOpen)) escBack(); }, 250);
+    if (open.some((o) => o.held)) return;
+    setTimeout(() => { if (!dead && open.every((o) => stillOpen(o.el))) escBack(); }, 250);
   }
   function escBack() {
     if (!anythingShown()) return;

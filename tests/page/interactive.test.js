@@ -706,6 +706,84 @@ function pageHelpers() {
       ok("задержка курсора над заголовком под накладкой переводит его, уход с накладки возвращает оригинал");
     });
 
+    // ---- 15–17. Esc при открытом у сайта без привычной разметки ----
+    // Меню «Edition» The Guardian (кнопка aria-expanded без aria-haspopup/aria-controls, список — absolute-ребёнок
+    // обёртки без позиции) и панель фильтров Allbirds (кнопка без aria, слой fixed на всё окно с затемнением и
+    // размытием, без role). Оба сайта Esc не слышат: открытое остаётся, и перевод под ним должен остаться. Чего
+    // открытым не считать: раскрытые разделы оглавления, шапку fixed, прозрачные и pointer-events: none слои во всё
+    // окно, фон страницы под содержимым; баннер cookie (role=alertdialog) — как раньше: Esc сначала сайту, через 250 мс наш.
+    const ru = async () => (await ev("__ru()")).length;
+    const tr = async () => {               // перевести страницу; раздел — посередине окна, его тексты переведены
+      await translatePage();
+      await ev("__q('#s-esc').scrollIntoView({ block: 'center' }); true");
+      assert.ok(await until(async () => await allTr("#edBtn") && await allTr("#docNav")), "раздел s-esc не переведён");
+    };
+    // Esc вернул оригинал сразу (через 250 мс — значит, показанное посчитано открытым у сайта)
+    const escReverts = async (what) => {
+      await esc();
+      assert.deepStrictEqual(await ev("__ru()"), [], what + ": Esc не вернул оригинал сразу");
+    };
+    await block("15. Esc, когда у сайта ничего не открыто: раскрытое оглавление, шапка и слои fixed на всё окно; баннер cookie", async () => {
+      await load();
+      const before = await ev("__texts()");
+      await tr();
+      await escReverts("ничего не открыто, на экране раскрытые разделы оглавления и уведомление «Страница переведена»");
+      assert.deepStrictEqual(await ev("__texts()"), before, "тексты — как до перевода");
+      for (const [id, what] of [["fxHeader", "шапка fixed во всю ширину высотой 60 px"],
+        ["fxPass", "почти прозрачный слой fixed на всё окно с pointer-events: none (уведомление посередине щелчки ловит)"],
+        ["fxClear", "слой fixed на всё окно без фона и без backdrop-filter"],
+        ["fxBg", "фон страницы fixed на всё окно под содержимым (z-index: -1)"]]) {
+        await ev(`__q("#${id}").hidden = false, true`);
+        await tr();
+        await escReverts(what);
+        await ev(`__q("#${id}").hidden = true, true`);
+      }
+      ok("Esc сразу возвращает оригинал: ничего не открыто (раскрытые разделы оглавления, в том числе со значком absolute, наше уведомление — не открытое); шапка fixed, слой с pointer-events: none, прозрачный слой и фон страницы на всё окно — не окно сайта");
+      // Баннер cookie: role=alertdialog, сайт его по Esc не закрывает — Esc сначала сайту, через 250 мс оригинал вернулся
+      await ev(`__q("#cookie").hidden = false, true`);
+      await tr();
+      await esc();
+      assert.ok(await ru() > 0, "баннер cookie: сразу после Esc перевод на месте (Esc сначала сайту)");
+      await sleep(400);
+      assert.deepStrictEqual(await ev("__ru()"), [], "баннер cookie: сайт его не закрыл — через 250 мс Esc наш, оригинал вернулся");
+      await ev(`__q("#cookie").hidden = true, true`);
+      ok("баннер cookie (role=alertdialog, aria-modal=false) сайт по Esc не закрыл — оригинал вернулся через 250 мс, как раньше");
+    });
+
+    // «Edition»: открыли щелчком (фокус на кнопке), Esc — меню остаётся (сайт Esc не слышит), перевод тоже
+    await block("16. Esc при открытом меню «Edition» (The Guardian): кнопка без aria-haspopup, список absolute внутри обёртки", async () => {
+      await load();
+      await tr();
+      await click("#edBtn");
+      assert.ok(await until(() => allTr("#edList")), "список «Edition» не переведён");
+      const nEd = await ru();
+      await esc();
+      await sleep(400);
+      assert.ok(await ev("!__q('#edWrap').hidden"), "сайт меню по Esc не закрывает");
+      assert.strictEqual(await ru(), nEd, "открыто меню «Edition» (список — absolute-ребёнок обёртки) — Esc перевод не трогает, и через 0,4 с тоже");
+      await click("#edBtn");
+      await escReverts("меню «Edition» закрыто");
+      ok("меню «Edition» (aria-expanded без aria-haspopup/aria-controls, список absolute внутри обёртки): Esc только сайту, перевод на месте и через 0,4 с; меню закрыли — Esc возвращает оригинал");
+    });
+
+    // Панель фильтров: слой fixed на всё окно с затемнением и размытием, без role и aria
+    await block("17. Esc при открытой панели фильтров (Allbirds): слой fixed на всё окно с затемнением, без ARIA", async () => {
+      await load();
+      const before = await ev("__texts()");
+      await tr();
+      await click("#filterBtn");
+      assert.ok(await until(() => allTr("#filterPanel")), "панель фильтров не переведена");
+      const nF = await ru();
+      await esc();
+      await sleep(400);
+      assert.ok(await ev("!__q('#takeover').hidden"), "сайт панель по Esc не закрывает");
+      assert.strictEqual(await ru(), nF, "открыта панель фильтров (слой на всё окно) — Esc перевод не трогает, и через 0,4 с тоже");
+      await click("#filterClose");
+      await escReverts("панель фильтров закрыта");
+      assert.deepStrictEqual(await ev("__texts()"), before, "тексты — как до перевода");
+      ok("панель фильтров (слой fixed на всё окно с затемнением и размытием, без ARIA): Esc только сайту, перевод на месте и через 0,4 с; панель закрыли — Esc возвращает оригинал");
+    });
+
     console.log("");
     if (failed.length) {
       console.log(`Не пройдено блоков: ${failed.length} — ${failed.join("; ")}`);

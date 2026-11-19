@@ -31,6 +31,16 @@
   .card__media { height: 60px; background: #c9d3de; }
   .card h3 { margin: 8px 12px; }
   .card__link, .card__cover { position: absolute; inset: 0; }
+  #edList { position: absolute; z-index: 6; margin: 0; padding: 4px 8px; list-style: none; width: 220px; background: #fff; border: 1px solid #aab; }
+  .takeover { position: fixed; inset: 0; z-index: 20; background: rgba(20, 24, 31, .45); backdrop-filter: blur(3px); }
+  #filterPanel { position: absolute; top: 0; bottom: 0; left: 0; width: 320px; padding: 16px; background: #fff; }
+  .chev { position: absolute; width: 10px; height: 10px; border: solid #446; border-width: 0 2px 2px 0; }
+  #fxHeader { position: fixed; top: 0; left: 0; right: 0; height: 60px; z-index: 15; background: #234; color: #fff; }
+  #fxPass { position: fixed; inset: 0; z-index: 15; pointer-events: none; background: rgba(255, 255, 255, .04); }
+  #fxPass p { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; padding: 8px 12px; pointer-events: auto; background: #fff; border: 1px solid #aab; }
+  #fxClear { position: fixed; inset: 0; z-index: 15; }
+  #fxBg { position: fixed; inset: 0; z-index: -1; background: linear-gradient(#eef2ff, #fff4f0); }
+  #cookie { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; padding: 8px 20px; background: #fff; border-top: 1px solid #aab; }
 </style>
 <script>
   // Заглушка chrome.* для content.js — как в stub.html (там подробности): хранилище, сообщения,
@@ -206,6 +216,38 @@
     <div id="promo" class="card"><h3 id="promoTitle">Free returns within thirty days of delivery</h3><div id="promoCover" class="card__cover"></div></div>
   </section>
 
+  <!-- Открытое у сайта без привычной разметки (Esc — только сайту, перевод остаётся). Меню «Edition» The Guardian:
+       кнопка aria-expanded без aria-haspopup и aria-controls, рядом обёртка без позиции, а сам список в ней — absolute.
+       Панель фильтров Allbirds: кнопка без aria, слой fixed на всё окно с затемнением и размытием, без role. Оба сайта
+       Esc не слышат: меню и панель остаются открытыми. -->
+  <section id="s-esc">
+    <h2>Store edition and filters</h2>
+    <div id="ed">
+      <button id="edBtn" type="button" aria-expanded="false" data-testid="dropdown-button">Edition: International</button>
+      <div id="edWrap" hidden><ul id="edList"><li><a href="#uk">United Kingdom edition</a></li><li><a href="#us">United States edition</a></li></ul></div>
+    </div>
+    <button id="filterBtn" type="button">Filter (36 products)</button>
+    <div id="takeover" class="takeover" hidden>
+      <aside id="filterPanel"><h3>Filter by price</h3><p>Show only shoes under seventy five dollars</p><button id="filterClose" type="button">Close the filters</button></aside>
+    </div>
+    <!-- Не меню: раскрытые разделы оглавления (Docusaurus, MDN) — aria-expanded=true всегда, список под ними в потоке;
+         у второго в обёртке сначала значок-стрелка absolute (без текста) -->
+    <nav id="docNav">
+      <a id="docCat" class="menu__link--sublist" href="#guides" aria-expanded="true">Guides for runners</a>
+      <ul class="menu__list"><li><a href="#g1">Choosing the right size</a></li><li><a href="#g2">Breaking in new shoes</a></li></ul>
+      <button id="docSec" type="button" aria-expanded="true">Reference pages</button>
+      <div><span class="chev"></span><ul><li><a href="#r1">Materials and care</a></li></ul></div>
+    </nav>
+    <!-- Не окна сайта (их по очереди показывает проверка): шапка fixed во всю ширину; почти прозрачный слой на всё окно
+         с pointer-events: none и уведомлением посередине; слой на всё окно без фона и размытия; фон страницы fixed на
+         всё окно под содержимым. Баннер cookie (role=alertdialog, aria-modal=false) Esc не закрывает. -->
+    <div id="fxHeader" hidden>Free shipping on all orders this week</div>
+    <div id="fxPass" hidden><p>Your cart was saved for later</p></div>
+    <div id="fxClear" hidden></div>
+    <div id="fxBg" hidden></div>
+    <section id="cookie" role="alertdialog" aria-modal="false" aria-label="Cookie consent" hidden><p>We use cookies to improve your shopping experience.</p><button id="cookieOk" type="button">Accept all cookies</button></section>
+  </section>
+
   <section id="s-feed">
     <h2>Customer reviews</h2>
     <div id="spacer"></div>
@@ -293,6 +335,10 @@
     if (!$("ddMenu").hidden) ddSet(false, "esc");
     if (!$("modal").hidden) { $("modal").hidden = true; log("modal:closed:esc"); }
   });
+  // «Edition» и панель фильтров открываются и закрываются щелчком; Esc сайт не слушает
+  $("edBtn").addEventListener("click", () => { const open = $("edWrap").hidden; $("edBtn").setAttribute("aria-expanded", String(open)); $("edWrap").hidden = !open; });
+  $("filterBtn").addEventListener("click", () => { $("takeover").hidden = false; });
+  $("filterClose").addEventListener("click", () => { $("takeover").hidden = true; });
   // Окна: своё (div role=dialog) и настоящее <dialog>
   $("openModal").addEventListener("click", () => { $("modal").hidden = false; log("modal:open"); });
   $("closeModal").addEventListener("click", () => { $("modal").hidden = true; log("modal:closed"); });
