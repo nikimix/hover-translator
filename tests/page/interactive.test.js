@@ -393,13 +393,12 @@ function pageHelpers() {
       assert.ok(await until(() => ev("__log.includes('fw:update')"), 2000));
       await sleep(1500);
       const site = await ev("[__q('#fwState').textContent, __q('#fwStatus').childNodes[2].nodeValue, __q('#fwNew').textContent, __q('#fwWhole').textContent, __q('#fwRow2').textContent]");
-      const exact = site.join("|") === [FW_SITE.state, " (tracking enabled)", FW_SITE.fresh, FW_SITE.whole, "Second row now has emphasis"].join("|");
-      const translatedLater = site.every((s) => s.trim().startsWith("[RU] "));
-      assert.ok(exact || translatedLater, "новые тексты каркаса испорчены (смесь перевода и оригинала): " + JSON.stringify(site));
+      // новое при переведённой странице переводится само (наблюдатель нового содержимого): целиком, без смеси с оригиналом
+      assert.deepStrictEqual(site, ["[RU] " + FW_SITE.state, " [RU] (tracking enabled)", "[RU] " + FW_SITE.fresh, "[RU] " + FW_SITE.whole, "[RU] Second row now has emphasis"],
+        "новые тексты каркаса не переведены или испорчены");
       assert.deepStrictEqual(await ev("[__q('#fwStatus').firstChild.nodeValue, __q('#fwStatus').lastChild.nodeValue, __q('#fwRow3').textContent, __q('#fwRow1').textContent]"),
         ["[RU] Order status: ", " [RU] for delivery today", "[RU] Third keyed row of the list", "[RU] First keyed row of the list"], "переведённые узлы, которые каркас не трогал, целы");
-      note("новые тексты каркаса при переведённой странице: " + (exact ? "остаются на языке сайта — новые узлы автоматически не переводятся (REVIEW.md «Позже»: MutationObserver)" : "переведены"));
-      ok("перерисовка при переведённой странице: без исключений, перевод и оригинал не смешаны внутри узла, нетронутые каркасом переводы на месте");
+      ok("перерисовка при переведённой странице: новые тексты каркаса переведены сами, перевод и оригинал не смешаны внутри узла, нетронутые каркасом переводы на месте");
       await ev("sendCmd('restoreAll'); true"); await sleep(200);
       await fwAfterRestore();
       ok("«Показать оригинал» не затёр того, что каркас вписал после перевода");
@@ -469,10 +468,8 @@ function pageHelpers() {
       await ev("window.feedAuto = false; true");
       await sleep(1500);
       const fresh = await ev("[...document.querySelectorAll('#feed li.fresh')].map((li) => li.textContent)");
-      const auto = fresh.filter((s) => s.startsWith("[RU] ")).length;
-      assert.ok(fresh.length >= 6 && fresh.every((s) => /^(\[RU\] )?Review from page \d+, number \d: comfortable and light shoes$/.test(s)), "новые пункты не испорчены: " + JSON.stringify(fresh));
-      note(`новые пункты ленты при переведённой странице: автоматически переведено ${auto} из ${fresh.length}` + (auto ? "" : " — новые узлы не отслеживаются (REVIEW.md «Позже»: MutationObserver)"));
-      ok("лента: переведена при прокрутке, кнопка «ещё» и подгрузка прокруткой работают, новые пункты целы");
+      assert.ok(fresh.length >= 6 && fresh.every((s) => /^\[RU\] Review from page \d+, number \d: comfortable and light shoes$/.test(s)), "новые пункты не переведены сами или испорчены: " + JSON.stringify(fresh));
+      ok(`лента: переведена при прокрутке, кнопка «ещё» и подгрузка прокруткой работают, подгруженные пункты (${fresh.length}) переведены сами`);
       await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
       assert.ok(await until(() => ev("[...document.querySelectorAll('#feed li.fresh')].every((li) => li.textContent.startsWith('[RU] '))"), 3000), "повторное «Перевести страницу» переводит новые пункты");
       ok("повторное «Перевести страницу» переводит пункты, подгруженные после перевода");
@@ -600,6 +597,80 @@ function pageHelpers() {
       ok("Esc: ни одного переведённого узла, все тексты и текстовые узлы — как до перевода");
       assert.deepStrictEqual(times, [], "каждый текст вложенных элементов отправлен на перевод ровно один раз");
       ok("вложенные элементы переводятся один раз — внешним элементом, внутренний второй строкой не переводится");
+    });
+
+    // ---- 13. Новое содержимое при переведённой странице (MutationObserver) ----
+    await block("13. Новое содержимое при переведённой странице переводится само; Esc; сайт заменил <body>", async () => {
+      await load({ hudShown: true });
+      await ev("__q('#feed').scrollIntoView({ block: 'center' }); true"); await sleep(100);
+      await translatePage();
+      await closeToast();
+      assert.ok(await until(() => allTr("#feed > li"), 2000), "лента переведена");
+      const calls = () => ev("trCalls().length");
+      const sentSince = (n) => ev(`trCalls().slice(${n}).flatMap((c) => c.items)`);
+      await sleep(1000);
+      const c0 = await calls();
+      // сайт: три новых пункта ленты, пункт с разметкой, новый текст в переведённом пункте (весь узел) и ещё один
+      // узел в другом переведённом пункте (часть элемента: прежний перевод в нём остаётся)
+      await ev(`(() => { loadMore("mo"); const f = __q("#feed");
+        const li = document.createElement("li"); li.id = "rich"; li.innerHTML = "Review <b>number four</b> mentions the price"; f.appendChild(li);
+        f.children[0].firstChild.nodeValue = "Review number one was edited by its author";
+        f.children[1].appendChild(document.createTextNode(" and it was updated today"));
+        return true; })()`);
+      assert.ok(await until(() => allTr("#feed > li"), 1500), "новое не переведено: " + JSON.stringify(await ev("__textsIn('#feed')")));
+      const second = await ev("__q('#feed').children[1].firstChild.nodeValue");
+      const c1 = await calls();
+      const sent1 = await sentSince(c0);
+      assert.ok(c1 - c0 <= 3, "запросов к переводчику на новое: " + (c1 - c0));
+      assert.ok(!sent1.includes("Review number two: the sole is soft and durable") && second.startsWith("[RU] "),
+        "у пункта, куда сайт дописал узел, заново переведён и прежний текст: " + JSON.stringify(sent1));
+      ok(`через ~1 с переведены новые пункты ленты, переписанный пункт и дописанный узел (запросов: ${c1 - c0}, прежний перевод не отправлялся заново)`);
+      // сайт переписал один узел из нескольких в переведённом элементе
+      await ev("__q('#rich b').firstChild.nodeValue = 'number five'; true");
+      assert.ok(await until(() => allTr("#rich"), 1500), "переписанный узел не переведён: " + JSON.stringify(await ev("__textsIn('#rich')")));
+      const c2 = await calls();
+      assert.deepStrictEqual(await sentSince(c1), ["number five"], "доперевод: отправлен только переписанный узел");
+      ok("сайт переписал один узел из трёх — переведён только он, остальной перевод на месте");
+      await sleep(1000);
+      assert.strictEqual(await calls(), c2, "свои записи вызвали новый перевод");
+      ok("свои записи перевода не вызывают повторного перевода (за 1 с — ни одного запроса)");
+      // «часы»: сайт переписывает текст элемента каждые 100 мс — заново переводится ограниченное число раз
+      await ev(`(() => { const n = __q("#feed").children[2].firstChild; let i = 0;
+        window.__clock = setInterval(() => { n.nodeValue = "Updated " + (++i) + " seconds ago by the shop"; }, 100); return true; })()`);
+      await sleep(3000);
+      await ev("clearInterval(__clock); true");
+      await sleep(800);
+      const clock = (await sentSince(c2)).filter((s) => s.startsWith("Updated "));
+      assert.ok(clock.length >= 1 && clock.length <= 5, "элемент, который сайт переписывает постоянно, переведён заново " + clock.length + " раз");
+      ok(`текст, который сайт переписывает каждые 0,1 с, переведён заново ${clock.length} раз за 3 с — не больше 5`);
+      // Esc: наблюдатель снят, новое не переводится
+      await esc(); await sleep(200);
+      assert.deepStrictEqual(await ev("__ru()"), [], "после Esc перевода не осталось");
+      const c3 = await calls();
+      await ev(`(() => { loadMore("after-esc"); __q("#feed").children[0].firstChild.nodeValue = "Review number one was edited again"; return true; })()`);
+      await sleep(1000);
+      assert.deepStrictEqual([await ev("__ru()"), await calls()], [[], c3], "после Esc новое переведено");
+      ok("после Esc новое содержимое не переводится и запросов нет");
+
+      // SPA заменил <body> (Turbo): кружок и уведомление на месте, новое тело переводится
+      await load({ hudShown: true });
+      await translatePage();
+      const ui = () => ev(`(() => { const fab = __roots.find((r) => r.querySelector(".fab")); return { fab: !!fab && document.body.contains(fab.host), toasts: toasts() }; })()`);
+      const before = await ui();
+      assert.ok(before.fab && before.toasts.some((s) => s.startsWith("info:Страница переведена")), JSON.stringify(before));
+      await ev(`(() => { const nb = document.createElement("body");
+        nb.innerHTML = '<main><h1 id="nbH">Order history and saved addresses</h1><p id="nbP">This paragraph arrived with the new body of the page.</p></main>';
+        document.body.replaceWith(nb); return true; })()`);
+      assert.ok(await until(async () => await allTr("#nbH") && await allTr("#nbP"), 2000), "новое <body> не переведено: " + JSON.stringify(await ev("__texts()")));
+      const after = await ui();
+      assert.ok(after.fab && after.toasts.some((s) => s.startsWith("info:Страница переведена")), "кружок или уведомление пропали: " + JSON.stringify(after));
+      await ev(`(() => { const p = document.createElement("p"); p.id = "nbMore"; p.textContent = "Another note added to the new page later"; document.querySelector("main").appendChild(p); return true; })()`);
+      assert.ok(await until(() => allTr("#nbMore"), 1500), "добавленное в новое <body> не переведено");
+      ok("сайт заменил <body>: кружок и уведомление вернулись на страницу, новое тело и добавленное в него переведены");
+      // не Esc: обработчик Esc у «сайта» ищет своё меню, а его в новом <body> нет
+      await ev("sendCmd('restoreAll'); true"); await sleep(200);
+      assert.deepStrictEqual(await ev("__ru()"), [], "после «Показать оригинал» в новом <body> перевода не осталось");
+      ok("«Показать оригинал» в новом <body> возвращает оригинал");
     });
 
     console.log("");

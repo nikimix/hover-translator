@@ -41,8 +41,17 @@
   const errors = new WeakMap();
   const translators = new Map();     // "src>tgt" -> Promise<{ inst } | { kind }> (встроенный движок)
   const pendingObserved = new Set(); // owner, вошедшие в зону видимости и ждущие перевода
+  const pageWait = new Set();        // видимое, что не перевелось: первое «виден» от pageObserver пропускаем
   let pageObserver = null;
   let flushTimer = null;
+  // Новое содержимое переведённой страницы (см. watchPage).
+  const ownText = new WeakMap();     // Text -> что мы сами записали в него последним (перевод или откат)
+  const mutStarts = new Set();       // где сайт что-то поменял с прошлой пачки (элементы)
+  let mutObserver = null;
+  let mutTimer = 0;
+  let mutTries = new WeakMap();      // owner -> { n, at }: сколько раз подряд его переводили заново
+  let mutTopUp = new WeakSet();      // owner с живым переводом, в котором сайт добавил или переписал текст
+  let keepOrig = new WeakSet();      // owner, которому человек вернул оригинал клавишей: новое в нём не переводим
   let pageGen = 0;                    // токен отмены перевода страницы (инкрементится при сбросе/новом запуске)
   let liveGen = 0;                    // токен отмены всех показов: сброс всех/выключение перевода во время await
   let hoverEl = null;
@@ -563,7 +572,8 @@
       if (popovers.has(owner)) removePopover(owner); else if (!blocked(false)) translatePopover(owner);
     } else {
       const line = lineOf(owner);
-      if (line) restoreLine(line); else if (!blocked(false)) translateLine(owner, false);
+      if (line) { restoreLine(line); if (pageActive) keepOrig.add(owner); }
+      else { keepOrig.delete(owner); if (!blocked(false)) translateLine(owner, false); }
     }
   }
 
@@ -1858,6 +1868,7 @@
     if (!res || !res.ok || !res.value || !res.value.trim()) return false;
     if (!e.node.isConnected || e.node.nodeValue !== expect) return false;
     const full = e.lead + res.value + e.trail;
+    ownText.set(e.node, full);         // своя запись: наблюдатель нового содержимого её пропустит
     e.node.nodeValue = full;
     e.rec.translated = full;
     return true;
@@ -1887,7 +1898,7 @@
       // Отсоединённый узел тоже возвращаем: сайт мог убрать его на время (вкладки с KeepAlive во Vue, порталы, кэш
       // строк виртуального списка) и вернуть тем же узлом — тогда показался бы перевод, который уже ничем не снять.
       // Свой новый текст сайт пишет другим значением — его проверка nodeValue не тронет.
-      if (revert && rec.translated != null && n.nodeValue === rec.translated) n.nodeValue = rec.orig;
+      if (revert && rec.translated != null && n.nodeValue === rec.translated) { ownText.set(n, rec.orig); n.nodeValue = rec.orig; }
       nodeRecs.delete(n);
     }
     if (lineByOwner.get(owner) === line) lineByOwner.delete(owner);
@@ -1976,7 +1987,7 @@
 
   // Есть ли что возвращать: переводы, карточки, перевод страницы по прокрутке, перевод в полёте.
   function anythingShown() {
-    return lines.size > 0 || popovers.size > 0 || !!pageObserver || !!document.querySelector(".ht-loading");
+    return lines.size > 0 || popovers.size > 0 || !!pageObserver || !!mutObserver || !!document.querySelector(".ht-loading");
   }
 
   // Перерисовать подсветку всех переведённых строк под текущую тему.
@@ -2048,6 +2059,7 @@
       if (line.owner.isConnected) (inView(line.owner) ? vis : hid).push(line);
     }
     const fresh = collectCandidates();
+    watchPage();                                   // что сайт добавит дальше — уже на новом языке
     const freshVis = fresh.filter(inView), freshRest = fresh.filter((el) => !freshVis.includes(el));
     const jobs = [];
     const size = firstBatch(vis.length + freshVis.length);
@@ -2145,13 +2157,22 @@
     pageGen++; // отменяем всё, что в полёте по переводу страницы
     if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
     pendingObserved.clear();
+    pageWait.clear();
     clearTimeout(flushTimer);
+    unwatchPage();
   }
 
+  // Вошедшее в зону видимости: без перевода — переводим, с переводом, в который сайт дописал текст, — доводим.
+  // Сбой, общий для всех (сеть, ключ, лимит), выключает слежение за новым: иначе болтливый сайт с каждой
+  // пачкой показывал бы ту же ошибку. Новое подберёт повторное «Перевести страницу».
   function flushObserved() {
-    const batch = Array.from(pendingObserved);
+    const fresh = [], more = [];
+    for (const el of pendingObserved) (lineByOwner.has(el) ? more : fresh).push(el);
     pendingObserved.clear();
-    if (batch.length) translatePageOwners(batch, pageGen);
+    const gen = pageGen;
+    const stopOnFail = (r) => { if (r && r.stop && gen === pageGen) unwatchPage(); };
+    if (fresh.length) translatePageOwners(fresh, gen).then(stopOnFail);
+    if (more.length) topUpOwners(more, gen).then(stopOnFail);
   }
 
   // Остальное — по мере появления в зоне видимости (с запасом 300 px).
@@ -2159,18 +2180,198 @@
   // прокрутят с экрана и обратно (или по новому «Перевести страницу»), а не сразу — сразу та же пачка
   // упала бы так же. Первое сообщение observer-а о таком элементе («виден») пропускаем.
   function observeRest(rest, later) {
-    const wait = new Set(later);
-    pageObserver = new IntersectionObserver((entries, observer) => {
-      for (const e of entries) {
-        if (wait.delete(e.target) && e.isIntersecting) continue;
-        if (!e.isIntersecting) continue;
-        observer.unobserve(e.target);
-        if (!lineByOwner.has(e.target)) pendingObserved.add(e.target);
+    for (const el of later || []) pageWait.add(el);
+    const io = pageIO();
+    for (const el of rest.concat(later || [])) io.observe(el);
+  }
+  // Один observer на прогон перевода страницы: его наполняют и первый проход (observeRest), и новое содержимое.
+  function pageIO() {
+    if (!pageObserver) pageObserver = new IntersectionObserver(onPageIO, { rootMargin: "300px" });
+    return pageObserver;
+  }
+  function onPageIO(entries, observer) {
+    for (const e of entries) {
+      if (pageWait.delete(e.target) && e.isIntersecting) continue;
+      if (!e.isIntersecting) continue;
+      observer.unobserve(e.target);
+      if (!lineByOwner.has(e.target) || mutTopUp.has(e.target)) pendingObserved.add(e.target);
+    }
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(flushObserved, 150);
+  }
+
+  // ---- новое содержимое при переведённой странице ----
+  // Пока страница переведена целиком (pageActive), то, что сайт добавит или перепишет (ленты, комментарии,
+  // подгрузка, переходы SPA), переводится само. Изменившиеся места собираем пачкой раз в MUT_MS и сводим к
+  // верхним строчным контейнерам — тем же владельцам, что у перевода страницы. Владелец без перевода (или с
+  // мёртвым: каркас перетёр) переводится заново, а в живом переводе — только узлы, которые сайт добавил или
+  // переписал. Переводится видимое: всё идёт через pageObserver, вне экрана — при прокрутке, как остальное.
+  // Свои записи пропускаем по ownText. Элемент, который меняется снова и снова (часы, счётчики, «5 минут
+  // назад»), переводим заново не больше MUT_TRIES раз подряд; затишье MUT_CALM начинает счёт заново.
+  // Esc, «Показать оригинал», «Стоп», смена языка — stopPageObserver снимает наблюдатель (а перевод на новый
+  // язык ставит его снова). Наблюдаем <html>, а не <body>: SPA, заменивший <body> (Turbo), тоже виден.
+  const MUT_MS = 300;
+  const MUT_TRIES = 5;
+  const MUT_CALM = 10000;
+  // Сюда изменения не ведут: служебные элементы и <head>.
+  const MUT_SKIP = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "HEAD", "IFRAME"]);
+  const hasLetter = (s) => /\p{L}/u.test(s || "");
+
+  function watchPage() {
+    if (mutObserver || dead || !pageActive) return;
+    mutTries = new WeakMap();
+    mutTopUp = new WeakSet();
+    keepOrig = new WeakSet();
+    mutObserver = new MutationObserver(onMutations);
+    mutObserver.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+  }
+  function unwatchPage() {
+    if (mutObserver) { mutObserver.disconnect(); mutObserver = null; }
+    mutStarts.clear();
+    clearTimeout(mutTimer);
+    mutTimer = 0;
+  }
+
+  // Записи наблюдателя — только запомнить место: разбор раз в MUT_MS (flushMut). Пачка, а не «после
+  // затишья»: на сайте, который меняет что-то постоянно, затишья может не быть вовсе.
+  function onMutations(records) {
+    for (const m of records) {
+      if (m.type === "characterData") {
+        const n = m.target;
+        if (n.nodeType !== 3 || n.nodeValue === ownText.get(n) || !hasLetter(n.nodeValue)) continue;
+        const p = n.parentElement;
+        if (p && !MUT_SKIP.has(p.tagName)) mutStarts.add(p);
+        continue;
       }
-      clearTimeout(flushTimer);
-      flushTimer = setTimeout(flushObserved, 150);
-    }, { rootMargin: "300px" });
-    for (const el of rest.concat(later || [])) pageObserver.observe(el);
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 3) {
+          if (hasLetter(n.nodeValue) && m.target.nodeType === 1 && !MUT_SKIP.has(m.target.tagName)) mutStarts.add(m.target);
+        } else if (n.nodeType === 1 && !MUT_SKIP.has(n.tagName) && !isOurUi(n)) mutStarts.add(n);
+      }
+    }
+    if (mutStarts.size && !mutTimer) mutTimer = setTimeout(flushMut, MUT_MS);
+  }
+
+  // Владельцы для изменившегося места: верхний строчный контейнер вокруг него (как pickTarget), а в
+  // добавленном блоке — верхние строчные контейнеры внутри (как collectCandidates).
+  function ownersOf(start, out, memo) {
+    const body = document.body;
+    if (!body || !body.contains(start) || isOurUi(start)) return;
+    if (start !== body && !hasBlockChild(start, memo)) {
+      let el = start;
+      while (el.parentElement && el.parentElement !== body && !hasBlockChild(el.parentElement, memo)) el = el.parentElement;
+      out.add(el);
+      return;
+    }
+    let taken = null;
+    for (const el of start.querySelectorAll("*")) {
+      if (taken && taken.contains(el)) continue;
+      if (!isTopInlineContainer(el, memo)) continue;
+      if (!lineByOwner.has(el) && !isTextTarget(el)) continue;
+      out.add(el);
+      taken = el;
+    }
+  }
+
+  // Текстовые узлы владельца с живым переводом, которых в этом переводе нет: сайт их добавил или переписал.
+  // Узел, который не перевёлся (пустой ответ) и так и стоит в оригинале, не берём — иначе повторяли бы его.
+  function siteNodes(owner, line) {
+    const out = [];
+    const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => acceptTextNode(node, owner) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+    });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const rec = nodeRecs.get(n);
+      if (rec && rec.line === line) {
+        if (n.nodeValue === (rec.translated != null ? rec.translated : rec.orig)) continue;
+      } else if (heldByLine(n)) continue;           // узел вложенного перевода — его ведёт своя строка
+      out.push(n);
+    }
+    return out;
+  }
+
+  function flushMut() {
+    mutTimer = 0;
+    if (!mutObserver) return;
+    if (!pageActive) { unwatchPage(); return; }
+    const memo = new Map(), found = new Set();
+    const starts = Array.from(mutStarts);
+    mutStarts.clear();
+    for (const s of starts) if (s.isConnected) ownersOf(s, found, memo);
+    // Вложенные владельцы сводим к внешнему — к тому, что уже переведён или тоже в этой пачке (как collectCandidates).
+    const body = document.body, owners = new Set();
+    for (const el of found) {
+      let o = el;
+      for (let a = el.parentElement; a && a !== body; a = a.parentElement) if (found.has(a) || lineByOwner.has(a)) o = a;
+      owners.add(o);
+    }
+    const now = Date.now();
+    for (const o of owners) {
+      if (keepOrig.has(o)) continue;
+      if (inFlight.has(o)) { mutStarts.add(o); continue; }   // перевод в пути — посмотрим, когда вернётся
+      let line = lineByOwner.get(o);
+      if (line && !lineAlive(line)) { restoreLine(line); line = null; }   // каркас перетёр перевод целиком
+      if (line ? !siteNodes(o, line).length : !isTextTarget(o)) continue;
+      const t = mutTries.get(o) || { n: 0, at: 0 };
+      if (now - t.at > MUT_CALM) t.n = 0;
+      t.at = now;
+      mutTries.set(o, t);
+      if (t.n >= MUT_TRIES) continue;
+      t.n++;
+      if (line) mutTopUp.add(o);
+      pageIO().observe(o);       // виден — переведётся сразу (onPageIO), нет — при прокрутке
+    }
+    if (mutStarts.size) mutTimer = setTimeout(flushMut, MUT_MS);
+  }
+
+  // Довести живые переводы: перевести только узлы, которые сайт добавил или переписал, — остальной перевод
+  // не мигает оригиналом и не оплачивается заново. Возвращает { stop } — сбой, общий для всех (pageWide).
+  async function topUpOwners(owners, gen) {
+    const lgen = liveGen, jobs = [], gone = [];
+    for (const o of owners) {
+      mutTopUp.delete(o);
+      const line = lineByOwner.get(o);
+      if (!line || !o.isConnected || inFlight.has(o)) continue;
+      if (!lineAlive(line)) { restoreLine(line); gone.push(o); continue; }
+      const nodes = siteNodes(o, line);
+      if (!nodes.length) continue;
+      inFlight.add(o);
+      jobs.push({ o, line, nodes });
+    }
+    const res = { stop: false };
+    if (gone.length) translatePageOwners(gone, gen);
+    if (!jobs.length) return res;
+    try {
+      const skip = await Promise.all(jobs.map((j) => isAlreadyTarget(j.nodes.map((n) => n.nodeValue).join(" "))));
+      if (gen !== pageGen || lgen !== liveGen) return res;
+      const entries = [];
+      jobs.forEach((j, k) => {
+        if (skip[k] || lineByOwner.get(j.o) !== j.line) return;
+        for (const n of j.nodes) {
+          if (!j.line.nodes.includes(n)) j.line.nodes.push(n);   // откат строки вернёт и его
+          entries.push(newEntry(n, j.line));
+        }
+      });
+      if (!entries.length) return res;
+      const out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line));
+      if (gen !== pageGen || lgen !== liveGen) return res;
+      if (out.error || !out.results) {
+        if (out.error) { showFail(null, out, true); res.stop = pageWide(out); }
+        return res;
+      }
+      let wrote = false;
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        if (lineByOwner.get(e.line.owner) !== e.line) continue;
+        if (writeEntry(e, out.results[i], e.rec.orig)) { wrote = true; noteSrc(out.results[i].src); }
+      }
+      if (wrote) pushState();
+    } catch (e) {
+      // как при сбое сервиса: прежний перевод на месте, новые узлы остаются в оригинале
+    } finally {
+      for (const j of jobs) inFlight.delete(j.o);
+    }
+    return res;
   }
 
   // Выполнить задания по FIRST_PARALLEL одновременно; run(job) → продолжать ли (false — остановиться).
@@ -2236,6 +2437,7 @@
         const was = wasActive;
         for (const l of lines) l.persistent = true;
         pageActive = true; pageWas = false;
+        watchPage();
         pushState();
         if (!was) showPageDone();
         return;
@@ -2252,6 +2454,7 @@
     for (const l of lines) l.persistent = true;
     pageActive = true;
     pageWas = false;
+    watchPage();                 // что сайт добавит с этой минуты, переводится само
     pageBusy = { done: 0, total: visible.length };
     if (pageToast) { pageToast.close(); pageToast = null; }
     pushState();
@@ -2294,6 +2497,7 @@
     } else {
       // Ничего не заменено — «Страница переведена» было бы неправдой.
       pageActive = false;
+      unwatchPage();
       notice(HT_t("csAlreadyText"), 5000, { title: HT_t("csNothingTitle") });
     }
     pushState();
@@ -2308,14 +2512,15 @@
     return PAGE_WIDE.has(out.code) && !(out.code === "lang" && out.focus === "source-lang");
   }
 
-  // Возвращает { wrote: сколько элементов переведено, failed: была ли ошибка }.
+  // Возвращает { wrote: сколько элементов переведено, failed: была ли ошибка, stop: сбой общий для всех }.
   async function translatePageOwners(owners, gen) {
-    const sum = { wrote: 0, failed: false };
+    const sum = { wrote: 0, failed: false, stop: false };
     for (let i = 0; i < owners.length; i += OWNER_BATCH) {
       if (gen !== pageGen) return sum;
       const r = await translatePageChunk(owners.slice(i, i + OWNER_BATCH), gen);
       sum.wrote += r.wrote;
       if (r.failed) sum.failed = true;
+      if (r.stop) sum.stop = true;
     }
     return sum;
   }
@@ -3170,6 +3375,19 @@
     f.host.remove();
     placeToast();
   }
+  // SPA заменил <body> целиком (Turbo на GitHub): кружок, уведомление и карточки остались в старом — переносим в
+  // новый. Следим только за детьми <html> — это дёшево, и кружок нужен и без перевода страницы. Перевод нового
+  // <body> ведёт наблюдатель нового содержимого (watchPage).
+  const bodyWatch = new MutationObserver(() => {
+    if (dead || !document.body) return;
+    if (fab && !fab.host.isConnected) { mountUi(fab.host); themeFab(); placeFab(); }
+    if (currentToast && currentToast.alive() && !currentToast.host.isConnected) { mountUi(currentToast.host); placeToast(); }
+    for (const [owner, st] of Array.from(popovers)) {
+      if (st.node && !st.node.isConnected) { if (owner.isConnected) mountUi(st.node); else removePopover(owner); }
+    }
+  });
+  bodyWatch.observe(document.documentElement, { childList: true });
+  unbinders.push(() => bodyWatch.disconnect());
   function setHudWanted(v) {
     hudWanted = v;
     chrome.storage.local.set({ hudShown: v }).catch(() => {});
