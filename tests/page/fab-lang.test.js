@@ -6,7 +6,8 @@
 // по-русски и кода (без регистра и диакритики), совпавшее — <mark>; нет совпадений — «Ничего не нашлось» (не
 // кнопка); поле не прыгает при наборе; ↑ ↓ Enter — запись targetLang и recentLangs как в окне расширения, панель
 // закрыта, на кнопке новый код, фокус на «RU»; щелчок по строке — то же; Esc — панель, второй Esc — столбик; Tab —
-// к «⋯», Shift+Tab — к «RU»; щелчок мимо — закрыть; поддельные события ничего не пишут; панель не выходит за окно
+// к «⋯», Shift+Tab — к «RU»; Shift в поле (курсор над абзацем) — набор, абзац не переводится; щелчок мимо —
+// закрыть; поддельные события ничего не пишут; панель не выходит за окно
 // и не закрывает кнопки (справа внизу, слева вверху, окно 360). Скриншоты в обеих темах — с tests/run.sh --shots.
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
@@ -268,6 +269,41 @@ const HELPERS = `window.langInfo = () => {
     assert.ok(!x.open && x.focus === "lang" && x.bar, "Shift+Tab из поля — панель закрыта, фокус на «RU»: " + JSON.stringify(x));
     assert.strictEqual(await ev("trCalls().length"), 0, "клавиши в панели страницу не переводят");
     ok("клавиатура: Enter на «RU» — фокус в поле; ↓ ↓ ↓ ↑ — по строкам (aria-activedescendant); Enter — DE записан, «DE» на кнопке, фокус на «RU»; «по» ↓ Enter — PT-BR («PT»); Esc — панель (фокус на «RU»), второй Esc — кнопки (фокус на кружке); Tab — к «⋯», Shift+Tab — к «RU»");
+
+    // ---- 4б. Shift в поле поиска — набор текста, а не перевод абзаца под курсором ----
+    // Root кружка закрытый: снаружи фокус в поле виден как фокус на хосте — typingFocus() должна заглянуть внутрь.
+    await load({ hudShown: true, recentLangs: RECENT });
+    await openByMouse();
+    await clickIn(".fk-find input");
+    assert.strictEqual((await L()).focus, "q", "щелчок по полю — фокус в поле");
+    const p1 = await ev("(() => { const r = document.querySelector('#p1').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + r.height / 2) }; })()");
+    const p1Text = await ev("document.querySelector('#p1').textContent");
+    await move(p1.x, p1.y); await sleep(150);
+    await ev("window.__calls.length = 0; true");
+    const shiftDown = () => key("rawKeyDown", "Shift", "ShiftLeft", 16, { modifiers: SHIFT });
+    const shiftUp = () => key("keyUp", "Shift", "ShiftLeft", 16);
+    await shiftDown(); await sleep(30); await shiftUp(); await sleep(600);
+    x = await L();
+    const still = async () => ({ same: (await ev("document.querySelector('#p1').textContent")) === p1Text,
+      page: (await ev("sendCmd('getHudState')")).page, calls: await ev("trCalls().length") });
+    let st = await still();
+    assert.ok(x.open && x.focus === "q", "Shift в поле — панель открыта, фокус в поле: " + JSON.stringify(x));
+    assert.deepStrictEqual(st, { same: true, page: "idle", calls: 0 }, "Shift в поле поиска, курсор над абзацем — абзац не переводится");
+    await shiftDown();
+    await key("keyDown", "D", "KeyD", 68, { modifiers: SHIFT, text: "D", unmodifiedText: "d" }); await key("keyUp", "D", "KeyD", 68, { modifiers: SHIFT });
+    await shiftUp(); await sleep(600);
+    x = await L();
+    st = await still();
+    assert.ok(x.qv === "D" && x.open && x.focus === "q", "Shift+D в поле — в поле «D»: " + JSON.stringify({ qv: x.qv, open: x.open, focus: x.focus }));
+    assert.deepStrictEqual(st, { same: true, page: "idle", calls: 0 }, "Shift+D в поле — абзац не переводится");
+    // Контроль: панель закрыли (фокус ушёл с поля на «RU») — тот же Shift над тем же абзацем переводит.
+    await esc();
+    x = await L();
+    assert.ok(!x.open && x.focus === "lang", "Esc — панель закрыта, фокус на «RU»: " + JSON.stringify(x));
+    await shiftDown(); await sleep(30); await shiftUp();
+    assert.ok(await until(() => ev("/^\\[RU\\]/.test(document.querySelector('#p1').textContent)"), 3000), "фокус не в поле — Shift над абзацем переводит его");
+    assert.strictEqual((await ev("sendCmd('getHudState')")).page, "part");
+    ok("Shift в поле поиска языка (курсор над абзацем) — абзац не переводится, Shift+D — «D» в поле; панель закрыли (Esc) — тот же Shift переводит");
 
     // ---- 5. Без недавних — языки браузера и английский ----
     const ua = await ev("navigator.userAgent");

@@ -663,12 +663,13 @@
   function soloMod(e) { return e.shiftKey + e.ctrlKey + e.altKey + e.metaKey === 1; }
 
   // Фокус в поле ввода: нажатый модификатор там — набор текста (заглавная буква, Ctrl+C/V),
-  // а не просьба перевести абзац под курсором. Заходим и в открытые shadow root веб-компонентов.
+  // а не просьба перевести абзац под курсором. Заходим и в открытые shadow root веб-компонентов, и в наши
+  // закрытые (uiRoots): снаружи фокус в поле поиска языка у кружка виден лишь как фокус на его хосте.
   // Флажки и кнопки-<input> текст не принимают — после клика по ним режим клавиши не глушим.
   const NO_TYPING_INPUTS = /^(button|checkbox|radio|submit|reset|range|color|file|image)$/;
   function typingFocus() {
     let el = document.activeElement;
-    while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+    for (let r; el && (r = el.shadowRoot || uiRoots.get(el)) && r.activeElement;) el = r.activeElement;
     if (!el || el.nodeType !== 1) return false;
     if (el.tagName === "INPUT") return !NO_TYPING_INPUTS.test(el.type);
     // Закрытый выпадающий список текст не принимает (как флажок): выбрали пункт — Shift снова переводит. Раскрытый
