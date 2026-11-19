@@ -204,6 +204,34 @@ const until = async (fn, ms = 4000, step = 50) => {
     assert.strictEqual((await ev("toasts()")).length, 0);
     ok("перевод выключен — на странице ни запросов, ни уведомлений");
 
+    // 9. Встроенный переводчик Chrome теряет знаки на краях текстового узла (ru→en: «<b>сорт</b>, например черри» →
+    //    «variety</b>eg Cherry»). Поддельный здесь теряет так же; знаки на стыке с соседним узлом ему не отдаём и
+    //    возвращаем как были, «?» и точку в конце — отдаём (часть предложения), узел из одних знаков — не отдаём.
+    const lossy = `__tr.inputs = []; { const c0 = Translator.create; Translator.create = async (o) => { await c0(o);
+      return { translate: async (s) => { __tr.inputs.push(s); return '[ru] ' + s.replace(/^[\\s,;:—]+|[\\s,;:—]+$/g, ''); } }; }; }`;
+    const P9 = "<b>Choose a small variety</b>, for example cherry tomatoes. Is it ripe? <i>Yes</i>, <i>water it</i>; then wait — <i>a week</i>.";
+    await load("fake", { engine: "chrome" });
+    await ev(`__tr.avail = 'available'; ${lossy}; document.body.insertAdjacentHTML('beforeend', '<p id="p9">${P9}</p>'); true`);
+    const O9 = await text("#p9");
+    await hover("#p9"); await tapShift(); await sleep(300);
+    assert.strictEqual(await text("#p9"), "[ru] Choose a small variety, [ru] for example cherry tomatoes. Is it ripe? [ru] Yes, [ru] water it; [ru] then wait — [ru] a week.");
+    assert.deepStrictEqual(await ev("__tr.inputs"), ["Choose a small variety", "for example cherry tomatoes. Is it ripe?", "Yes", "water it", "then wait", "a week"]);
+    assert.strictEqual(await ev("document.querySelector('#p9 b').textContent"), "[ru] Choose a small variety", "разметка на месте");
+    await hover("#p9"); await tapShift(); await sleep(150);
+    assert.strictEqual(await text("#p9"), O9, "откат возвращает оригинал со всеми знаками");
+    ok("встроенный: знаки на краях узла (, ; — и пробел) переводчику не отдаются и остаются на месте; «?» и точка внутри — у переводчика");
+    // «Перевести страницу» — тот же путь
+    await ev("__tr.inputs = []; sendCmd('translatePage'); true");
+    assert.ok(await until(async () => /^\[ru\] Choose a small variety, \[ru\] for example/.test(await text("#p9")), 3000), await text("#p9"));
+    assert.ok(!(await ev("__tr.inputs")).some((s) => /^[\s,;:—]|[\s,;:—]$/.test(s)), JSON.stringify(await ev("__tr.inputs")));
+    ok("«Перевести страницу» встроенным — те же знаки на месте");
+    // Модель не скачана: блок «Hello there» + «, » — подсказка «Щёлкните по тексту», а не тишина из-за «переведённой» запятой
+    await load("fake", { engine: "chrome" });
+    await ev(`document.body.insertAdjacentHTML('beforeend', '<p id="p10"><b>Hello there</b>, <i>friend</i></p>'); true`);
+    await hover("#p10"); await tapShift(); await sleep(150);
+    assert.deepStrictEqual(await ev("toasts()"), ["info:Щёлкните по текстуСкачаю переводчик для этой пары"]);
+    ok("узел из одних знаков не считается удачей: при нескачанной модели — подсказка «Щёлкните по тексту»");
+
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {
     await b.close();

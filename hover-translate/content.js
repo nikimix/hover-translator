@@ -783,6 +783,28 @@
     }
   }
 
+  // Встроенный переводчик теряет знаки препинания на краях текстового узла (проверено в Chrome 157, ru→en):
+  // «<b>Выбирайте мелкий сорт</b>, например черри» → «<b>Choose a small variety</b>eg Cherry» — узел «, например
+  // черри» вернулся без запятой и пробела, а «сорт,» — без запятой. Узел — кусок предложения, поэтому знаки на
+  // стыке с соседним узлом переводчику не отдаём и возвращаем как были, по образцу пробелов в splitWs. В начале —
+  // закрывающие и разделительные (, . ; : ! ? … ) ] » —); в конце — только разделительные и открывающие (, ; : ( [ « —):
+  // точка, «?» и «!» в конце — часть предложения, без «?» переводчик теряет вопрос («Это важно?» → «This is
+  // important»). Апострофа и кавычек “ ” ‘ ’ нет: «’s» после <b>John</b> — часть слова, а “ в немецком закрывает.
+  const EDGE_LEAD = /^[\s,.;:!?…)\]}»\p{Pd}]+/u;
+  const EDGE_TRAIL = /[\s,;:(\[{«\p{Pd}]+$/u;
+  async function chromeTranslateEdges(text, targetLang) {
+    const lead = (text.match(EDGE_LEAD) || [""])[0];
+    const rest = text.slice(lead.length);
+    const trail = (rest.match(EDGE_TRAIL) || [""])[0];
+    const core = rest.slice(0, rest.length - trail.length);
+    // Одни знаки (запятая между двумя <b>) — переводить нечего: value "" оставляет узел как был.
+    if (!/[\p{L}\p{N}]/u.test(core)) return { ok: true, value: "", src: null, bare: true };
+    const r = await chromeTranslate(core, targetLang);
+    // value "" — «уже на языке перевода, оставить оригинал»: знаки к нему не приклеиваем.
+    if (r && r.ok && r.value) r.value = lead + r.value + trail;
+    return r;
+  }
+
   // Встроенный движок для всего списка. Если не перевелось НИЧЕГО — отдаём error: все вызывающие
   // определяют сбой по этому полю, и без него встроенный движок падал абсолютно молча
   // (неподдерживаемая пара языков, Chrome < 138 — пользователь наводит, и не происходит ничего).
@@ -791,8 +813,11 @@
   // что сделать, полезнее ошибки DeepL; «нет ключа» и «нет согласия» в режиме «авто» — не сбой, а
   // обычная работа встроенным, и настоящая причина — в ответе встроенного переводчика.
   async function localResults(texts, primary) {
-    const results = await Promise.all(texts.map((t) => chromeTranslate(t, settings.targetLang)));
-    if (results.some((r) => r && r.ok)) return { results };
+    const results = await Promise.all(texts.map((t) => chromeTranslateEdges(t, settings.targetLang)));
+    // Текст из одних знаков (bare) переводчику не отдавали — это не удача: иначе блок «Hello» + «, » с
+    // нескачанной моделью молча не переводился бы, а подсказку «Щёлкните по тексту» глушил бы «перевод» запятой.
+    const real = results.filter((r) => !(r && r.bare));
+    if (!real.length || real.some((r) => r && r.ok)) return { results };
     const dl = results.find((r) => r && r.kind === "download");
     if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key, note: dl.note };
     if (primary && primary.code !== "no-key" && primary.code !== "no-consent") return Object.assign({ results: null }, primary);
