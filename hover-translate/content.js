@@ -2530,14 +2530,30 @@
   }, true);
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
-  // или aria-modal, раскрытое меню или список (видимый элемент с aria-expanded=true). Наши хосты [data-ht-ui] не
-  // в счёт: меню кружка, карточка и уведомления живут в закрытом shadow root, их Esc разбирает escRestore.
+  // или aria-modal, раскрытое всплывающее меню или список (см. popupOpen). Наши хосты [data-ht-ui] не в счёт: меню
+  // кружка, карточка и уведомления живут в закрытом shadow root, их Esc разбирает escRestore.
   // Селекторы, которых этот Chrome не знает, отбрасываем: одна ошибка в списке сломала бы весь querySelectorAll.
-  const SITE_OPEN = [":modal", ":popover-open", "[role=dialog]", "[role=alertdialog]", "[aria-modal=true]", "[aria-expanded=true]"]
+  const SITE_OPEN = [":modal", ":popover-open", "[role=dialog]", "[role=alertdialog]", "[aria-modal=true]"]
     .filter((s) => { try { return CSS.supports("selector(" + s + ")"); } catch (e) { return false; } }).join(",");
   function siteOpen() {
-    if (!SITE_OPEN) return false;
-    for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) return true;
+    if (SITE_OPEN) for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) return true;
+    for (const el of document.querySelectorAll('[aria-expanded="true"]')) if (!isOurUi(el) && onScreen(el) && popupOpen(el)) return true;
+    return false;
+  }
+  // aria-expanded=true — это и раскрытое меню, и раскрытый раздел оглавления или аккордеон (на сайтах документации
+  // они раскрыты всегда). Открытым считаем только всплывающее: у кнопки aria-haspopup, или то, чем она управляет
+  // (aria-controls, иначе соседний элемент), — меню, список или окно, либо лежит поверх страницы (absolute, fixed).
+  function popupOpen(el) {
+    const hp = el.getAttribute("aria-haspopup");
+    if (hp && hp !== "false") return true;
+    const ids = (el.getAttribute("aria-controls") || "").split(/\s+/).filter(Boolean);
+    const targets = ids.length ? ids.map((id) => document.getElementById(id)) : [el.nextElementSibling];
+    for (const t of targets) {
+      if (!t || isOurUi(t) || !onScreen(t)) continue;
+      if (/^(menu|menubar|listbox|dialog)$/.test(t.getAttribute("role") || "")) return true;
+      const pos = getComputedStyle(t).position;
+      if (pos === "absolute" || pos === "fixed") return true;
+    }
     return false;
   }
   // Элемент виден: не спрятан (display, visibility, прозрачность) и хоть краем в окне. Окна и меню, которые сайт

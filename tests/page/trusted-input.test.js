@@ -325,7 +325,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(await ev("document.querySelector('#spop').matches(':popover-open')"), false, "Esc закрыл поповер сайта");
     assert.ok(await ru1(), "открытый поповер — перевод на месте");
     // раскрытое меню: у кнопки aria-expanded=true, по Esc сайт закрывает меню своим обработчиком (после нашего)
-    await ev(`(() => { const b = document.createElement("button"); b.id = "smenu"; b.textContent = "Menu"; b.setAttribute("aria-expanded", "true");
+    await ev(`(() => { const b = document.createElement("button"); b.id = "smenu"; b.textContent = "Menu"; b.setAttribute("aria-haspopup", "menu"); b.setAttribute("aria-expanded", "true");
       b.style.cssText = "position: fixed; top: 8px; right: 8px"; document.body.appendChild(b);
       document.addEventListener("keydown", (e) => { if (e.key === "Escape") b.setAttribute("aria-expanded", "false"); }); return true; })()`);
     await esc();
@@ -333,7 +333,11 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.ok(await ru1(), "раскрытое меню (aria-expanded) — перевод на месте");
     // спрятанные окна и меню в разметке сайта не мешают; наш кружок (хост [data-ht-ui]) — тоже
     await ev(`(() => { const w = document.createElement("div"); w.hidden = true; w.innerHTML = '<div role="dialog" aria-modal="true">Hidden dialog</div><button aria-expanded="true">Hidden menu</button>';
-      document.body.appendChild(w); return true; })()`);
+      document.body.appendChild(w);
+      // раскрытый раздел оглавления / аккордеон (на сайтах документации раскрыты всегда) — не «открытое меню»
+      const a = document.createElement("div"); a.innerHTML = '<button aria-expanded="true" aria-controls="sacc">Section</button><div id="sacc">Panel</div>'
+        + '<button aria-expanded="true">Show less</button><div>More details</div>';
+      document.body.appendChild(a); return true; })()`);
     await move(5, 790); await sleep(50);
     assert.strictEqual(await ev("sendCmd('toggleHud').hud"), true);
     await sleep(100);
@@ -341,7 +345,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await esc();
     assert.strictEqual(await text("#p1"), P1, "ничего не открыто — Esc возвращает оригинал");
     await ev("sendCmd('toggleHud'); true");
-    ok("Esc: открыт <dialog>, поповер или меню сайта (aria-expanded) — Esc сайту, перевод на месте; закрыли — Esc возвращает оригинал; спрятанные окна сайта и наш кружок не мешают");
+    ok("Esc: открыт <dialog>, поповер или меню сайта (aria-expanded) — Esc сайту, перевод на месте; закрыли — Esc возвращает оригинал; спрятанные окна сайта, раскрытые аккордеоны и наш кружок не мешают");
 
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {
