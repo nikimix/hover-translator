@@ -516,7 +516,7 @@ function siteRow(st) {
   const parts = HT_t("ppSiteRow", MARK).split(MARK);
   const b = h("b", null, st.name);
   const text = h("span", { class: "srow-t" }, parts[0] || "", b, parts[1] || "");
-  const sw = HT_ui.switchBtn(st.on, { disabled: st.dis, class: "switch" + (st.dis ? " is-disabled" : ""), onclick: () => act("site") });
+  const sw = HT_ui.switchBtn(st.on, { disabled: st.dis, onclick: () => act("site") });
   return h("label", { class: "srow" + (st.dis ? " is-disabled" : ""), title: st.name, "data-full": st.name }, text, sw);
 }
 

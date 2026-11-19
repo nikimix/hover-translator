@@ -25,30 +25,6 @@
   "srcAuto": {
     "message": "Detect automatically"
   },
-  "engChrome": {
-    "message": "Built into Chrome"
-  },
-  "engChromeHint": {
-    "message": "free; your text stays on your computer"
-  },
-  "engDeepl": {
-    "message": "DeepL"
-  },
-  "engDeeplHint": {
-    "message": "more accurate; uses your key, 500,000 characters a month on the free plan"
-  },
-  "engAuto": {
-    "message": "DeepL, with built-in as backup"
-  },
-  "engAutoHint": {
-    "message": "keeps translating if your DeepL limit runs out or the connection drops"
-  },
-  "engLlm": {
-    "message": "AI (ChatGPT / Claude)"
-  },
-  "engLlmHint": {
-    "message": "uses your key; paid"
-  },
   "modelFast": {
     "message": "$model$ — fast and cheap",
     "placeholders": {
@@ -83,26 +59,14 @@
   "probNoDeeplKey": {
     "message": "no DeepL key"
   },
-  "probNoDeeplKeyPage": {
-    "message": "Translation isn’t working: there’s no DeepL key. Paste a key or switch to the built-in translator in the extension settings."
-  },
   "probNoLlmKey": {
     "message": "no AI key"
-  },
-  "probNoLlmKeyPage": {
-    "message": "Translation isn’t working: there’s no AI key. Paste a key or switch to the built-in translator in the extension settings."
   },
   "probNoConsent": {
     "message": "your consent is needed to send text"
   },
-  "probNoConsentPage": {
-    "message": "Translation isn’t working: the selected translator needs your consent before any text is sent. Click the extension icon to agree or switch to the built-in translator."
-  },
   "probNoBuiltin": {
     "message": "the built-in translator isn’t available in this browser"
-  },
-  "probNoBuiltinPage": {
-    "message": "Translation isn’t working: the built-in translator isn’t available in this browser (it needs Chrome 138 or newer on a computer). Connect DeepL in the extension settings."
   },
   "probDeeplLangTo": {
     "message": "DeepL can’t translate into $lang$",
@@ -149,26 +113,8 @@
       }
     }
   },
-  "probBuiltinLangToPage": {
-    "message": "Translation isn’t working: the built-in translator can’t translate into $lang$. Choose another language or connect DeepL in the extension settings.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
   "probBuiltinLangFrom": {
     "message": "the built-in translator can’t translate from $lang$",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "probBuiltinLangFromPage": {
-    "message": "Translation isn’t working: the built-in translator can’t translate from $lang$. Choose another original language or connect DeepL in the extension settings.",
     "placeholders": {
       "lang": {
         "content": "$1",

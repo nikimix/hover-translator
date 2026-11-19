@@ -741,7 +741,7 @@ function renderSites() {
   const ul = $("siteList");
   const had = document.activeElement && document.activeElement.closest && document.activeElement.closest("#siteList");
   ul.replaceChildren(...list.map((s) => h("li", null, h("span", { class: "sl-ic" }, ic("globe", 16)), h("span", { class: "sl-t", title: s }, s),
-    h("button", { type: "button", class: "btn btn-secondary btn-sm", "data-site": s, "aria-label": HT_t("opSiteOnAria", s),
+    h("button", { type: "button", class: "btn btn-secondary btn-sm", "aria-label": HT_t("opSiteOnAria", s),
       onclick: () => enableSite(s) }, HT_t("opSiteOn")))));
   $("siteNone").hidden = list.length > 0;
   if (had && !ul.contains(document.activeElement)) focusEl(ul.querySelector("button") || $("noTranslate"));

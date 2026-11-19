@@ -299,19 +299,13 @@ function HT_builtinOf(lang) {
 //   keyField   — ключ настроек с ключом сервиса (нет — движку ключ не нужен);
 //   cacheAs    — под каким именем движка кэшировать (alias: auto даёт тот же результат, что deepl);
 //   scopeFields— какие ещё поля запроса входят в ключ кэша (для ИИ — провайдер/модель/origin);
-//   fallback   — на что переключиться, если основной путь не смог;
-//   formality  — поддерживает ли параметр «обращение»;
-//   note       — показывать ли в окне состояние встроенного переводчика (он участвует в переводе);
-//   hint       — сообщение с пояснением под названием в окне расширения.
-// Второй элемент строки — сообщение с названием (messages.json); подписи берёт HT_engineLabel/HT_engineHint.
-// Порядок строк — порядок в окне: встроенный первым, он по умолчанию.
+//   fallback   — на что переключиться, если основной путь не смог.
+// Встроенный — первым: он по умолчанию.
 var HT_ENGINES = [
-  ["chrome", "engChrome", { via: "local", note: true, hint: "engChromeHint" }],
-  ["deepl", "engDeepl", { via: "deepl", keyField: "apiKey", formality: true, hint: "engDeeplHint" }],
-  ["auto", "engAuto",
-    { via: "deepl", keyField: "apiKey", formality: true, cacheAs: "deepl", fallback: "local", note: true, hint: "engAutoHint" }],
-  ["llm", "engLlm",
-    { via: "llm", keyField: "llmApiKey", scopeFields: ["llmProvider", "llmModel", "origin"], hint: "engLlmHint" }],
+  ["chrome", { via: "local" }],
+  ["deepl", { via: "deepl", keyField: "apiKey" }],
+  ["auto", { via: "deepl", keyField: "apiKey", cacheAs: "deepl", fallback: "local" }],
+  ["llm", { via: "llm", keyField: "llmApiKey", scopeFields: ["llmProvider", "llmModel", "origin"] }],
 ];
 
 // Что показать, если ключа нет (сообщение). Ключуем ПОЛЕМ настроек, а не движком: deepl и auto делят
@@ -323,10 +317,8 @@ var HT_KEY_HINTS = {
 
 var HT_ENGINE = {};
 for (var i = 0; i < HT_ENGINES.length; i++) {
-  HT_ENGINE[HT_ENGINES[i][0]] = Object.assign({ code: HT_ENGINES[i][0], labelKey: HT_ENGINES[i][1] }, HT_ENGINES[i][2]);
+  HT_ENGINE[HT_ENGINES[i][0]] = Object.assign({ code: HT_ENGINES[i][0] }, HT_ENGINES[i][1]);
 }
-function HT_engineLabel(code) { return HT_t(HT_engine(code).labelKey); }
-function HT_engineHint(code) { return HT_t(HT_engine(code).hint); }
 
 // Неизвестное значение настройки трактуем как движок по умолчанию. Только собственные ключи
 // таблицы: HT_ENGINE["constructor"] иначе вернул бы функцию Object вместо описания движка.
@@ -403,18 +395,18 @@ function HT_engineProblem(engine, st, builtin) {
   return null;
 }
 
-// Тексты к причинам (сообщения): short — для подсказки значка, page — для уведомления на странице. У
+// Тексты к причинам (сообщения): short — причина коротко (подсказка значка, уведомление на странице, окно,
+// настройки); page — полная фраза для ошибки перевода (есть только у deepl-lang: её отдаёт background). У
 // причин про язык via — чей это язык, а у текстов есть вариант «с этого языка» (…From), подстановка —
 // название языка (HT_problemText).
 var HT_PROBLEMS = {
-  "no-deepl-key": { short: "probNoDeeplKey", page: "probNoDeeplKeyPage" },
-  "no-llm-key": { short: "probNoLlmKey", page: "probNoLlmKeyPage" },
-  "no-consent": { short: "probNoConsent", page: "probNoConsentPage" },
-  "no-builtin": { short: "probNoBuiltin", page: "probNoBuiltinPage" },
+  "no-deepl-key": { short: "probNoDeeplKey" },
+  "no-llm-key": { short: "probNoLlmKey" },
+  "no-consent": { short: "probNoConsent" },
+  "no-builtin": { short: "probNoBuiltin" },
   "deepl-lang": { via: "deepl", short: "probDeeplLangTo", page: "probDeeplLangToPage",
     shortFrom: "probDeeplLangFrom", pageFrom: "probDeeplLangFromPage" },
-  "builtin-lang": { via: "local", short: "probBuiltinLangTo", page: "probBuiltinLangToPage",
-    shortFrom: "probBuiltinLangFrom", pageFrom: "probBuiltinLangFromPage" },
+  "builtin-lang": { via: "local", short: "probBuiltinLangTo", shortFrom: "probBuiltinLangFrom" },
 };
 // Текст причины p: kind — "short" | "page"; st — состояние, по которому её нашли (языки).
 function HT_problemText(p, kind, st) {
@@ -488,10 +480,10 @@ var HT_OBSOLETE_KEYS = ["dispBorder", "dispBorderColor", "dispBorderStyle"];
 var HT_SWATCHES = [["#ffcf4a", "swAmber"], ["#7ed6a5", "swGreen"], ["#8fb8ff", "swBlue"], ["#f5a3c7", "swPink"], ["#c4b5fd", "swLilac"], ["#c9ced5", "swGray"]];
 
 // Допустимые значения настроек-перечислений. Хранилище общее для всех сайтов, а писать в него
-// может не только popup (мини-панель живёт на странице), поэтому значение сверяется со списком
+// может не только страница настроек (язык перевода меняют и окно, и кружок на странице), поэтому значение сверяется со списком
 // при каждом чтении: неизвестное становится значением по умолчанию и не попадает ни в запрос
 // к движку, ни в инструкцию для ИИ. Списки formality/llmProvider/displayMode/trigger обязаны
-// совпадать со значениями полей выбора в popup.html (<option> и переключателей).
+// совпадать со значениями полей выбора в options.html (<option> и переключателей).
 var HT_CHOICES = {
   targetLang: HT_TARGET_LANGS.map((r) => r[0]),
   sourceLang: HT_SOURCE_LANGS.map((r) => r[0]),
@@ -526,7 +518,7 @@ function HT_clampDwell(v) {
 
 // ---- сайты, где перевод выключен ----
 // storage.local.disabledSites — список имён хостов (без «www.», в нижнем регистре). Пишут туда окно
-// расширения и мини-панель на странице, поэтому при каждом чтении сверяем тип и вид записей: в
+// расширения, страница настроек и кружок на странице, поэтому при каждом чтении сверяем тип и вид записей: в
 // список попадают только строки, похожие на имя хоста. «www.» отбрасываем, чтобы example.com и
 // www.example.com были одним сайтом; поддомены — разные сайты (mail.example.com ≠ example.com).
 var HT_SITES_MAX = 2000;

@@ -2,10 +2,6 @@
    (.wl, .wl-col, .wl-hero, .wstep, .try, .pin, .notice, .prog…); здесь — раскладка состояний шага 2, значок на
    панели и блок «Нужен перевод точнее?». */
 
-/* Chrome вставляет в страницы расширения свой лист «body { font-family: <системный>; font-size: 75% }» — он
-   перебивал Inter и размер, унаследованные от .ht. Возвращаем наследование. */
-html.ht body { font-family: inherit; font-size: inherit; line-height: inherit; }
-
 .wl-logo { display: inline-flex; flex: none; }
 .wl-note { font-size: 13px; }
 .wl-sel { width: 280px; max-width: 100%; }
