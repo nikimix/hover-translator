@@ -3,6 +3,7 @@
 // запустил загрузку «Итальянский → русский», и заголовок видео, канал и лента висели в подсветке, пока она шла.
 // Заглушка — fixtures/stub-builtin.html (file://); Translator и LanguageDetector подменены здесь: у каждой пары
 // своя готовность, а «загрузка» (create при нескачанной модели) идёт, пока проверка сама её не отпустит.
+// Новое содержимое (MutationObserver) моделей не качает: только по явной просьбе — Shift, «Перевести страницу», щелчок.
 const assert = require("assert");
 const { launch, filePage, sleep, until } = require("../lib/chrome");
 const { rmDir } = require("../lib/env");
@@ -83,6 +84,33 @@ const EN = (n) => `The quick brown fox number ${n} jumps over the lazy dog near 
     const errs = (await ev("toasts()")).filter((s) => s.startsWith("err:"));
     assert.deepStrictEqual(errs, []);
     ok("модель докачалась — переведены и куски, которые её ждали");
+
+    // ---- 2. Новое содержимое на языке без модели: не качаем, ни о чём не просим, узлы как есть ----
+    // Страница переведена (п. 1) — наблюдатель нового содержимого включён. Модели «Немецкий → русский» нет.
+    // Качать — только по явной просьбе (Shift, «Перевести страницу», щелчок), а не потому, что сайт что-то дописал.
+    const DE = (n) => `Das ist der deutsche Text Nummer ${n} und er ist lang genug für die Probe.`;
+    assert.ok(await until(async () => (await ev("toasts()")).length === 0, 6000), "уведомления п. 1 закрылись: " + JSON.stringify(await ev("toasts()")));
+    assert.ok(await until(() => ev("!navigator.userActivation.isActive"), 8000), "действие пользователя из п. 1 истекло");
+    // а) без действия пользователя — раньше уведомление «Щёлкните по тексту»
+    await ev(`addP("de1", ${JSON.stringify(DE(1))}); true`);
+    await sleep(1500);
+    assert.deepStrictEqual(await ev("toasts()"), [], "без уведомлений о загрузке и щелчке");
+    assert.strictEqual(await text("de1"), DE(1));
+    // б) сразу после щелчка (у страницы есть действие пользователя) — раньше качалась модель; английский рядом переводится
+    await gesture(`addP("de2", ${JSON.stringify(DE(2))}); addP("en7", ${JSON.stringify(EN(7))}); true`);
+    assert.ok(await until(async () => (await text("en7")) === "[en>ru] " + EN(7), 3000), "английский в новом содержимом: " + await text("en7"));
+    await sleep(800);
+    assert.strictEqual(await creates("de>ru"), 0, "модель для нового содержимого не качается");
+    assert.deepStrictEqual(await ev("toasts()"), [], "без уведомлений о загрузке и щелчке");
+    for (const id of ["de1", "de2"]) assert.strictEqual(await text(id), DE(Number(id.slice(2))), id + " как есть");
+    assert.strictEqual(await ev("document.querySelectorAll('.ht-loading, .ht-error').length"), 0, "без подсветки и отметки ошибки");
+    ok("новое содержимое на языке без модели: без загрузки и уведомлений, узлы как есть");
+
+    // в) модель уже есть (итальянский скачан в п. 1) — новое содержимое переводится, как раньше
+    await ev(`addP("it4", ${JSON.stringify(IT(4))}); true`);
+    assert.ok(await until(async () => (await text("it4")) === "[it>ru] " + IT(4), 3000), "итальянский в новом содержимом: " + await text("it4"));
+    assert.strictEqual(await creates("it>ru"), 1, "готовый переводчик из кэша");
+    ok("новое содержимое на языке с готовой моделью переводится");
 
     assert.deepStrictEqual(errors, [], "исключения на странице");
     console.log(`\nВсе проверки пройдены: ${pass}`);

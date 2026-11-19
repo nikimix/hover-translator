@@ -51,6 +51,7 @@
   let mutTimer = 0;
   let mutTries = new WeakMap();      // owner -> { n, at }: сколько раз подряд его переводили заново
   let mutTopUp = new WeakSet();      // owner с живым переводом, в котором сайт добавил или переписал текст
+  let mutNew = new WeakSet();        // owner без перевода, который сайт добавил или переписал: модели для него не качаем
   let keepOrig = new WeakSet();      // owner, которому человек вернул оригинал клавишей: новое в нём не переводим
   let pageGen = 0;                    // токен отмены перевода страницы (инкрементится при сбросе/новом запуске)
   let liveGen = 0;                    // токен отмены всех показов: сброс всех/выключение перевода во время await
@@ -939,11 +940,12 @@
 
   // Язык куска для встроенного переводчика — как detectLang, но короткий кусок получает язык страницы.
   // Страница без языка — свой язык куска с пометкой guess: ради догадки по паре слов модель не качаем.
-  async function langOf(text) {
-    if ((settings.sourceLang && settings.sourceLang !== "auto") || !shortText(text)) return detectLang(text, true);
+  // mayDownload=false — детектор только уже скачанный (новое содержимое, см. chromeTranslate, opts.quiet).
+  async function langOf(text, mayDownload = true) {
+    if ((settings.sourceLang && settings.sourceLang !== "auto") || !shortText(text)) return detectLang(text, mayDownload);
     const page = await pageLang();
     if (page) return { lang: page };
-    const d = await detectLang(text, true);
+    const d = await detectLang(text, mayDownload);
     return d.lang ? Object.assign(d, { guess: true }) : d;
   }
 
@@ -952,9 +954,12 @@
   // Встроенный Chrome Translator: экземпляры кэшируются по паре языков, неудача — нет.
   // mayDownload=false — только уже скачанная модель (язык короткого куска угадан, см. langOf).
   // У обещания есть .loading — оно сбывается, когда для пары началась загрузка модели (см. modelLoading).
+  // Обещание без права качать (новое содержимое, догадка) явную просьбу не подводит: та создаёт своё —
+  // иначе щелчок, пришедший, пока новое содержимое спрашивает availability, получил бы «нужна загрузка».
   function getTranslator(src, tgt, mayDownload = true) {
     const key = src + ">" + tgt;
-    if (!translators.has(key)) {
+    const had = translators.get(key);
+    if (!had || (mayDownload && !had.mayDownload)) {
       let loaded;
       const loading = new Promise((r) => { loaded = r; });
       const p = createModel(Translator, { sourceLanguage: src, targetLanguage: tgt }, pairText(src, tgt), mayDownload, loaded)
@@ -964,6 +969,7 @@
           return r;
         });
       p.loading = loading;
+      p.mayDownload = mayDownload;
       translators.set(key, p);
     }
     return translators.get(key);
@@ -1013,26 +1019,29 @@
   // block — обещание detectLang для всего блока, в котором этот узел (см. localResults), или null.
   // opts.defer — не ждать загрузку модели: кусок, чья модель качается, сразу отдаёт { ok: false, wait } —
   // обещание своего итога, — и пачка с кусками на других языках его не ждёт (см. translatePageChunk).
+  // opts.quiet — новое содержимое страницы (см. flushMut): модель не качаем и щелчка не просим — кусок на
+  // языке без скачанной модели остаётся как есть ({ ok: false, skip: true }). Качать — только по явной просьбе.
   async function chromeTranslate(text, targetLang, block, opts) {
     if (!("Translator" in self)) return { ok: false, error: problemDesc("no-builtin") };
     const tgt = HT_builtinCode(targetLang);
     if (!tgt) return { ok: false, code: "lang", focus: "target-lang", error: sentence(HT_problemText("builtin-lang", "short", { targetLang })) };
+    const quiet = !!(opts && opts.quiet);
     let d = block ? await block : null;
-    if (!d || !(d.lang || d.kind)) d = await langOf(text);
-    if (d.kind === "download") return needDownload(d.state);
+    if (!d || !(d.lang || d.kind)) d = await langOf(text, !quiet);
+    if (d.kind === "download") return quiet ? { ok: false, skip: true } : needDownload(d.state);
     const src = d.lang;
     if (!src) return noLang();
     if (HT_langKey(src) === HT_langKey(tgt)) return { ok: true, value: "", src }; // уже на целевом — оставляем оригинал
-    const tp = getTranslator(src, tgt, !d.guess);
-    if (opts && opts.defer && await modelLoading(tp)) return { ok: false, wait: tp.then((t) => withTranslator(t, tp, text, src, tgt, d.guess)) };
-    return withTranslator(await tp, tp, text, src, tgt, d.guess);
+    const tp = getTranslator(src, tgt, !d.guess && !quiet);
+    if (opts && opts.defer && await modelLoading(tp)) return { ok: false, wait: tp.then((t) => withTranslator(t, tp, text, src, tgt, d.guess, quiet)) };
+    return withTranslator(await tp, tp, text, src, tgt, d.guess, quiet);
   }
 
   // Перевод готовым ответом getTranslator (t; tp — его обещание, чтобы выбросить испорченный экземпляр из кэша).
-  async function withTranslator(t, tp, text, src, tgt, guess) {
+  async function withTranslator(t, tp, text, src, tgt, guess, quiet) {
     // Язык угадан по паре слов, а модели для него нет — не качаем и щелчка не просим: язык не определён.
     if (guess && (t.kind === "download" || t.kind === "unavailable")) return noLang();
-    if (t.kind === "download") return needDownload(t.state, src, tgt);
+    if (t.kind === "download") return quiet ? { ok: false, skip: true } : needDownload(t.state, src, tgt);
     if (t.kind === "unavailable") {
       return { ok: false, error: HT_t("pairUnavailable", [HT_langLabel(src), HT_langLabel(tgt)]) };
     }
@@ -1049,8 +1058,8 @@
         if (!e || e.name !== "UnknownError") throw e;
         const key = src + ">" + tgt;
         if (translators.get(key) === tp) translators.delete(key);
-        const t2 = await getTranslator(src, tgt, !guess);
-        if (t2.kind === "download") return needDownload(t2.state, src, tgt);
+        const t2 = await getTranslator(src, tgt, !guess && !quiet);
+        if (t2.kind === "download") return quiet ? { ok: false, skip: true } : needDownload(t2.state, src, tgt);
         if (!t2.inst) throw e;
         return { ok: true, value: await t2.inst.translate(text), src };
       }
@@ -1100,7 +1109,7 @@
     const blockLang = (i) => {
       const line = lines && lines[i];
       if (!line || !line.nodes) return null;
-      if (!blocks.has(line)) blocks.set(line, langOf(lineText(line)));
+      if (!blocks.has(line)) blocks.set(line, langOf(lineText(line), !(opts && opts.quiet)));
       return blocks.get(line);
     };
     const results = await Promise.all(texts.map((t, i) => chromeTranslateEdges(t, settings.targetLang, blockLang(i), opts)));
@@ -1112,7 +1121,8 @@
   function localOutcome(results, primary) {
     // Текст из одних знаков (bare) переводчику не отдавали — это не удача: иначе блок «Hello» + «, » с
     // нескачанной моделью молча не переводился бы, а подсказку «Щёлкните по тексту» глушил бы «перевод» запятой.
-    const real = results.filter((r) => !(r && r.bare));
+    // Новое содержимое без скачанной модели (skip) — тоже не сбой: ни ошибки, ни подсказки.
+    const real = results.filter((r) => !(r && (r.bare || r.skip)));
     if (!real.length || real.some((r) => r && r.ok)) return { results };
     const dl = results.find((r) => r && r.kind === "download");
     if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key, note: dl.note };
@@ -1154,7 +1164,7 @@
   // opts.defer — для встроенного: не ждать загрузку модели (см. chromeTranslate).
   async function translateItems(texts, by, lines, opts) {
     const out = await translateVia(texts, by, lines, opts);
-    if (out.results && (failErr || needClick)) { failErr = ""; needClick = false; syncFab(); }
+    if (out.results && (failErr || needClick) && out.results.some((r) => r && (r.ok || r.wait))) { failErr = ""; needClick = false; syncFab(); }
     return out;
   }
   async function translateVia(texts, by, lines, opts) {
@@ -2341,13 +2351,21 @@
   // Вошедшее в зону видимости: без перевода — переводим, с переводом, в который сайт дописал текст, — доводим.
   // Сбой, общий для всех (сеть, ключ, лимит), выключает слежение за новым: иначе болтливый сайт с каждой
   // пачкой показывал бы ту же ошибку. Новое подберёт повторное «Перевести страницу».
+  // Новое содержимое (flushMut) модели не качает: на языке без скачанной модели остаётся как есть, без «Щёлкните
+  // по тексту» и без загрузки — качать только по явной просьбе: Shift, «Перевести страницу»,
+  // щелчок. Остаток страницы при прокрутке — часть явной просьбы «Перевести страницу».
   function flushObserved() {
-    const fresh = [], more = [];
-    for (const el of pendingObserved) (lineByOwner.has(el) ? more : fresh).push(el);
+    const fresh = [], quiet = [], more = [];
+    for (const el of pendingObserved) {
+      if (lineByOwner.has(el)) more.push(el);
+      else (mutNew.has(el) ? quiet : fresh).push(el);
+      mutNew.delete(el);
+    }
     pendingObserved.clear();
     const gen = pageGen;
     const stopOnFail = (r) => { if (r && r.stop && gen === pageGen) unwatchPage(); };
     if (fresh.length) translatePageOwners(fresh, gen).then(stopOnFail);
+    if (quiet.length) translatePageOwners(quiet, gen, true).then(stopOnFail);
     if (more.length) topUpOwners(more, gen).then(stopOnFail);
   }
 
@@ -2397,6 +2415,7 @@
     if (mutObserver || dead || !pageActive) return;
     mutTries = new WeakMap();
     mutTopUp = new WeakSet();
+    mutNew = new WeakSet();
     keepOrig = new WeakSet();
     mutObserver = new MutationObserver(onMutations);
     mutObserver.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
@@ -2495,6 +2514,7 @@
       if (t.n >= MUT_TRIES) continue;
       t.n++;
       if (line) mutTopUp.add(o);
+      else mutNew.add(o);        // новое: модели для него не качаем (см. chromeTranslate, opts.quiet)
       pageIO().observe(o);       // виден — переведётся сразу (onPageIO), нет — при прокрутке
     }
     if (mutStarts.size) mutTimer = setTimeout(flushMut, MUT_MS);
@@ -2515,7 +2535,7 @@
       jobs.push({ o, line, nodes });
     }
     const res = { stop: false };
-    if (gone.length) translatePageOwners(gone, gen);
+    if (gone.length) translatePageOwners(gone, gen, true);
     if (!jobs.length) return res;
     const held = new Set();      // владельцы с узлом, чья модель ещё качается: в работе, пока не допишем
     try {
@@ -2530,7 +2550,7 @@
         }
       });
       if (!entries.length) return res;
-      const out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line), { defer: true });
+      const out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line), { defer: true, quiet: true });
       if (gen !== pageGen || lgen !== liveGen) return res;
       if (out.error || !out.results) {
         if (out.error) { showFail(null, out, true); res.stop = pageWide(out); }
@@ -2710,7 +2730,8 @@
 
   // Возвращает { wrote: сколько элементов переведено, failed: была ли ошибка, stop: сбой общий для всех }.
   // Пачки, ждущие загрузку модели (later), следующие не держат: их итог — в конце.
-  async function translatePageOwners(owners, gen) {
+  // quiet — новое содержимое: модели не качаем (см. flushObserved).
+  async function translatePageOwners(owners, gen, quiet) {
     const sum = { wrote: 0, failed: false, stop: false };
     const add = (r) => {
       sum.wrote += r.wrote;
@@ -2720,7 +2741,7 @@
     const laters = [];
     for (let i = 0; i < owners.length; i += OWNER_BATCH) {
       if (gen !== pageGen) return sum;
-      const r = await translatePageChunk(owners.slice(i, i + OWNER_BATCH), gen);
+      const r = await translatePageChunk(owners.slice(i, i + OWNER_BATCH), gen, quiet);
       add(r);
       if (r.later) laters.push(r.later.then(add));
     }
@@ -2729,7 +2750,7 @@
   }
 
   // Возвращает то же и later — обещание итога строк, ждущих загрузку модели (или ничего, если таких нет).
-  async function translatePageChunk(chunk, gen) {
+  async function translatePageChunk(chunk, gen, quiet) {
     const none = { wrote: 0, failed: false };
     const lgen = liveGen;   // токен отмены живых показов — ДО первого await
     // только свободные owner-ы, параллельная проверка «уже на целевом языке»
@@ -2757,7 +2778,7 @@
 
     let out;
     try {
-      out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line), { defer: true });
+      out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line), { defer: true, quiet });
     } catch (e) {
       // Исключение раньше уходило наружу мимо уборки: owner-ы чанка навсегда оставались
       // в inFlight/lineByOwner, а перевод страницы вставал и не создавал IntersectionObserver.
