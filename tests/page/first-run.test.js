@@ -232,6 +232,28 @@ const until = async (fn, ms = 4000, step = 50) => {
     assert.deepStrictEqual(await ev("toasts()"), ["info:Щёлкните по текстуСкачаю переводчик для этой пары"]);
     ok("узел из одних знаков не считается удачей: при нескачанной модели — подсказка «Щёлкните по тексту»");
 
+    // 10. Детектор Chrome на коротком куске уверенно ошибается («прямо под корень» → uk 0,58, «Abono» → it 0,76):
+    //     язык узла — язык его блока, иначе ссылка или выделенное слово оставались непереведёнными посреди перевода.
+    //     Здесь короткое (< 25 знаков) «определяется» как украинский, а пары uk→ru нет.
+    const misdetect = `__tr.pairs = []; { const c0 = Translator.create; Translator.create = async (o) => {
+        __tr.pairs.push(o.sourceLanguage + '>' + o.targetLanguage);
+        if (o.sourceLanguage !== 'es') throw new DOMException('x', 'NotSupportedError');
+        await c0(o); return { translate: async (s) => '[es>ru] ' + s }; }; }
+      LanguageDetector.create = async () => ({ detect: async (t) => [t.length < 25 ? { detectedLanguage: 'uk', confidence: 0.58 } : { detectedLanguage: 'es', confidence: 0.99 }] });`;
+    const P10 = "Riega por la mañana, <a href=\"#x\">directamente</a> sobre la tierra y no sobre las hojas. <b>Abono</b>: cada dos semanas.";
+    await load("fake", { engine: "chrome" });
+    await ev(`__tr.avail = 'available'; ${misdetect}; document.body.insertAdjacentHTML('beforeend', '<p id="p10">${P10.replace(/'/g, "\\'")}</p>'); true`);
+    await hover("#p10"); await tapShift(); await sleep(300);
+    assert.strictEqual(await text("#p10"), "[es>ru] Riega por la mañana, [es>ru] directamente [es>ru] sobre la tierra y no sobre las hojas. [es>ru] Abono: [es>ru] cada dos semanas.");
+    assert.ok((await ev("__tr.pairs")).every((p) => p === "es>ru"), JSON.stringify(await ev("__tr.pairs")));
+    assert.strictEqual(await errClass(), 0);
+    await hover("#p10"); await tapShift(); await sleep(150);
+    await ev("sendCmd('translatePage'); true");
+    assert.ok(await until(async () => /^\[es>ru\] Riega/.test(await text("#p10")), 3000), await text("#p10"));
+    await sleep(200);
+    assert.strictEqual(await text("#p10"), "[es>ru] Riega por la mañana, [es>ru] directamente [es>ru] sobre la tierra y no sobre las hojas. [es>ru] Abono: [es>ru] cada dos semanas.");
+    ok("встроенный: язык короткого узла (ссылка, выделенное слово) — по всему блоку, и клавишей, и «Перевести страницу»");
+
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {
     await b.close();

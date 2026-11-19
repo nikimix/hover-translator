@@ -761,11 +761,13 @@
   // Перевод по тексту (без HTML) встроенным движком. Возвращает src для бейджа.
   // Язык перевода — кодом встроенного переводчика (ZH-HANT → "zh-Hant", NB → "no"); языка нет в его
   // списке — честная причина (сюда это доходит только через «авто» после сбоя DeepL).
-  async function chromeTranslate(text, targetLang) {
+  // block — обещание detectLang для всего блока, в котором этот узел (см. localResults), или null.
+  async function chromeTranslate(text, targetLang, block) {
     if (!("Translator" in self)) return { ok: false, error: problemDesc("no-builtin") };
     const tgt = HT_builtinCode(targetLang);
     if (!tgt) return { ok: false, code: "lang", focus: "target-lang", error: sentence(HT_problemText("builtin-lang", "short", { targetLang })) };
-    const d = await detectLang(text, true);
+    let d = block ? await block : null;
+    if (!d || !(d.lang || d.kind)) d = await detectLang(text, true);
     if (d.kind === "download") return needDownload(d.state);
     const src = d.lang;
     if (!src) return { ok: false, code: "lang", focus: "source-lang", error: HT_t("csDetectFail") };
@@ -792,14 +794,14 @@
   // important»). Апострофа и кавычек “ ” ‘ ’ нет: «’s» после <b>John</b> — часть слова, а “ в немецком закрывает.
   const EDGE_LEAD = /^[\s,.;:!?…)\]}»\p{Pd}]+/u;
   const EDGE_TRAIL = /[\s,;:(\[{«\p{Pd}]+$/u;
-  async function chromeTranslateEdges(text, targetLang) {
+  async function chromeTranslateEdges(text, targetLang, block) {
     const lead = (text.match(EDGE_LEAD) || [""])[0];
     const rest = text.slice(lead.length);
     const trail = (rest.match(EDGE_TRAIL) || [""])[0];
     const core = rest.slice(0, rest.length - trail.length);
     // Одни знаки (запятая между двумя <b>) — переводить нечего: value "" оставляет узел как был.
     if (!/[\p{L}\p{N}]/u.test(core)) return { ok: true, value: "", src: null, bare: true };
-    const r = await chromeTranslate(core, targetLang);
+    const r = await chromeTranslate(core, targetLang, block);
     // value "" — «уже на языке перевода, оставить оригинал»: знаки к нему не приклеиваем.
     if (r && r.ok && r.value) r.value = lead + r.value + trail;
     return r;
@@ -812,8 +814,19 @@
   // «лимит закончился»). Исключения: нескачанная модель — это не сбой, а шаг настройки, и подсказка,
   // что сделать, полезнее ошибки DeepL; «нет ключа» и «нет согласия» в режиме «авто» — не сбой, а
   // обычная работа встроенным, и настоящая причина — в ответе встроенного переводчика.
-  async function localResults(texts, primary) {
-    const results = await Promise.all(texts.map((t) => chromeTranslateEdges(t, settings.targetLang)));
+  // Язык узла — язык его блока (lines[i] — строка перевода, у всех узлов одного блока одна): детектор Chrome на
+  // коротком куске уверенно ошибается — «прямо под корень» → украинский 0,58, «Abono» → итальянский 0,76, «Да» →
+  // сербский 0,38, — и ссылка или выделенное слово внутри блока оставались непереведёнными посреди перевода.
+  // Блок определяем один раз по всему его тексту; свой язык узла — только если по блоку не определился.
+  async function localResults(texts, primary, lines) {
+    const blocks = new Map();
+    const blockLang = (i) => {
+      const line = lines && lines[i];
+      if (!line || !line.nodes) return null;
+      if (!blocks.has(line)) blocks.set(line, detectLang(lineText(line), true));
+      return blocks.get(line);
+    };
+    const results = await Promise.all(texts.map((t, i) => chromeTranslateEdges(t, settings.targetLang, blockLang(i))));
     // Текст из одних знаков (bare) переводчику не отдавали — это не удача: иначе блок «Hello» + «, » с
     // нескачанной моделью молча не переводился бы, а подсказку «Щёлкните по тексту» глушил бы «перевод» запятой.
     const real = results.filter((r) => !(r && r.bare));
@@ -853,14 +866,15 @@
   // кэша попадала бы вся span-обвязка каркаса (кратная переплата и промах кэша на каждом
   // ре-рендере). Ответ раскодируется обратно в чистый текст. `by` — кто инициировал перевод
   // (HT_BY_PAGE / HT_BY_USER), от этого зависит бюджет расхода в background.
-  async function translateItems(texts, by) {
+  // lines — для встроенного: строка перевода каждого текста (язык определяется по блоку целиком), можно без них.
+  async function translateItems(texts, by, lines) {
     const e = HT_engine(settings.engine);
-    if (e.via === "local") return localResults(texts);
+    if (e.via === "local") return localResults(texts, null, lines);
     // Нет ключа или согласия — текст в сеть не уходит вовсе: «авто» сразу переводит встроенным, а
     // DeepL и ИИ сюда обычно не доходят (их останавливает blocked) — это страховка на гонку с
     // хранилищем. Background проверяет то же самое ещё раз перед запросом.
     if (!HT_canSend(e.code, netState())) {
-      if (e.fallback === "local") return localResults(texts);
+      if (e.fallback === "local") return localResults(texts, null, lines);
       const p = problem();
       return { results: null, error: p ? problemDesc(p) : TX_FAIL,
         code: p === "no-consent" ? "no-consent" : p === "deepl-lang" ? "lang" : "no-key", detail: "", focus: p ? problemFocus(p) : "" };
@@ -890,7 +904,7 @@
     const viaLocal = e.fallback === "local" ||
       (e.keyField === "apiKey" && BUILTIN === "ok" && Object.prototype.hasOwnProperty.call(FALLBACK_SAY, fail.code));
     if (!viaLocal) return Object.assign({ results: null }, fail);
-    const out = await localResults(texts, fail);
+    const out = await localResults(texts, fail, lines);
     // Выбран именно DeepL, а встроенный сразу не смог (модель не скачана, пара не поддерживается):
     // говорим о сбое DeepL — подсказка «скачиваю модель» без слова о DeepL только путала.
     if (!out.results && e.fallback !== "local") return Object.assign({ results: null }, fail);
@@ -1582,7 +1596,7 @@
       loadingOn(owner, line.bg.dark);
       placeToast(owner);                     // уведомление не должно закрывать то, что переводится
 
-      const out = await translateItems(recs.map((r) => r.core), HT_BY_PAGE);
+      const out = await translateItems(recs.map((r) => r.core), HT_BY_PAGE, recs.map((r) => r.line));
 
       // отменён (сброс/выключение) или сброшен мышью/заменён за время ожидания
       if (gen !== liveGen || !owner.isConnected || lineByOwner.get(owner) !== line) return;
@@ -1607,6 +1621,16 @@
   // Запись о текстовом узле для батча: ссылка на узел, его rec и разбивка на пробелы + «ядро».
   // Одна фабрика на все три пути — раньше этот блок был скопирован в каждый из них.
   function entryOf(node, rec, raw) { return Object.assign({ node, rec, line: rec.line }, splitWs(raw)); }
+  // Текст блока целиком — по оригиналам его узлов (узел уже мог быть переведён), для определения языка.
+  function lineText(line) {
+    let s = "";
+    for (const n of line.nodes) {
+      const r = nodeRecs.get(n);
+      s += r && r.line === line ? r.orig : n.nodeValue || "";
+      if (s.length > 2000) break;
+    }
+    return s.slice(0, 2000);
+  }
   function newEntry(node, line) {
     const raw = node.nodeValue;
     const rec = { orig: raw, translated: null, line };
@@ -1841,7 +1865,7 @@
       }
     }
     if (!entries.length) return;
-    const out = await translateItems(entries.map((e) => e.core), HT_BY_USER);
+    const out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line));
     if (out.error) { showFail(null, out); return; } // ошибка движка — прежние переводы остаются
     if (gen !== liveGen) return;
     const results = out.results;
@@ -2076,7 +2100,7 @@
 
     let out;
     try {
-      out = await translateItems(entries.map((e) => e.core), HT_BY_USER);
+      out = await translateItems(entries.map((e) => e.core), HT_BY_USER, entries.map((e) => e.line));
     } catch (e) {
       // Исключение раньше уходило наружу мимо уборки: owner-ы чанка навсегда оставались
       // в inFlight/lineByOwner, а перевод страницы вставал и не создавал IntersectionObserver.
