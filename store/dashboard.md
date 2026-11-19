@@ -25,7 +25,7 @@ read; the URL is not stored or sent. `activeTab` shows no warning at install.
 ## Single purpose
 
 ```text
-Translate text on web pages in place. The user points at text and presses a key (or rests the cursor, or clicks "Translate page"), and the extension replaces that text with its translation, keeping links and layout, or shows it in a small card. Translation is done by Chrome's built-in on-device translator by default, or, if the user chooses and explicitly agrees, by DeepL, OpenAI or Anthropic using the user's own API key. Everything else in the extension (language choice, shortcuts, turning it off per site, a small language panel) serves this one purpose.
+Translate text on web pages in place. The user points at text and presses a key (or rests the cursor, or clicks "Translate page"), and the extension replaces that text with its translation, keeping links and layout, or shows it in a small card. Translation is done by Chrome's built-in on-device translator by default, or, if the user chooses and explicitly agrees, by DeepL, OpenAI or Anthropic using the user's own API key. Everything else in the extension (language choice, shortcuts, turning it off per site, a floating button with a language menu) serves this one purpose.
 ```
 
 ## Permission justifications

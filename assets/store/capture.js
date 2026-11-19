@@ -15,7 +15,7 @@
 //   s2-card.png                 — перевод карточкой рядом с абзацем (860×440, ×2);
 //   s3-settings.png             — страница настроек, раздел «На странице»: способ перевода и показа (×3);
 //   s4-popup.png, s4-page.png   — окно расширения с кнопкой «Перевести страницу» (×3) и переведённая
-//                                 страница с мини-панелью (860×480, ×2);
+//                                 страница с плавающей кнопкой (860×480, ×2);
 //   s5-translator.png           — страница настроек, раздел «Переводчик»: выбран DeepL, шаг согласия (×3).
 //
 // Окно расширения: Extensions.triggerAction открывает настоящее окно по значку — так расширение получает
@@ -147,7 +147,7 @@ async function shot(tab, file, clip) {
   console.log("   " + path.relative(HERE, file));
 }
 
-// Наш интерфейс на странице (уведомления, карточка, мини-панель) — в закрытом shadow root под хостом
+// Наш интерфейс на странице (уведомления, карточка, плавающая кнопка) — в закрытом shadow root под хостом
 // с атрибутом data-ht-ui; CDP видит его через pierce. visit(node) — для каждого узла внутри.
 async function walkUi(tab, visit) {
   const { root } = await tab.cmd("DOM.getDocument", { depth: -1, pierce: true });
@@ -342,9 +342,9 @@ async function run(lang) {
     await web.key("rawKeyDown", "Escape", "Escape", 0, 27); await web.key("keyUp", "Escape", "Escape", 0, 27); await sleep(300);
     await store({ displayMode: "replace" }); await sleep(300);
 
-    // ---- 4. Окно расширения и переведённая страница с мини-панелью ----
+    // ---- 4. Окно расширения и переведённая страница с плавающей кнопкой ----
     // Сначала окно (страница только что загружена — на месте действия «Перевести страницу»), потом перевод.
-    await store({ hudShown: true, hudPos: null }); await sleep(300);   // мини-панель — на своём месте (внизу справа)
+    await store({ hudShown: true, hudPos: null }); await sleep(300);   // кружок — на своём месте (справа внизу в 16 px); страница переведена — залит акцентом
     await view(860, 480, 2);
     await web.cmd("Page.reload"); await sleep(1500); await scrollTo(0); await park();
     const popupH = await grant();

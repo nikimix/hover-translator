@@ -6,7 +6,7 @@
   <!-- Скриншот магазина 1280×800: screens.html?n=1..5&lang=en|ru. Подписи — texts.js, снимки
        настоящего расширения — shots/<lang>/ (их делает capture.js), значок — из расширения.
        1 — до и после (абзац клавишей); 2 — карточка; 3 — страница настроек: способ перевода и показа;
-       4 — окно расширения у значка и переведённая страница с мини-панелью; 5 — раздел «Переводчик». -->
+       4 — окно расширения у значка и переведённая страница с плавающей кнопкой; 5 — раздел «Переводчик». -->
   <link rel="stylesheet" href="store.css" />
   <script src="texts.js"></script>
 </head>
@@ -86,13 +86,13 @@ const S = {
     await sidePanel("s3-settings.png", 70 + sideW, LAYOUT.s3.bg);
   },
   // 4. Перевести страницу: окно расширения выходит из значка на панели, рамка — вокруг «Перевести страницу»;
-  // за окном — переведённая страница с мини-панелью внизу справа
+  // за окном — переведённая страница с плавающей кнопкой (кружок, залит акцентом) справа внизу
   async 4() {
     const cap = caption(T.s4);
     const [vw, vh] = LAYOUT.s4.view, P = LAYOUT.s4.popup;
     const b = fitWin(cap, { img: "s4-page.png", vw, vh, maxW: 1120, path: "/tomates", icon: "on" });
-    // окно не закрывает мини-панель (48 px, отступ 16 от низа): низ окна — выше неё
-    const top = b.y + 40, limit = b.py + (vh - 16 - 48 - 10) * b.s;
+    // окно не закрывает кружок (44 px, отступ 16 от низа): низ окна — выше него на 24, чтобы тень окна не гасила акцент
+    const top = b.y + 40, limit = b.py + (vh - 16 - 44 - 24) * b.s;
     const ps = Math.min(1.2, (limit - top) / P.h);
     const pw = Math.round(P.w * ps), ph = Math.round(P.h * ps), px = b.x + b.w - pw - 12;
     add(`<div class="panel" style="left:${px}px;top:${top}px;width:${pw}px;height:${ph}px"><img src="${SH}s4-popup.png" width="${pw}" height="${ph}" alt=""></div>`);
