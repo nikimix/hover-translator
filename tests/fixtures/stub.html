@@ -17,10 +17,13 @@
 <script>
   // Заглушка chrome.* для content.js (как в stub-builtin.html) + то, что нужно этапу 2б:
   // storage.get без колбэка возвращает Promise, сообщения не только translateBatch.
-  // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)  ?dark=1
+  // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)  ?dark=1  ?mqdark=1
   const q = new URLSearchParams(location.search);
   // ?dark=1 — тёмный сайт (фон у <html>, у body своего фона нет)
   if (q.get("dark")) document.documentElement.style.cssText = "background: #121316; color: #d7dade;";
+  // ?mqdark=1 — тема сайта по теме системы (@media в CSS) с плавной сменой фона, как у Хабра
+  if (q.get("mqdark")) document.head.appendChild(document.createElement("style")).textContent =
+    "html, body { background: #fff; transition: background-color .2s; } @media (prefers-color-scheme: dark) { html, body { background: #121316; color: #d7dade; } }";
   window.__calls = [];
   window.__sets = [];
   window.__noticed = {};

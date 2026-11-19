@@ -3586,10 +3586,28 @@
   }
 
   on(window, "resize", () => { if (fab) placeFab(); else placeToast(); });
+  // Перекрасить кружок и уведомление по фону сайта — сейчас и ещё раз чуть позже: сайт может менять тему
+  // с переходом (Хабр: тема — @media в CSS, у html, body и обёрток transition: background-color .2s), и в миг
+  // события фон ещё прежний — siteDark() видит старую тему.
+  let themeLate = 0;
+  function rethemeUi(late) {
+    if (dead) return;
+    themeFab();
+    if (currentToast) currentToast.retheme();
+    if (late) {
+      clearTimeout(themeLate);
+      themeLate = setTimeout(() => { if (fab || currentToast) rethemeUi(false); }, 600);
+    }
+  }
+  // Переход дольше 600 мс — ещё раз, когда фон <html> или <body> доехал.
+  on(document, "transitionend", (e) => {
+    if (e.propertyName === "background-color" && (e.target === document.body || e.target === document.documentElement)
+      && (fab || currentToast)) rethemeUi(false);
+  });
   // Сайт следует теме системы — свои цвета вслед за ним.
   try {
     const mq = matchMedia("(prefers-color-scheme: dark)");
-    on(mq, "change", () => { themeFab(); if (currentToast) currentToast.retheme(); });
+    on(mq, "change", () => rethemeUi(true));
   } catch (e) { /* без matchMedia — тема по фону при показе */ }
   // Сайт сменил тему своим переключателем, без перезагрузки (Википедия — класс у <html>, GitHub — data-color-mode):
   // следим за class, style и data-* у <html> и <body> и перекрашиваемся, когда что-то наше на экране.
@@ -3599,9 +3617,7 @@
     if (themeTimer || !(fab || currentToast)) return;
     themeTimer = setTimeout(() => {
       themeTimer = 0;
-      if (dead) return;
-      themeFab();
-      if (currentToast) currentToast.retheme();
+      rethemeUi(true);
     }, 150);
   });
   function watchTheme() {

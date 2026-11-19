@@ -598,6 +598,22 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await t.shot("fab-dark-on.png", { clip: { x: 600, y: 600, width: 400, height: 200, scale: 1 } });
     ok("цвета по фону сайта: светлый — белый с рамкой #c9ced5 (и при тёмной теме системы), тёмный — #2a2d33, рамка rgba(255,255,255,.4), иконка #8fb0ff, меню тёмное, «переведена» — #8fb0ff; полоса другого цвета через центр окна тему не меняет");
 
+    // ---- 10а. Сайт сменил тему вслед за системой плавно (Хабр: @media в CSS, transition фона .2s) ----
+    // В миг события matchMedia фон ещё прежний, а DOM не меняется — кружок и уведомление перепроверяют тему чуть позже.
+    const toastDk = () => ev("(() => { const r = toastRoot(); return r ? r.querySelector('.toast').classList.contains('dk') : null; })()");
+    await load({ hudShown: true }, "&mqdark=1");
+    await away();
+    await say();
+    assert.deepStrictEqual([(await F()).dk, await toastDk()], [false, false], "светлый сайт — кружок и уведомление светлые");
+    await t.cmd("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+    await sleep(1000);
+    assert.deepStrictEqual([(await F()).dk, await toastDk()], [true, true], "сайт плавно потемнел вслед за системой — кружок и уведомление тёмные");
+    await say();                                             // новое уведомление — чтобы прежнее не ушло по времени
+    await t.cmd("Emulation.setEmulatedMedia", { features: [] });
+    await sleep(1000);
+    assert.deepStrictEqual([(await F()).dk, await toastDk()], [false, false], "сайт плавно посветлел — кружок и уведомление светлые");
+    ok("сайт плавно сменил тему вслед за системой (@media, transition фона .2s) — кружок и уведомление вслед за ним, в обе стороны");
+
     // ---- 11. Поддельные события страницы ничего не делают ----
     await load({ hudShown: true });
     await away();
