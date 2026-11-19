@@ -453,6 +453,29 @@ const SHIFT = 8;
     assert.strictEqual(await pageNow(), "idle", "ничего не переведено — страница не переведена");
     ok("«Перевести страницу»: сбой одной пачки — остальные переводятся, уведомление о сбое вместо «Страница переведена», упавшее — при прокрутке; общий сбой (лимит) останавливает очередь");
 
+    // ---- 8в. Имена (файлы, папки, логины — как у GitHub) не переводятся; обычные ссылки и текст рядом — переводятся ----
+    await load({ trigger: "shift" });
+    const gh = "/expressjs/express/";
+    const names = `<h2 id="repo"><a href="/expressjs">expressjs</a> / <a href="${gh}">express</a></h2>
+      <table id="files"><tbody>
+        <tr><td><div><a href="${gh}tree/master/.github">.github</a></div></td><td><div><a id="cmsg" href="${gh}commit/1a2b">Update the release workflow</a></div></td></tr>
+        <tr><td><div><a href="${gh}tree/master/examples">examples</a></div></td><td><div id="cplain">Fix the broken links in docs</div></td></tr>
+        <tr><td><div><a href="${gh}tree/master/lib">lib</a></div></td></tr>
+        <tr><td><div><a href="${gh}blob/master/.gitignore">.gitignore</a></div></td></tr>
+        <tr><td><div><a href="${gh}blob/master/History.md">History.md</a></div></td></tr>
+      </tbody></table>
+      <ul><li><a id="wmex" href="/wiki/Mexico">Mexico</a></li><li><a id="wdog" href="/wiki/Dog">dog</a></li></ul>
+      <p id="inl">Follow the <a id="inla" href="/docs/install">install</a> guide, <i id="eg">e.g.</i> on a new machine.</p>
+      <p id="site">Visit example.com for details. It ends here.Then more.</p>`;
+    await ev(`document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(names)}); true`);
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await pageNow()) === "done", 3000), "видимое переведено");
+    assert.deepStrictEqual(await ev("Array.from(document.querySelectorAll('#files td:first-child a'), (a) => a.textContent)"),
+      [".github", "examples", "lib", ".gitignore", "History.md"], "файлы и папки — как есть");
+    assert.strictEqual(await text("#repo"), "expressjs / express", "владелец / репозиторий — как есть");
+    for (const sel of ["#cmsg", "#cplain", "#wmex", "#wdog", "#inl", "#inla", "#eg", "#site"]) assert.ok(await tr(sel), sel + " переведён");
+    ok("имена не переводятся: .github, examples, lib, .gitignore, History.md, «expressjs / express»; переводятся: сообщения рядом, /wiki/Mexico «Mexico», /wiki/Dog «dog», ссылка «install» внутри фразы, «e.g.», «example.com» в предложении");
+
     // ---- 9. Выключить на этом сайте ----
     await load({ trigger: "shift", disabledSites: ["127.0.0.1", 5, "<script>"], hudShown: true });
     assert.deepStrictEqual(await ev("sendCmd('getHudState')"), { ok: true, hud: false, site: "127.0.0.1", siteOff: true, lang: "en", page: "idle", done: 0, total: 0, count: 0, src: "" });

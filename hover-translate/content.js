@@ -500,6 +500,30 @@
       if (authorNoTranslate(el)) return false;         // предков owner-а уже проверил isTextTarget
       if (el === owner) break;
     }
+    return !looksLikeName(node, owner);
+  }
+
+  // Имя, а не слова (GitHub: «.gitignore» → «.Гигнор», «lib» → «Либ», «History.md» → «История.MD»):
+  // 1) одно «слово» вида имени файла или адреса: .gitignore, History.md, example.com («e.g.» — нет: точка в конце);
+  // 2) текст ссылки равен последнему сегменту её адреса из строчных латинских букв, цифр и ._- (lib → …/tree/master/lib),
+  //    и ссылка не внутри фразы: у владельца нет текста с буквами вне ссылок. Иначе «follow the <a href="/docs/install">
+  //    install</a> guide» оставил бы слово посреди переведённого предложения. Ссылки Википедии (/wiki/Mexico)
+  //    начинаются в адресе с заглавной — сюда не попадают.
+  const FILE_NAME_RE = /^\.?[\w@+-]+(\.[\w-]+)+$|^\.[\w-]+$/;
+  const NAME_SEG_RE = /^[a-z0-9][a-z0-9._-]*$/;
+  function looksLikeName(node, owner) {
+    const t = node.nodeValue.trim();
+    if (FILE_NAME_RE.test(t)) return true;
+    if (!NAME_SEG_RE.test(t)) return false;
+    const a = node.parentElement.closest("a[href]");
+    if (!a) return false;
+    let seg;
+    try { seg = decodeURIComponent(new URL(a.href).pathname.split("/").filter(Boolean).pop() || ""); } catch (e) { return false; }
+    if (seg !== t) return false;
+    const w = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (/\p{L}/u.test(n.nodeValue) && !n.parentElement.closest("a[href]")) return false;
+    }
     return true;
   }
 
