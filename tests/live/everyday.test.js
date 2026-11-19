@@ -7,8 +7,8 @@
 // перевод страницы из окна: «Перевожу… N из M» по видимым абзацам, «Стоп» без отката,
 // «Переведено N абзацев · Показать оригинал», сегмент «Оригинал | Перевод» без повторных запросов, смена языка на
 // переведённой странице, Esc; настоящий ответ DeepL на выдуманный ключ → «Открыть настройки»; выключение сайта из
-// окна (значок вкладки, переходы); мини-панель (место между страницами, перевод и оригинал, меню «⋯»: выключить сайт,
-// скрыть); наведение с задержкой (прокрутка без движения мыши не переводит, ссылки — тоже); Esc во встроенном окне.
+// окна (значок вкладки, переходы); плавающая кнопка (из окна, перетаскивание и место между страницами, меню по щелчку:
+// перевод и оригинал, выключить сайт, скрыть с «Вернуть»); наведение с задержкой (прокрутка без движения мыши не переводит, ссылки — тоже); Esc во встроенном окне.
 // Для перевода страницы DeepL с платным ключом — заглушка с задержкой (в копии background.js подменён адрес
 // api.deepl.com; бесплатный api-free.deepl.com — настоящий). Горячие клавиши: обработчик chrome.commands.onCommand
 // вызываем из service worker (в копии background.js крючок сохраняет обработчик); настоящее нажатие Alt+Shift+G
@@ -18,7 +18,7 @@ const fs = require("fs");
 const assert = require("assert");
 const { launch, sleep, until } = require("../lib/chrome");
 const { serve } = require("../lib/server");
-const { pageUi, findIn, centerOf, clickUi, popupOpener, popupView, clickSel, prepareBuiltin, mockDeepl } = require("../lib/live");
+const { pageUi, findIn, hasCls, fabUi, centerOf, clickUi, popupOpener, popupView, clickSel, prepareBuiltin, mockDeepl } = require("../lib/live");
 let pass = 0;
 const ok = (name) => { pass++; console.log("  ok  " + name); };
 const HOOK = `// крючок теста (только в копии): обработчик горячих клавиш доступен из service worker
@@ -376,57 +376,76 @@ async function shortcutsFresh(srvBase) {
     await esc();
     ok("выключить на этом сайте (строка сайта в окне): Shift и сочетание не переводят (объяснение на странице), «off» на значке только этой вкладки, переход по сайту — снова «off», на другом сайте — общий; включили — работает");
 
-    // ---- мини-панель ----
+    // ---- плавающая кнопка ----
     p = await pop.open(web, onLive);
-    await clickSel(p, ".p-foot .icon-btn");
-    assert.ok(await until(async () => (await popupView(p)).mini === true, 3000), "кнопка мини-панели нажата");
+    await clickSel(p, ".p-foot button[aria-pressed]");
+    assert.ok(await until(async () => (await popupView(p)).fab === true, 3000), "кнопка «Плавающая кнопка» в окне нажата");
     await pop.close();
     await front();
-    const hudBox = async () => { const hh = (await pageUi(web)).hud; if (!hh) return null; const r = await centerOf(web, hh.hostId); return r && { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.w), h: Math.round(r.h) }; };
-    let hb = await until(hudBox, 3000);
+    const fabBox = async () => { const u = await fabUi(web); const r = u && u.fab && await centerOf(web, u.fab.nodeId);
+      return r ? { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.w), h: Math.round(r.h), cx: Math.round(r.x), cy: Math.round(r.y) } : null; };
+    const menuOpen = async () => { const u = await fabUi(web); return !!(u && u.open); };
+    const openMenu = async () => {
+      if (await menuOpen()) return;
+      const q = await fabBox();
+      await web.click(q.cx, q.cy);
+      assert.ok(await until(menuOpen, 2000), "щелчок по кружку открыл меню");
+    };
+    let fb = await until(fabBox, 3000);
     const vp = JSON.parse(await web.ev("JSON.stringify([document.documentElement.clientWidth, document.documentElement.clientHeight])"));
-    console.log("      (мини-панель: " + JSON.stringify(hb) + ", окно " + vp + ")");
-    assert.ok(hb && Math.abs(vp[0] - (hb.x + hb.w) - 16) <= 1 && Math.abs(vp[1] - (hb.y + hb.h) - 16) <= 1 && hb.h === 48, "внизу справа, отступ 16, высота 48");
-    // перетащить за ручку
-    const grip = await centerOf(web, findIn((await pageUi(web)).hud, (e) => /\bgrip\b/.test(e.attrs.class || "")).nodeId);
-    await web.mouse("mouseMoved", grip.x, grip.y); await web.mouse("mousePressed", grip.x, grip.y, { button: "left", clickCount: 1, buttons: 1 });
-    for (let i = 1; i <= 6; i++) await web.mouse("mouseMoved", grip.x - i * 60, grip.y - i * 40, { button: "left", buttons: 1 });
-    await web.mouse("mouseReleased", grip.x - 360, grip.y - 240, { button: "left", clickCount: 1 }); await sleep(300);
-    const moved = await hudBox();
+    console.log("      (кружок: " + JSON.stringify(fb) + ", окно " + vp + ")");
+    assert.ok(fb && Math.abs(vp[0] - (fb.x + fb.w) - 16) <= 1 && Math.abs(vp[1] - (fb.y + fb.h) - 16) <= 1 && fb.w === 44 && fb.h === 44, "справа внизу, отступ 16, 44 × 44");
+    // перетащить к левому краю — настоящими событиями мыши
+    await web.mouse("mouseMoved", fb.cx, fb.cy); await web.mouse("mousePressed", fb.cx, fb.cy, { button: "left", clickCount: 1, buttons: 1 });
+    for (let i = 1; i <= 8; i++) { await web.mouse("mouseMoved", fb.cx - i * 80, fb.cy - i * 40, { button: "left", buttons: 1 }); await sleep(16); }
+    await web.mouse("mouseReleased", fb.cx - 640, fb.cy - 320, { button: "left", clickCount: 1 }); await sleep(500);
+    const moved = await fabBox();
+    const savedPos = (await get(["hudPos"])).hudPos;
+    assert.ok(moved && Math.abs(moved.x - 16) <= 1 && !(await menuOpen()), "отпустили — у левого края в 16, меню не открылось: " + JSON.stringify(moved));
+    assert.ok(savedPos && savedPos.side === "left" && Math.abs(savedPos.top - moved.y) <= 1, "hudPos { side, top }: " + JSON.stringify(savedPos));
     await web.cmd("Page.navigate", { url: LIVE + "?next=1" }); await sleep(1500);
-    hb = await until(hudBox, 3000);
-    console.log(`      (панель: после перетаскивания ${JSON.stringify(moved)}, на следующей странице ${JSON.stringify(hb)})`);
-    assert.ok(moved && hb && hb.x === moved.x && hb.y === moved.y && moved.x < vp[0] - 300, "на новой странице панель на том же месте");
-    // «Перевести страницу» — нажата, пока страница переведена; «Показать оригинал»
-    const pressed = async () => (findIn((await pageUi(web)).hud, await msg("csPageDone")) || {}).attrs;
+    fb = await until(fabBox, 3000);
+    console.log(`      (кружок: после перетаскивания ${JSON.stringify(moved)}, на следующей странице ${JSON.stringify(fb)}; hudPos ${JSON.stringify(savedPos)})`);
+    assert.ok(fb && fb.x === moved.x && fb.y === moved.y, "на новой странице кружок на том же месте");
+    // щелчок — меню (страницу не переводит); «Перевести страницу» — кружок залит; «Оригинал» — оригинал
+    await openMenu();
+    await sleep(300);
+    assert.ok(!(await ru("#p1")), "щелчок по кружку страницу не перевёл");
+    await web.shot("live-fab-menu.png", { clip: { x: 0, y: 0, width: 1000, height: 760, scale: 0.7 } });
     await clickUi(web, "hud", await msg("translatePage"));
-    assert.ok(await until(() => ru("#p1"), 10000), "кнопка панели перевела страницу");
-    assert.ok(await until(async () => { const a = await pressed(); return a && a["aria-pressed"] === "true"; }, 3000), "кнопка нажата, пока страница переведена");
-    await web.shot("live-hud.png", { clip: { x: 0, y: 0, width: 1000, height: 760, scale: 0.7 } });
-    await clickUi(web, "hud", await msg("csShowOrig"));
-    assert.ok(await until(async () => !(await ru("#p1")), 3000), "«Показать оригинал» в панели");
-    assert.ok(await until(async () => !(await pressed()), 3000), "кнопка отжата");
-    // «⋯» → «Выключить на этом сайте»
-    await clickUi(web, "hud", await msg("csMore"));
-    const more = await until(async () => { const hh = (await pageUi(web)).hud; const m = findIn(hh, await msg("csSiteOffMenu")); return m ? hh : null; }, 3000);
-    assert.ok(more, "меню «⋯» открылось");
-    assert.strictEqual(findIn(more, (e) => e.attrs["aria-haspopup"] === "menu").attrs["aria-expanded"], "true");
-    await web.shot("live-hud-menu.png", { clip: { x: 0, y: 0, width: 1000, height: 760, scale: 0.7 } });
-    await clickUi(web, "hud", await msg("csSiteOffMenu"));
+    assert.ok(await until(() => ru("#p1"), 10000), "«Перевести страницу» в меню перевела");
+    assert.ok(await until(async () => hasCls((await fabUi(web)).fab, "on"), 5000), "кружок залит, пока страница переведена");
+    await web.shot("live-fab-on.png", { clip: { x: 0, y: 0, width: 1000, height: 760, scale: 0.7 } });
+    await openMenu();
+    await clickUi(web, "hud", await msg("ppOrig"));
+    assert.ok(await until(async () => !(await ru("#p1")), 3000), "«Оригинал» в меню — оригинал");
+    assert.ok(await until(async () => !hasCls((await fabUi(web)).fab, "on"), 3000), "заливки нет");
+    // «Выключить на 127.0.0.1»
+    await openMenu();
+    await clickUi(web, "hud", await msg("csFabSiteOff", "127.0.0.1"));
     assert.ok(await until(async () => JSON.stringify((await get(["disabledSites"])).disabledSites) === '["127.0.0.1"]', 3000), "сайт выключен");
-    assert.ok(await until(async () => !(await hudBox()), 3000), "панель скрыта на выключенном сайте");
+    assert.ok(await until(async () => !(await fabBox()), 3000), "кружок скрыт на выключенном сайте");
     const offToast = await until(async () => { const t = await toastNow(); return t && t.texts.includes(await msg("csSiteDisabledTitle", "127.0.0.1")) ? t : null; }, 3000);
     assert.ok(offToast && offToast.texts.includes(await msg("turnBackOn")), "уведомление с «Включить снова»: " + JSON.stringify(offToast && offToast.texts));
     await web.shot("live-site-off-toast.png", { clip: { x: 500, y: 0, width: 500, height: 200, scale: 1 } });
     await clickUi(web, "toast", await msg("turnBackOn"));
     assert.ok(await until(async () => JSON.stringify((await get(["disabledSites"])).disabledSites) === "[]", 3000), "«Включить снова» включил сайт");
-    assert.ok(await until(hudBox, 3000), "включили сайт — панель вернулась");
-    // «⋯» → «Скрыть мини-панель»
-    await clickUi(web, "hud", await msg("csMore"));
-    await clickUi(web, "hud", await msg("csHideHud"));
-    assert.ok(await until(async () => !(await hudBox()), 3000), "панель скрыта");
+    assert.ok(await until(fabBox, 3000), "включили сайт — кружок вернулся");
+    // «Скрыть кнопку» → «Кнопка скрыта» с «Вернуть»
+    await openMenu();
+    await clickUi(web, "hud", await msg("csFabHide"));
+    assert.ok(await until(async () => !(await fabBox()), 3000), "кружок скрыт");
     assert.strictEqual((await get(["hudShown"])).hudShown, false);
-    ok("мини-панель: из окна — внизу справа (16 px, высота 48); место сохраняется на следующей странице; «Перевести страницу» нажата, пока страница переведена, «Показать оригинал» возвращает; «⋯» → «Выключить на этом сайте» (панель скрывается, «Включить снова» возвращает), «Скрыть мини-панель»");
+    const hidToast = await until(async () => { const t = await toastNow(); return t && t.texts.includes(await msg("csFabHiddenTitle")) ? t : null; }, 3000);
+    assert.ok(hidToast && hidToast.texts.includes(await msg("csFabHiddenText")) && hidToast.texts.includes(await msg("csFabBack")), "«Кнопка скрыта» с «Вернуть»: " + JSON.stringify(hidToast && hidToast.texts));
+    await web.shot("live-fab-hidden-toast.png", { clip: { x: 500, y: 0, width: 500, height: 200, scale: 1 } });
+    await clickUi(web, "toast", await msg("csFabBack"));
+    assert.ok(await until(async () => (await get(["hudShown"])).hudShown === true, 3000), "«Вернуть» — hudShown = true");
+    assert.ok(await until(fabBox, 3000), "кружок вернулся");
+    await openMenu();
+    await clickUi(web, "hud", await msg("csFabHide"));
+    assert.ok(await until(async () => (await get(["hudShown"])).hudShown === false, 3000));
+    ok("плавающая кнопка: из окна — справа внизу (16, 44); перетащили настоящей мышью — у левого края в 16, hudPos { side, top }, на следующей странице там же; щелчок открывает меню, не переводя; «Перевести страницу» — кружок залит, «Оригинал» — оригинал; «Выключить на 127.0.0.1» (кружок скрыт, «Включить снова» возвращает); «Скрыть кнопку» — «Кнопка скрыта», «Вернуть» возвращает");
 
     // ---- наведение с задержкой: прокрутка без движения мыши ----
     await store({ trigger: "dwell" }); await sleep(300);

@@ -5,7 +5,8 @@
 // «активной вкладки» (адреса тогда нет, проверка activeTab пропускается).
 // Проверяет: activeTab (адрес сайта, служебная страница → «Здесь перевод не работает»); вкладка, открытая до
 // установки → «Обновить вкладку» → работает; «Скачать переводчик» (если модели ещё нет); обычное состояние и
-// размеры (место действия 72, окно ≤ 600); «Везде», строка сайта, мини-панель; согласие на отправку текста: без
+// размеры (место действия 72, окно ≤ 600); «Везде», строка сайта, плавающая кнопка (кнопка подвала показывает и прячет
+// кружок на вкладке; «Везде» выключено — кружка нет); согласие на отправку текста: без
 // него ни одного запроса к DeepL/ИИ (наведение, «Перевести страницу», прямое сообщение из content-скрипта),
 // «Разрешить отправку» в окне — согласие только на этот сервис, текст уходит; «Авто» без согласия — переводит
 // встроенный; ИИ с согласием только на DeepL — 0 запросов; все 19 состояний окна (вид по модели) в светлой и тёмной
@@ -17,6 +18,7 @@ const fs = require("fs");
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
+const { pageUi } = require("../lib/live");
 // Ожидаемые тексты — из _locales, а не вписанные руками: тексты правят отдельно от проверок.
 const MSG_RU = require(path.join(__dirname, "..", "..", "hover-translate", "_locales", "ru", "messages.json"));
 // Сообщение, как его соберёт chrome.i18n: $имя$ → подстановка по номеру из placeholders.
@@ -158,7 +160,7 @@ const HEIGHTS = { 1: 369, 2: 369, 3: 409, 4: 409, 5: 409, 6: 409, 7: 409, 8: 409
       return p;
     }
     const view = (p) => p.ev(`JSON.stringify((() => { const v = HT_popup.view(); const f = HT_popup.facts;
-      return { n: v.n, act: v.act.k, foot: v.foot.text, dot: v.foot.dot, mini: v.foot.mini, site: v.site, t: v.act.t || "",
+      return { n: v.n, act: v.act.k, foot: v.foot.text, dot: v.foot.dot, fab: v.foot.mini, site: v.site, t: v.act.t || "",
         url: f.tab && f.tab.url, buttons: [...document.querySelectorAll(".p-act button, .p-prob button")].map((x) => x.textContent) }; })())`).then(JSON.parse);
     const clickSel = async (p, sel) => {
       const r = await p.ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
@@ -195,10 +197,10 @@ const HEIGHTS = { 1: 369, 2: 369, 3: 409, 4: 409, 5: 409, 6: 409, 7: 409, 8: 409
       const ps = await openPopup(svc, "chrome://version/");
       const vs = await view(ps);
       assert.strictEqual(vs.n, 10, "служебная страница: " + JSON.stringify(vs));
-      assert.deepStrictEqual([vs.dot, vs.mini, vs.site], ["off", null, null]);
+      assert.deepStrictEqual([vs.dot, vs.fab, vs.site], ["off", null, null]);
       await closePopups();
       await b.cmd("Target.closeTarget", { targetId: svc.targetId });
-      ok(`activeTab: окно по значку (CDP Extensions.triggerAction) видит адрес вкладки, вкладкой без значка — нет; окно ${size[0]}×${size[2]}; chrome://version → «Здесь перевод не работает», серая точка, без строки сайта и мини-панели`);
+      ok(`activeTab: окно по значку (CDP Extensions.triggerAction) видит адрес вкладки, вкладкой без значка — нет; окно ${size[0]}×${size[2]}; chrome://version → «Здесь перевод не работает», серая точка, без строки сайта и кнопки плавающей кнопки`);
     } else ok("activeTab не проверен: в этом Chrome нет Extensions.triggerAction (окно открыто вкладкой)");
 
     // ---- вкладка, открытая до установки: «Обновить вкладку» ----
@@ -238,7 +240,7 @@ const HEIGHTS = { 1: 369, 2: 369, 3: 409, 4: 409, 5: 409, 6: 409, 7: 409, 8: 409
         width: Math.round(document.body.getBoundingClientRect().width), hint: hint.textContent, kbd: hint.querySelector(".kbd") && hint.querySelector(".kbd").textContent,
         scope: [document.querySelector(".p-scope span").textContent, document.querySelector(".p-scope .switch").getAttribute("aria-label"), document.querySelector(".p-scope").title],
         chips: [...document.querySelectorAll(".chip:not([hidden])")].map((c) => c.textContent),
-        mini: [document.querySelectorAll(".p-foot .icon-btn")[0].getAttribute("aria-label"), document.querySelectorAll(".p-foot .icon-btn")[0].title],
+        fab: (() => { const b = document.querySelector(".p-foot button[aria-pressed]"); return b && [b.getAttribute("aria-label"), b.title, b.getAttribute("aria-pressed"), !!b.querySelector("svg")]; })(),
         status: document.querySelector(".status").title, font: getComputedStyle(document.querySelector(".srow-t")).fontFamily.split(",")[0] };
     })())`));
     console.log("      (" + JSON.stringify(geo) + ")");
@@ -250,17 +252,17 @@ const HEIGHTS = { 1: 369, 2: 369, 3: 409, 4: 409, 5: 409, 6: 409, 7: 409, 8: 409
     assert.strictEqual(geo.scope[1], "Перевод везде");
     assert.ok(/^Перевод на всех сайтах, кроме выключенных/.test(geo.scope[2]), geo.scope[2]);
     assert.deepStrictEqual(geo.chips, ["Deutsch"], "недавние: без текущего и без языка страницы (английский)");
-    assert.deepStrictEqual(geo.mini, ["Мини-панель на странице", "Мини-панель на странице"]);
+    assert.deepStrictEqual(geo.fab, [msg("ppFab"), msg("ppFab"), "false", true], "кнопка «Плавающая кнопка на странице» в подвале, не нажата");
     assert.strictEqual(geo.status, "Сменить переводчик");
     assert.strictEqual(geo.font, "Inter", "шрифт окна — Inter из расширения");
     ok(`обычное состояние: шапка 56, место действия 72, подвал 52, окно 340×${geo.body}; «Везде» с подписью и подсказкой; чипы без текущего и исходного языка; шрифт Inter`);
 
-    // ---- «Везде», строка сайта, мини-панель ----
+    // ---- «Везде», строка сайта, плавающая кнопка ----
     await clickSel(pop, ".srow");
     v = await until(async () => { const x = await view(pop); return x.n === 8 ? x : null; }, 3000);
     assert.ok(v, "выключено на сайте");
     assert.deepStrictEqual(JSON.parse(await sw.ev("chrome.storage.local.get('disabledSites').then((s) => JSON.stringify(s.disabledSites))")), ["127.0.0.1"]);
-    assert.strictEqual(v.mini, null, "на выключенном сайте кнопки мини-панели нет");
+    assert.strictEqual(v.fab, null, "на выключенном сайте кнопки плавающей кнопки нет");
     await clickSel(pop, ".srow");
     await until(async () => (await view(pop)).n === 0, 3000);
     await clickSel(pop, ".p-scope");
@@ -270,13 +272,35 @@ const HEIGHTS = { 1: 369, 2: 369, 3: 409, 4: 409, 5: 409, 6: 409, 7: 409, 8: 409
     assert.strictEqual(await pop.ev("Math.ceil(document.body.getBoundingClientRect().height)"), geo.body, "окно не меняет высоту");
     await clickSel(pop, ".p-scope");
     await until(async () => (await view(pop)).n === 0, 3000);
-    await clickSel(pop, ".p-foot .icon-btn");
-    v = await until(async () => { const x = await view(pop); return x.mini ? x : null; }, 3000);
-    assert.ok(v, "мини-панель показана — кнопка нажата");
-    assert.strictEqual(await pop.ev("document.querySelector('.p-foot .icon-btn').title"), "Скрыть мини-панель");
-    await clickSel(pop, ".p-foot .icon-btn");
-    await until(async () => (await view(pop)).mini === false, 3000);
-    ok("строка сайта выключает и включает сайт (без кнопки мини-панели); «Везде» выключает всё, высота окна та же; мини-панель — кнопка нажата, пока панель показана");
+    ok("строка сайта выключает и включает сайт (без кнопки плавающей кнопки); «Везде» выключает всё, высота окна та же");
+    // плавающая кнопка: кнопка подвала показывает кружок на вкладке и прячет его; подсказка — что будет, aria-pressed
+    const fabBtn = () => pop.ev(`(() => { const b = document.querySelector(".p-foot button[aria-pressed]"); return b && !b.hidden ? { label: b.getAttribute("aria-label"), title: b.title, pressed: b.getAttribute("aria-pressed") } : null; })()`);
+    const fabOnTab = async () => !!(await pageUi(web)).hud;
+    const hudShown = () => sw.ev("chrome.storage.local.get('hudShown').then((s) => s.hudShown === true)");
+    assert.deepStrictEqual(await fabBtn(), { label: msg("ppFab"), title: msg("ppFab"), pressed: "false" });
+    assert.strictEqual(await fabOnTab(), false, "кружка на вкладке нет");
+    await clickSel(pop, ".p-foot button[aria-pressed]");
+    v = await until(async () => { const x = await view(pop); return x.fab ? x : null; }, 3000);
+    assert.ok(v, "кнопка нажата");
+    const fabOn = await fabBtn();
+    assert.ok(fabOn.pressed === "true" && fabOn.title === msg("ppFabHide"), "нажата, подсказка «Скрыть плавающую кнопку»: " + JSON.stringify(fabOn));
+    assert.strictEqual(await hudShown(), true, "hudShown = true");
+    assert.ok(await until(fabOnTab, 3000), "кружок появился на вкладке");
+    await web.shot("popup-fab-on-tab.png", { clip: { x: 500, y: 460, width: 500, height: 300, scale: 1 } });
+    // «Везде» выключено — кружка нет (и кнопки в подвале); включили — кружок вернулся сам
+    await clickSel(pop, ".p-scope");
+    assert.ok(await until(async () => (await view(pop)).n === 9, 3000));
+    assert.ok(await until(async () => !(await fabOnTab()), 3000), "перевод выключен везде — кружка на вкладке нет");
+    assert.strictEqual((await view(pop)).fab, null, "и кнопки в подвале нет");
+    await clickSel(pop, ".p-scope");
+    assert.ok(await until(async () => (await view(pop)).fab === true, 3000), "включили — кнопка снова нажата");
+    assert.ok(await until(fabOnTab, 3000), "включили — кружок вернулся");
+    await clickSel(pop, ".p-foot button[aria-pressed]");
+    assert.ok(await until(async () => (await view(pop)).fab === false, 3000), "отжата");
+    assert.deepStrictEqual(await fabBtn(), { label: msg("ppFab"), title: msg("ppFab"), pressed: "false" });
+    assert.strictEqual(await hudShown(), false, "hudShown = false");
+    assert.ok(await until(async () => !(await fabOnTab()), 3000), "кружок исчез с вкладки");
+    ok("плавающая кнопка: кнопка подвала (aria-pressed, подсказка «Плавающая кнопка на странице» / «Скрыть плавающую кнопку») пишет hudShown, кружок на вкладке появляется и исчезает; «Везде» выключено — кружка и кнопки нет, включили — кружок вернулся");
     await closePopups();
 
     // ---- DeepL с ключом без согласия: ни одного запроса ----

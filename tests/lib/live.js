@@ -1,5 +1,5 @@
 // Общие приёмы живых наборов (настоящее расширение в Chrome без интерфейса):
-//   pageUi / clickUi — наш интерфейс на странице сайта (уведомление, мини-панель, карточка). Он в закрытом
+//   pageUi / clickUi — наш интерфейс на странице сайта (уведомление, плавающая кнопка, карточка). Он в закрытом
 //     shadow root: странице не виден (host.shadowRoot === null), а CDP видит — DOM.getDocument с pierce.
 //     Щелчок — настоящий (Input.dispatchMouseEvent по середине элемента): кнопки нашего интерфейса
 //     нажимаются только при isTrusted;
@@ -11,7 +11,8 @@
 const http = require("http");
 const { sleep, until } = require("./chrome");
 
-// Слои нашего интерфейса (z-index хоста, см. content.js: Z_POPOVER, Z_HUD, Z_TOAST).
+// Слои нашего интерфейса (z-index хоста, см. content.js): карточка < плавающая кнопка (кружок и его меню — один хост,
+// слой зовётся hud со времён мини-панели) < уведомление.
 const LAYERS = { 2147483644: "card", 2147483645: "hud", 2147483646: "toast" };
 
 function attrsOf(n) {
@@ -81,6 +82,19 @@ async function centerOf(tab, nodeId) {
   return { x: Math.min(...xs) + w / 2, y: Math.min(...ys) + h / 2, w, h, left: Math.min(...xs), top: Math.min(...ys) };
 }
 
+// Есть ли у элемента (из pageUi) класс c — целым словом: «fab» не совпадает с «fab-w», «fm» — с «fm-head».
+const hasCls = (e, c) => !!e && String(e.attrs.class || "").split(/\s+/).includes(c);
+
+// Плавающая кнопка на вкладке: { fab, menu, open } — элементы кружка (button.fab) и меню (.fm) из pageUi, открыто
+// ли меню; null — кружка нет.
+async function fabUi(tab) {
+  const h = (await pageUi(tab)).hud;
+  if (!h) return null;
+  const fab = h.els.find((e) => e.tag === "BUTTON" && hasCls(e, "fab")) || null;
+  const menu = h.els.find((e) => hasCls(e, "fm")) || null;
+  return { host: h, fab, menu, open: !!menu && !menu.hidden };
+}
+
 // Настоящий щелчок по элементу нашего интерфейса. kind — toast | hud | card; ждёт до ms, пока элемент появится.
 async function clickUi(tab, kind, label, ms = 3000) {
   let at = null, el = null;
@@ -143,8 +157,9 @@ function popupOpener(b, id, onAttach) {
 }
 
 // Вид окна (модель HT_popup.view()) коротко: номер состояния, место действия, подвал, строка сайта, кнопки.
+// fab — кнопка «Плавающая кнопка» в подвале (поле модели foot.mini): null — её нет, true — кружок на вкладке, false — скрыт.
 const popupView = (p) => p.ev(`JSON.stringify((() => { const v = HT_popup.view(); const f = HT_popup.facts;
-  return { n: v.n, act: v.act.k, t: v.act.t || "", d: v.act.d || "", foot: v.foot.text, dot: v.foot.dot, mini: v.foot.mini, site: v.site,
+  return { n: v.n, act: v.act.k, t: v.act.t || "", d: v.act.d || "", foot: v.foot.text, dot: v.foot.dot, fab: v.foot.mini, site: v.site,
     url: f.tab && f.tab.url, hint: (document.querySelector(".p-act > .hint") || {}).textContent || "",
     busy: (document.querySelector(".p-busy") || {}).textContent || "",
     seg: [...document.querySelectorAll(".seg button")].map((b) => b.dataset.k + ":" + b.getAttribute("aria-checked")),
@@ -216,4 +231,4 @@ function mockDeepl() {
   }))));
 }
 
-module.exports = { pageUi, findIn, centerOf, clickUi, popupOpener, popupView, clickSel, prepareBuiltin, mockDeepl };
+module.exports = { pageUi, findIn, hasCls, fabUi, centerOf, clickUi, popupOpener, popupView, clickSel, prepareBuiltin, mockDeepl };

@@ -868,17 +868,34 @@
   "csCopied": {
     "message": "Copied"
   },
-  "csHudDrag": {
-    "message": "Drag the mini panel"
+  "csFabAria": {
+    "message": "$name$ menu",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Hover Translator"
+      }
+    }
   },
-  "csMore": {
-    "message": "More"
+  "csFabSiteOff": {
+    "message": "Turn off on $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
   },
-  "csSiteOffMenu": {
-    "message": "Turn off on this site"
+  "csFabHide": {
+    "message": "Hide the button"
   },
-  "csHideHud": {
-    "message": "Hide the mini panel"
+  "csFabHiddenTitle": {
+    "message": "Button hidden"
+  },
+  "csFabHiddenText": {
+    "message": "You can bring it back in the extension window or in settings."
+  },
+  "csFabBack": {
+    "message": "Bring back"
   },
   "ppScope": {
     "message": "All sites"
@@ -1248,11 +1265,11 @@
   "ppStatusTip": {
     "message": "Change translator"
   },
-  "ppMini": {
-    "message": "Mini panel on the page"
+  "ppFab": {
+    "message": "Floating button on the page"
   },
-  "ppMiniHide": {
-    "message": "Hide mini panel"
+  "ppFabHide": {
+    "message": "Hide the floating button"
   },
   "ppSettings": {
     "message": "Settings"
@@ -2017,11 +2034,17 @@
       }
     }
   },
+  "opFab": {
+    "message": "Show the floating button"
+  },
+  "opFabD": {
+    "message": "A small circle at the edge of the page. Point at it to open a menu with the translation language and “Translate page”. If it covers something, drag it away."
+  },
   "opTarget": {
     "message": "Translation language"
   },
   "opTargetD": {
-    "message": "You can also change it in the extension window and in the mini panel."
+    "message": "You can also change it in the extension window and in the floating button menu."
   },
   "opSourceD": {
     "message": "If a page mixes languages or its language is detected wrong."
@@ -2042,7 +2065,7 @@
     "message": "Turned off on these sites"
   },
   "opSitesOffD": {
-    "message": "Hover, keys and the mini panel don’t work here. You can turn a site off in the extension window."
+    "message": "Hover, keys and the floating button don’t work here. You can turn a site off in the extension window."
   },
   "opSitesNone": {
     "message": "No sites yet."

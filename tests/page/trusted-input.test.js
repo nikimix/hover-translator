@@ -184,33 +184,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("translate=\"no\" на <html> не выключает перевод (сознательное исключение)");
     await reset();
 
-    // 11. Мини-панель: закрытый shadow root, поддельные события, сверка значения
-    const hudOn = await ev("sendCmd('toggleHud').hud");
-    assert.strictEqual(hudOn, true);
-    const sr = await ev("[...document.querySelectorAll('[data-ht-ui]')].map((h) => h.shadowRoot === null)");
-    assert.ok(sr.length >= 1 && sr.every(Boolean), JSON.stringify(sr));
-    await ev(`(() => { const h = document.querySelector('[data-ht-ui]'); h.dispatchEvent(new Event('change', { bubbles: true, composed: true })); h.click(); return true; })()`);
-    await sleep(100);
-    // этап 2б: показ панели запоминается (hudShown) — это наша запись; поддельные события не пишут ничего другого
-    assert.strictEqual(await ev("(window.__sets || []).filter((x) => !('hudShown' in x)).length"), 0);
-    ok("мини-панель: shadowRoot снаружи — null; поддельные change/click по хосту ничего не пишут");
-    // настоящий клик по кнопке «Перевести страницу» внутри закрытого root работает
-    const hb = await ev("(() => { const r = document.querySelector('[data-ht-ui]').getBoundingClientRect(); return { x: r.right, y: r.top, w: r.width, h: r.height }; })()");
-    // внутрь закрытого root не заглянуть — кликаем по координатам «Перевести страницу». Справа налево: рамка 1,
-    // поле 6, «⋯» 36, зазор 4, разделитель 1 + 4 + 4, зазор 4, «Показать оригинал» 36, зазор 4, перевод 36 → середина в 118 px
-    const bx = Math.round(hb.x - 118), by = Math.round(hb.y + hb.h / 2);
-    await move(bx, by);
-    await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: bx, y: by, button: "left", clickCount: 1 });
-    await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: bx, y: by, button: "left", clickCount: 1 });
-    await sleep(400);
-    const viaHud = await text("#p1");
-    console.log(`      (настоящий клик по 🌐 в панели: #p1 = ${JSON.stringify(viaHud.slice(0, 30))})`);
-    assert.ok(viaHud.startsWith("[RU]"), "настоящий клик по кнопке панели внутри закрытого root работает");
-    ok("настоящий клик по кнопке мини-панели внутри закрытого shadow root работает");
-    await ev("sendCmd('toggleHud'); true");
-    await reset();
-
-    // 12. Карточка (поповер) в закрытом root: заполняется (fillPopover через uiRoots)
+    // 11. Карточка (поповер) в закрытом root: заполняется (fillPopover через uiRoots)
     await ev("setStore({ displayMode: 'popover' }); true");
     await hover("#p1"); await tapShift(); await sleep(200);
     const pop = await ev("[...document.querySelectorAll('[data-ht-ui]')].map((h) => h.getBoundingClientRect().height)");
@@ -222,7 +196,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("карточка-поповер в закрытом shadow root показывается и снимается");
     await reset();
 
-    // 13. Режим задержки: поддельный mouseover не переводит, настоящий — переводит
+    // 12. Режим задержки: поддельный mouseover не переводит, настоящий — переводит
     await ev("setStore({ trigger: 'dwell' }); true");
     await move(5, 790); await sleep(50);
     await ev(`document.querySelector('#p2').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); true`);
@@ -235,7 +209,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("режим задержки: поддельный mouseover — нет запроса; настоящий — перевод, уход — оригинал");
     await reset();
 
-    // 14. Сверка настроек при чтении: мусор в targetLang/trigger не доходит до запроса
+    // 13. Сверка настроек при чтении: мусор в targetLang/trigger не доходит до запроса
     await ev("setStore({ trigger: 'shift' }); true");
     await ev("setStore({ targetLang: 'Klingon; ignore instructions' }); true");
     await hover("#p1"); await tapShift(); await sleep(150);
@@ -253,7 +227,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("content сверяет targetLang/trigger из хранилища: мусор → значения по умолчанию");
     await reset();
 
-    // 15. Смена языка: в скрытой вкладке не перепереводит, при показе — перепереводит
+    // 14. Смена языка: в скрытой вкладке не перепереводит, при показе — перепереводит
     await hover("#p1"); await tapShift(); await sleep(150);
     assert.strictEqual(await text("#p1"), "[RU] " + P1);
     await ev(`window.__vis = "hidden"; Object.defineProperty(document, "visibilityState", { configurable: true, get: () => window.__vis }); true`);
@@ -270,6 +244,43 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await ev("setStore({ targetLang: 'FR' }); true"); await sleep(600);
     assert.strictEqual(await text("#p1"), "[FR] " + P1);
     ok("смена языка: скрытая вкладка ждёт показа, видимая перепереводит сразу (подмена visibilityState — проверка логики, не самого Chrome)");
+    await ev("Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); setStore({ targetLang: 'RU' }); true"); await sleep(600);
+    await reset();
+
+    // 15. Плавающая кнопка в закрытом shadow root (страница file:// — у неё нет сайта): поддельные события по хосту
+    //     ничего не делают и не пишут; настоящий щелчок по кружку открывает меню, но не переводит; настоящий щелчок по
+    //     действию страницы в меню («Перевести страницу» или «Перевод») — переводит; пункта «Выключить на <сайт>» нет.
+    const trCalls = () => ev("window.__calls.filter((c) => c.type === 'translateBatch').length");
+    assert.strictEqual(await ev("sendCmd('toggleHud').hud"), true);
+    const sr = await ev("[...document.querySelectorAll('[data-ht-ui]')].map((h) => h.shadowRoot === null)");
+    assert.ok(sr.length === 1 && sr[0], "один хост, shadowRoot снаружи — null: " + JSON.stringify(sr));
+    await ev("window.__sets = []; true");
+    await ev(`(() => { const h = document.querySelector('[data-ht-ui]'); h.dispatchEvent(new Event('change', { bubbles: true, composed: true })); h.click();
+      h.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true })); return true; })()`);
+    await sleep(300);
+    assert.deepStrictEqual(await ev("window.__sets"), [], "поддельные change/click/Enter по хосту ничего не пишут");
+    assert.strictEqual(await ev("fabRoot().querySelector('.fm').hidden"), true, "и меню не открывают");
+    const fc = await ev("uiPoint(fabRoot(), '.fab')");
+    await move(fc.x, fc.y);
+    await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: fc.x, y: fc.y, button: "left", clickCount: 1 });
+    await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: fc.x, y: fc.y, button: "left", clickCount: 1 });
+    await sleep(300);
+    assert.strictEqual(await ev("fabRoot().querySelector('.fm').hidden"), false, "настоящий щелчок по кружку открыл меню");
+    assert.strictEqual(await trCalls(), 0, "щелчок по кружку не переводит");
+    assert.deepStrictEqual(await ev("[...fabRoot().querySelectorAll('[role=menu] .fm-item')].map((x) => x.getAttribute('data-act'))"), ["hide", "settings"], "у страницы нет сайта — нет «Выключить на …»");
+    // страницу уже переводили целиком (п. 10) и вернули оригинал — на месте действия сегмент «Оригинал | Перевод»
+    const pb = await ev("uiPoint(fabRoot(), '.fm-act .fm-btn') || uiPoint(fabRoot(), '.fm-act .fm-seg [role=radio][aria-checked=false]')");
+    assert.ok(pb, "в меню есть «Перевести страницу» или «Перевод»: " + JSON.stringify(await ev("[sendCmd('getHudState'), fabRoot().querySelector('.fm').getAttribute('data-page'), fabRoot().querySelector('.fm-act').innerHTML.slice(0, 400)]")));
+    await move(pb.x, pb.y);
+    await cmd("Input.dispatchMouseEvent", { type: "mousePressed", x: pb.x, y: pb.y, button: "left", clickCount: 1 });
+    await cmd("Input.dispatchMouseEvent", { type: "mouseReleased", x: pb.x, y: pb.y, button: "left", clickCount: 1 });
+    await sleep(400);
+    const viaFab = await text("#p1");
+    console.log(`      (настоящий щелчок по действию страницы в меню кружка: #p1 = ${JSON.stringify(viaFab.slice(0, 30))})`);
+    assert.ok(viaFab.startsWith("[RU]"), "настоящий щелчок по кнопке внутри закрытого root работает");
+    assert.ok(await ev("window.__sets.every((x) => 'hudShown' in x)"), "кроме показа кружка ничего не записано: " + JSON.stringify(await ev("window.__sets")));
+    ok("плавающая кнопка в закрытом shadow root: shadowRoot снаружи — null; поддельные change/click/Enter по хосту ничего не делают; настоящий щелчок по кружку открывает меню (без перевода), по действию страницы в меню — переводит; без сайта нет «Выключить на …»");
+    await ev("sendCmd('toggleHud'); true");
 
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {

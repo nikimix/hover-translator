@@ -129,6 +129,13 @@
               <div class="cr-main"><p class="cr-t" id="badgeT" data-i18n="opBadge"></p><p class="cr-d" id="badgeD"></p></div>
               <div class="cr-ctl"><button type="button" class="switch" id="showLangBadge" role="switch" aria-checked="false" aria-labelledby="badgeT"></button></div>
             </div>
+
+            <!-- Плавающая кнопка (кружок у края страницы) — hudShown; её же показывают и скрывают окно расширения и меню
+                 самого кружка, поэтому переключатель следит за хранилищем. -->
+            <div class="card-row">
+              <div class="cr-main"><p class="cr-t" id="fabT" data-i18n="opFab"></p><p class="cr-d" id="fabD" data-i18n="opFabD"></p></div>
+              <div class="cr-ctl"><button type="button" class="switch" id="hudShown" role="switch" aria-checked="false" aria-labelledby="fabT" aria-describedby="fabD"></button></div>
+            </div>
           </div>
         </section>
 

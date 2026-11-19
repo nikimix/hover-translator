@@ -4,12 +4,15 @@
 // остаток), переводчик переключается только на «Готово», проверка ключа по Enter, отзыв согласия при DeepL;
 // ИИ: согласие у каждого сервиса своё, смена сервиса не меняет переводчик до «Готово», «Отмена» возвращает прежний
 // сервис, ключ другого сервиса не уходит не тому; фокус по просьбе окна (htFocus, openSettings); «Удалить»
-// сохранённые переводы. Скриншоты (светлая и тёмная тема) — с tests/run.sh --shots.
+// сохранённые переводы; «Показывать плавающую кнопку» (последняя строка «На странице»: пишет hudShown, кружок на
+// открытой вкладке сайта появляется и исчезает). Скриншоты (светлая и тёмная тема) — с tests/run.sh --shots.
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const assert = require("assert");
 const { launch, sleep, until } = require("../lib/chrome");
+const { serve } = require("../lib/server");
+const { pageUi } = require("../lib/live");
 // Ожидаемые тексты — из _locales, а не вписанные руками: тексты правят отдельно от проверок.
 const MSG_RU = require(path.join(__dirname, "..", "..", "hover-translate", "_locales", "ru", "messages.json"));
 // Сообщение, как его соберёт chrome.i18n: $имя$ → подстановка по номеру из placeholders.
@@ -70,6 +73,7 @@ const CLAUDE_KEY = "sk-ant-api03-test-key-9Zq";
 
 (async () => {
   const api = await mockApi();
+  const srv = await serve();
   const b = await launch({ lang: "ru", profile: process.env.HT_PROFILE || null });
   const pageErrors = [];
   b.listeners.push((m) => {
@@ -380,6 +384,41 @@ const CLAUDE_KEY = "sk-ant-api03-test-key-9Zq";
     assert.strictEqual(await ev("document.querySelector('#clearCache').disabled"), true, "удалять больше нечего");
     ok("«Удалить»: «2 перевода, N КБ. Хранятся 14 дней…» → «Пока ничего нет…», записей 0, счётчики обнулены");
 
+    // ---- «Показывать плавающую кнопку»: последняя строка «На странице», пишет hudShown, кружок на вкладке сайта ----
+    await store({ hudShown: false });
+    const web = await b.openTab(srv.base + "/live.html");
+    await web.cmd("Emulation.setDeviceMetricsOverride", { width: 1000, height: 760, deviceScaleFactor: 1, mobile: false });
+    await sleep(1200);
+    await b.cmd("Target.activateTarget", { targetId: pt.targetId }); await sleep(200);
+    const fabOnTab = async () => !!(await pageUi(web)).hud;
+    const fabRow = () => ev(`(() => { const rows = [...document.querySelectorAll('#page .card-row')];
+      const r = rows.find((x) => (x.querySelector('.cr-t') || {}).textContent === ${JSON.stringify(msg("opFab"))}); if (!r) return "null";
+      const s = r.querySelector('[role=switch]'); s.scrollIntoView({ block: "center", behavior: "instant" }); const q = s.getBoundingClientRect();
+      return JSON.stringify({ last: r === rows[rows.length - 1], d: (r.querySelector('.cr-d') || {}).textContent, checked: s.getAttribute('aria-checked'),
+        x: q.left + q.width / 2, y: q.top + q.height / 2 }); })()`).then(JSON.parse);
+    let fr = await fabRow();
+    assert.ok(fr, "строка «Показывать плавающую кнопку» в разделе «На странице»");
+    assert.deepStrictEqual([fr.last, fr.d, fr.checked], [true, msg("opFabD"), "false"], "последняя строка раздела, описание, выключено");
+    assert.strictEqual(await fabOnTab(), false, "кружка на вкладке нет");
+    await pt.click(fr.x, fr.y); await sleep(250);
+    assert.ok(await until(async () => (await get(["hudShown"])).hudShown === true, 3000), "переключатель записал hudShown = true");
+    assert.strictEqual((await fabRow()).checked, "true");
+    assert.ok(await until(fabOnTab, 4000), "кружок появился на вкладке сайта");
+    await web.shot("options-fab-on-tab.png", { clip: { x: 500, y: 460, width: 500, height: 300, scale: 1 } });
+    await shots("page-fab", "#page");
+    fr = await fabRow();
+    await pt.click(fr.x, fr.y); await sleep(250);
+    assert.ok(await until(async () => (await get(["hudShown"])).hudShown === false, 3000), "переключатель записал hudShown = false");
+    assert.strictEqual((await fabRow()).checked, "false");
+    assert.ok(await until(async () => !(await fabOnTab()), 4000), "кружок исчез с вкладки");
+    // кружок показали из окна или меню — переключатель это видит
+    await store({ hudShown: true });
+    assert.ok(await until(async () => (await fabRow()).checked === "true", 3000), "hudShown = true извне — переключатель включён");
+    await store({ hudShown: false });
+    assert.ok(await until(async () => (await fabRow()).checked === "false", 3000));
+    await b.cmd("Target.closeTarget", { targetId: web.targetId });
+    ok("«Показывать плавающую кнопку» — последняя строка «На странице» с описанием; переключатель пишет hudShown, кружок на открытой вкладке сайта появляется и исчезает; изменение извне (окно, меню кружка) переключатель подхватывает");
+
     // ---- «Сбросить настройки»: подтверждение на месте; ключи, сохранённые переводы и счётчики остаются ----
     // Счётчики ведёт background (в памяти) и пишет в хранилище с задержкой 1,5 с: отложенная запись после
     // переводов выше иначе затёрла бы подставленное ниже значение нулём. Ждём её, потом подставляем.
@@ -387,7 +426,7 @@ const CLAUDE_KEY = "sk-ant-api03-test-key-9Zq";
     await ev("chrome.storage.local.set({ statChars: 1234 }).then(() => true)");
     await store({ engine: "deepl", consent: { deepl: true, anthropic: true }, apiKey: DEEPL_KEY, keyVerified: true, trigger: "alt", dwellMs: 900,
       targetLang: "DE", sourceLang: "EN", displayMode: "popover", showLangBadge: false, formality: "more", noTranslate: "Foo", dispMode: "custom",
-      dispBg: "#8fb8ff", dispOpacity: 50, disabledSites: ["a.com"], recentLangs: ["DE", "FR"], hudShown: true, hudPos: { left: 10, top: 10 },
+      dispBg: "#8fb8ff", dispOpacity: 50, disabledSites: ["a.com"], recentLangs: ["DE", "FR"], hudShown: true, hudPos: { side: "left", top: 10 },
       enabled: false, llmProvider: "anthropic", llmApiKey: CLAUDE_KEY, llmVerified: true, llmModel: "claude-sonnet-5-5", llmKeyBy: { openai: OPENAI_KEY } });
     await reload();
     const resetUi = () => ev(`JSON.stringify({ t: document.querySelector('#resetT').textContent, d: document.querySelector('#resetD').textContent,
@@ -415,7 +454,7 @@ const CLAUDE_KEY = "sk-ant-api03-test-key-9Zq";
       apiKey: DEEPL_KEY, keyVerified: true, llmProvider: "anthropic", llmApiKey: CLAUDE_KEY, llmVerified: true, llmModel: "claude-sonnet-5-5",
       llmKeyBy: { openai: OPENAI_KEY }, statChars: 1234 };
     for (const k in want) assert.deepStrictEqual(after[k], want[k], k + ": " + JSON.stringify(after[k]));
-    assert.ok(!("hudPos" in after), "место мини-панели — по умолчанию");
+    assert.ok(!("hudPos" in after), "место плавающей кнопки — по умолчанию");
     // страница перерисована из хранилища
     const shown = JSON.parse(await ev(`JSON.stringify({ trig: document.querySelector('#trigger [aria-checked=true]').dataset.v, tgt: document.querySelector('#targetLang').value,
       words: document.querySelector('#noTranslate').value, sites: document.querySelectorAll('#siteList li').length, sel: ui.sel,
@@ -458,5 +497,6 @@ const CLAUDE_KEY = "sk-ant-api03-test-key-9Zq";
   } finally {
     await b.close();
     await api.close();
+    await srv.close();
   }
 })().catch((e) => { console.error("FAIL:", (e && e.stack) || e); process.exit(1); });

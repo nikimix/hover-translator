@@ -409,37 +409,19 @@ const SHIFT = 8;
     await ev("setStore({ trigger: 'dwell', dwellMs: 100 }); true");
     await away(); await hover("#p2"); await move((await at("#p2")).x + 2, (await at("#p2")).y); await sleep(400);
     assert.strictEqual(await calls(), 0, "наведение не переводит");
-    assert.strictEqual(await ev("hudRoot()"), null, "мини-панели нет (хотя она включена)");
+    assert.strictEqual(await ev("document.querySelectorAll('[data-ht-ui]').length"), 0, "нашего интерфейса на странице нет (плавающая кнопка включена, но сайт выключен)");
     assert.strictEqual(await ev("sendCmd('toggleHud').hud"), false);
     await ev("sendCmd({ type: 'translatePage', via: 'command', keys: 'Alt+Shift+O' }); true"); await sleep(100);
     assert.deepStrictEqual(await toastsNow(), ["info:На этом сайте перевод выключенВключить можно в окне расширения: «Переводить на 127.0.0.1»."], "«Перевести страницу» на выключенном сайте — объяснение, без перевода");
     assert.strictEqual(await calls(), 0);
     assert.deepStrictEqual(await ev("typeCalls('siteBadge')"), [{ type: "siteBadge", off: true }], "значок вкладки — «off»");
-    // включили обратно (из окна расширения) — работает, панель вернулась
+    // включили обратно (из окна расширения) — работает, плавающая кнопка вернулась (сама она — в page/fab.test.js)
     await ev("setStore({ disabledSites: [], trigger: 'shift' }); true"); await sleep(100);
-    assert.ok(await ev("!!hudRoot()"), "панель вернулась");
+    assert.strictEqual(await ev("sendCmd('getHudState').hud"), true, "плавающая кнопка вернулась");
     assert.deepStrictEqual(await ev("typeCalls('siteBadge').pop()"), { type: "siteBadge", off: false });
     await hover("#p1"); await tapShift();
     assert.ok(await tr("#p1"));
-    // «⋯» → «Выключить на этом сайте»: оригиналы вернулись, панель скрылась, сайт в списке; «Включить снова»
-    const more = await ev("uiPoint(hudRoot(), 'button[aria-label=\"Ещё\"]')");
-    await click(more.x, more.y); await sleep(80);
-    assert.deepStrictEqual(await ev("[hudRoot().querySelector('.menu').hidden, hudRoot().querySelector('button[aria-label=\"Ещё\"]').getAttribute('aria-expanded')]"), [false, "true"], "меню открыто");
-    assert.ok(await ev("(() => { const m = hudRoot().querySelector('.menu').getBoundingClientRect(), r = toastRoot() && toastRoot().host.getBoundingClientRect(); return !r || r.bottom <= m.top || r.top >= m.bottom || r.right <= m.left || r.left >= m.right; })()"), "уведомление не закрывает меню");
-    await t.shot("hud-menu.png", { clip: { x: 600, y: 560, width: 400, height: 240, scale: 1 } });
-    const off = await ev("uiPoint(hudRoot(), '.menu button')");
-    await click(off.x, off.y); await sleep(300);   // прежнее уведомление исчезает 200 мс
-    assert.ok(!(await tr("#p1")), "оригинал вернулся");
-    assert.strictEqual(await ev("hudRoot()"), null, "панель скрыта");
-    assert.deepStrictEqual(await ev("__store.disabledSites"), ["127.0.0.1"]);
-    ts = await toastsNow();
-    assert.deepStrictEqual(ts, ["info:Перевод на 127.0.0.1 выключенЗдесь не работают наведение и клавишиВключить снова"]);
-    await t.shot("toast-site-off.png", { clip: { x: 600, y: 0, width: 400, height: 160, scale: 1 } });
-    const on = await ev("uiPoint(toastRoot(), '.t-btn')");
-    await click(on.x, on.y); await sleep(150);
-    assert.deepStrictEqual(await ev("__store.disabledSites"), []);
-    assert.ok(await ev("!!hudRoot()"), "панель снова на месте");
-    ok("выключен сайт: ни клавиши, ни наведения, ни панели, «Перевести страницу» объясняет; «⋯» → «Выключить на этом сайте» выключает (с «Включить снова»); значок вкладки «off»; мусор в списке отброшен");
+    ok("выключен сайт: ни клавиши, ни наведения, ни плавающей кнопки, «Перевести страницу» объясняет; значок вкладки «off»; включили обратно — работает, кнопка вернулась; мусор в списке отброшен");
     // встроенное окно с другого адреса смотрит на сайт верхней страницы
     const frameRun = async (store) => {
       const fr = OTHER + "/stub-frame.html?store=" + encodeURIComponent(JSON.stringify(store));
@@ -457,34 +439,6 @@ const SHIFT = 8;
     assert.ok(/^\[RU\]/.test(f2.text), "выключен только адрес самого окна — не считается: сайт определяется по верхней странице");
     ok("встроенное окно с другого адреса проверяет сайт верхней страницы (location.ancestorOrigins)");
 
-    // ---- 10. Мини-панель: показ и место запоминаются ----
-    await load({ trigger: "shift", hudShown: true, hudPos: { left: 120, top: 300 } });
-    let hp = await ev("(() => { const r = hudRoot().host.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; })()");
-    assert.deepStrictEqual(hp, [120, 300], "показана сразу и на сохранённом месте");
-    const grip = await ev("uiPoint(hudRoot(), '.grip')");
-    await move(grip.x, grip.y);
-    await t.mouse("mousePressed", grip.x, grip.y, { button: "left", clickCount: 1 });
-    for (let i = 1; i <= 5; i++) await t.mouse("mouseMoved", grip.x + i * 20, grip.y - i * 10, { button: "left", buttons: 1 });
-    await t.mouse("mouseReleased", grip.x + 100, grip.y - 50, { button: "left", clickCount: 1 });
-    await sleep(100);
-    const posSets = await ev("__sets.filter((s) => 'hudPos' in s)");
-    assert.ok(posSets.length === 1 && posSets[0].hudPos.left === 220 && posSets[0].hudPos.top === 250, "место записано один раз, при отпускании: " + JSON.stringify(posSets));
-    // «другая страница»: перезагрузка с тем, что записано
-    await load({ trigger: "shift", hudShown: true, hudPos: posSets[0].hudPos });
-    hp = await ev("(() => { const r = hudRoot().host.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; })()");
-    assert.deepStrictEqual(hp, [220, 250]);
-    const more2 = await ev("uiPoint(hudRoot(), 'button[aria-label=\"Ещё\"]')");
-    await click(more2.x, more2.y); await sleep(80);
-    const close = await ev("uiPoint(hudRoot(), '.menu button:last-child')");
-    await click(close.x, close.y); await sleep(100);
-    assert.strictEqual(await ev("hudRoot()"), null);
-    assert.deepStrictEqual(await ev("__sets.filter((s) => 'hudShown' in s)"), [{ hudShown: false }]);
-    // показали в другой вкладке — появляется и здесь; мусор в позиции — место по умолчанию
-    await ev("setStore({ hudPos: { left: 'x', top: 1 }, hudShown: true }); true"); await sleep(80);
-    hp = await ev("(() => { const r = hudRoot().host.getBoundingClientRect(); const d = document.documentElement; return [d.clientWidth - Math.round(r.right), d.clientHeight - Math.round(r.bottom)]; })()");
-    assert.deepStrictEqual(hp, [16, 16], "неверная позиция — снизу справа (отступ 16 px от краёв окна без полосы прокрутки)");
-    ok("мини-панель: показ и место (общие для сайтов) восстанавливаются на новой странице, место пишется один раз при отпускании, «⋯» → «Скрыть мини-панель» запоминает «скрыта»");
-
     // ---- 11. Горячая клавиша вкл/выкл: сказать на странице ----
     await ev("sendCmd({ type: 'say', what: 'disabled', keys: 'Alt+Shift+O' }); true"); await sleep(80);
     assert.deepStrictEqual(await toastsNow(), ["info:Перевод выключенВключить снова — Alt+Shift+O"]);
@@ -494,67 +448,53 @@ const SHIFT = 8;
     assert.ok((await toastsNow()).includes("info:Перевод включён"));
     ok("горячие клавиши: «Перевод выключен / Включить снова — Alt+Shift+O», «Перевод включён»; «перевести страницу» при выключенном переводе — подсказка");
 
-    // ---- 12. Где встаёт уведомление: вверху справа; закрыло бы абзац под курсором — внизу над мини-панелью ----
-    // Прямоугольники: [left, top, right, bottom]; пересекаются ли.
+    // ---- 12. Где встаёт уведомление: вверху справа; закрыло бы текст под курсором — внизу справа ----
+    // (над плавающей кнопкой — в page/fab.test.js). Прямоугольники: [left, top, right, bottom]; пересекаются ли.
     const boxes = () => ev(`(() => { const b = (r) => r ? (({ left, top, right, bottom }) => [left, top, right, bottom].map(Math.round))(r.host.getBoundingClientRect()) : null;
-      const d = document.documentElement; return { toast: b(toastRoot()), hud: b(hudRoot()), w: d.clientWidth, h: d.clientHeight }; })()`);
+      const d = document.documentElement; return { toast: b(toastRoot()), w: d.clientWidth, h: d.clientHeight }; })()`);
     const elBox = (sel) => ev(`(({ left, top, right, bottom }) => [left, top, right, bottom].map(Math.round))(document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect())`);
     const cross = (a, c) => a[0] < c[2] && c[0] < a[2] && a[1] < c[3] && c[1] < a[3];
     const say = async () => { await ev("sendCmd({ type: 'say', what: 'disabled', keys: 'Alt+Shift+O' }); true"); await sleep(120); return boxes(); };
-    // широкое окно, курсор слева на абзаце (600 px) — вверху справа с отступом 16
+    // широкое окно, курсор слева на тексте (600 px) — вверху справа с отступом 16
     await t.cmd("Emulation.setDeviceMetricsOverride", { width: 1100, height: 800, deviceScaleFactor: 1, mobile: false });
-    await load({ trigger: "shift", hudShown: true, hudPos: null });
+    await load({ trigger: "shift" });
     await hover("#p1", 10);
     let bx = await say();
     assert.deepStrictEqual([bx.toast[1], bx.w - bx.toast[2], bx.toast[2] - bx.toast[0]], [16, 16, 360], "вверху справа, отступ 16, ширина 360: " + JSON.stringify(bx));
     await t.shot("toast-top.png");
-    // узкое окно: абзац под курсором уходит под уведомление — оно внизу справа над мини-панелью (bottom 72)
+    // узкое окно: текст под курсором ушёл бы под уведомление — оно внизу справа, отступ 16 (кружка нет)
     await t.cmd("Emulation.setDeviceMetricsOverride", { width: 640, height: 600, deviceScaleFactor: 1, mobile: false });
-    await load({ trigger: "shift", hudShown: true, hudPos: null });
+    await load({ trigger: "shift" });
     await hover("#p1", 560);
     bx = await say();
     const p1box = await elBox("#p1");
-    assert.ok(!cross(bx.toast, p1box) && !cross(bx.toast, bx.hud), "не закрывает ни абзац, ни панель: " + JSON.stringify({ bx, p1box }));
-    assert.deepStrictEqual([bx.h - bx.toast[3], bx.hud[1] - bx.toast[3], bx.h - bx.hud[3]], [72, 8, 16], "над мини-панелью: bottom 72 = 16 + 48 + 8");
-    await t.shot("toast-low-over-hud.png");
-    // уведомление уже внизу, а панель увели наверх — уведомление остаётся внизу (не прыгает), с отступом 16
-    await ev("setStore({ hudPos: { left: 100, top: 300 } }); true"); await sleep(100);
-    bx = await boxes();
-    assert.ok(!cross(bx.toast, bx.hud) && bx.h - bx.toast[3] === 16, "панель ушла — уведомление внизу с отступом 16: " + JSON.stringify(bx));
-    // панель внизу посередине, уведомление закрыло бы абзац — встаёт над панелью
-    await load({ trigger: "shift", hudShown: true, hudPos: { left: 300, top: 540 } });
-    await hover("#p1", 560);
-    bx = await say();
-    assert.ok(!cross(bx.toast, bx.hud) && bx.toast[3] <= bx.hud[1], "панель внизу посередине — уведомление над ней: " + JSON.stringify(bx));
-    // без мини-панели — внизу с отступом 16
-    await ev("sendCmd('toggleHud'); true"); await sleep(50);
-    bx = await say();
-    assert.ok(bx.hud === null && bx.h - bx.toast[3] === 16, JSON.stringify(bx));
-    // абзац, который начали переводить, не закрывается: уведомление уже вверху — уходит вниз
+    assert.ok(!cross(bx.toast, p1box) && bx.h - bx.toast[3] === 16 && bx.w - bx.toast[2] === 16, "внизу справа, не закрывает текст: " + JSON.stringify({ bx, p1box }));
+    await t.shot("toast-low.png");
+    // текст, который начали переводить, не закрывается: уведомление уже вверху — уходит вниз
     await away(); await sleep(50);
     bx = await say();
     assert.strictEqual(bx.toast[1], 16, "курсора над текстом нет — вверху: " + JSON.stringify(bx));
     await ev("window.__bgDelay = 300; true");
     await hover("#p1", 10); await tapShift(); await sleep(60);   // курсор слева, правый край абзаца — под уведомлением
     bx = await boxes();
-    assert.strictEqual(bx.h - bx.toast[3], 16, "переводимый абзац под уведомлением — оно ушло вниз: " + JSON.stringify(bx));
+    assert.strictEqual(bx.h - bx.toast[3], 16, "переводимый текст под уведомлением — оно ушло вниз: " + JSON.stringify(bx));
     await ev("window.__bgDelay = 0; true");
     await t.cmd("Emulation.setDeviceMetricsOverride", { width: 1000, height: 800, deviceScaleFactor: 1, mobile: false });
-    ok("уведомление: вверху справа (16, 360); закрыло бы абзац под курсором или переводимый — внизу справа над мини-панелью (72), без панели — 16, панель перетащили — над ней; вниз ушло — не прыгает обратно");
+    ok("уведомление: вверху справа (16, 360); закрыло бы текст под курсором или переводимый — внизу справа в 16");
 
-    // ---- 12а. Свои цвета — по фону сайта, а не по теме системы ----
-    await load({ trigger: "shift", hudShown: true });
-    const look = () => ev(`(() => { const c = toastRoot().querySelector('.toast'), hd = hudRoot().querySelector('.hud'); const g = getComputedStyle;
-      return { toast: [g(c).backgroundColor, g(c).borderTopColor, g(c).fontFamily.split(',')[0]], hud: [g(hd).backgroundColor, g(hd).borderTopColor, g(hd).height] }; })()`);
+    // ---- 12а. Свои цвета — по фону сайта, а не по теме системы (кружок — в page/fab.test.js) ----
+    await load({ trigger: "shift" });
+    const look = () => ev(`(() => { const c = toastRoot().querySelector('.toast'); const g = getComputedStyle;
+      return [g(c).backgroundColor, g(c).borderTopColor, g(c).fontFamily.split(',')[0]]; })()`);
     await t.cmd("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
     await ev("sendCmd({ type: 'say', what: 'enabled' }); true"); await sleep(100);
-    assert.deepStrictEqual(await look(), { toast: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "system-ui"], hud: ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "48px"] }, "светлый сайт при тёмной теме системы — белые");
+    assert.deepStrictEqual(await look(), ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "system-ui"], "светлый сайт при тёмной теме системы — белое");
     await t.cmd("Emulation.setEmulatedMedia", { features: [] });
-    await load({ trigger: "shift", hudShown: true }, "&dark=1");
+    await load({ trigger: "shift" }, "&dark=1");
     await ev("sendCmd({ type: 'say', what: 'enabled' }); true"); await sleep(100);
-    assert.deepStrictEqual(await look(), { toast: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "system-ui"], hud: ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "48px"] }, "тёмный сайт — #2a2d33 с рамкой .4");
+    assert.deepStrictEqual(await look(), ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "system-ui"], "тёмный сайт — #2a2d33 с рамкой .4");
     await t.shot("dark-site.png");
-    ok("уведомление и мини-панель: на светлом сайте белые с рамкой #c9ced5 (и при тёмной теме системы), на тёмном — #2a2d33 с рамкой rgba(255,255,255,.4); шрифт системный");
+    ok("уведомление: на светлом сайте белое с рамкой #c9ced5 (и при тёмной теме системы), на тёмном — #2a2d33 с рамкой rgba(255,255,255,.4); шрифт системный");
 
     // ---- 13. Состояние страницы для окна: tabState, stopPage, pageState ----
     const state = () => ev("sendCmd('getHudState')");
@@ -582,12 +522,8 @@ const SHIFT = 8;
     const nCalls = await ev("trCalls().length");
     assert.ok(nCalls >= Math.ceil(busy.total / 4), `видимое — пачками по 4 абзаца: ${nCalls} запросов на ${busy.total} абзацев`);
     await ev("window.__bgDelay = 0; true");
-    // кнопка мини-панели нажата, пока страница переведена
-    await ev("setStore({ hudShown: true }); true"); await sleep(80);
-    assert.strictEqual(await ev("hudRoot().querySelector('button[aria-pressed]').getAttribute('aria-pressed')"), "true");
     await esc();
     assert.deepStrictEqual(pick(await state()).slice(0, 4), ["orig", 0, 0, 0], "Esc на переведённой целиком странице — «orig»");
-    assert.strictEqual(await ev("hudRoot().querySelector('button[aria-pressed]').getAttribute('aria-pressed')"), "false");
     // «Перевод» (translatePage) снова — «done»; смена языка — перевод заново с «busy»
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
     assert.ok(await until(async () => (await state()).page === "done", 3000));

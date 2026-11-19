@@ -1,5 +1,5 @@
 // popup.js — окно расширения (редизайн «А»). Шапка с «Везде» → язык перевода и недавние →
-// место действия (всегда 72 px) → строка «Переводить на <сайт>» → подвал (переводчик, мини-панель,
+// место действия (всегда 72 px) → строка «Переводить на <сайт>» → подвал (переводчик, плавающая кнопка,
 // настройки). Переводчик, ключи, согласия, способ показа — на странице настроек (options.html); отсюда туда
 // ведут кнопки (сообщение openSettings в background).
 //
@@ -203,6 +203,8 @@ function derive(f) {
 
   if (!s.enabled) { v.n = 9; off(); v.act = { k: "off", t: HT_t("ppAllOffT"), d: HT_t("ppAllOffD") }; return v; }
   if (siteOff) { v.n = 8; off(); v.act = { k: "off", t: HT_t("ppSiteOffT"), d: HT_t("ppSiteOffD") }; return v; }
+  // подвал, переключатель плавающей кнопки: null — его нет, true — кружок на странице, false — скрыт
+  // (поле зовётся mini со времён мини-панели — его читают проверки)
   v.foot.mini = !!(ts && ts.hud);
 
   // 12, 13, 15, 16 — выбранный переводчик не может работать
@@ -373,7 +375,8 @@ function build() {
   const stT = h("span", { class: "st-t" });
   const status = h("button", { type: "button", class: "status", title: HT_t("ppStatusTip"), onclick: () => act("settings", "translator") },
     dot, stT, ic("chevRight", 16, "chev"));
-  const mini = h("button", { type: "button", class: "icon-btn", "aria-label": HT_t("ppMini"), onclick: () => act("mini") }, ic("panel"));
+  // Плавающая кнопка: переключатель (aria-pressed), имя одно — состояние говорит aria-pressed; подсказка — что будет.
+  const mini = h("button", { type: "button", class: "icon-btn", "aria-label": HT_t("ppFab"), onclick: () => act("mini") }, ic("fabPage"));
   const gear = h("button", { type: "button", class: "icon-btn", "aria-label": HT_t("ppSettings"), title: HT_t("ppSettings"),
     onclick: () => act("settings", "") }, ic("gear"));
   const foot = h("div", { class: "p-foot" }, status, mini, gear);
@@ -429,7 +432,7 @@ function render(v) {
   el.stT.textContent = v.foot.text;
   el.mini.hidden = v.foot.mini == null;
   el.mini.setAttribute("aria-pressed", String(!!v.foot.mini));
-  el.mini.title = HT_t(v.foot.mini ? "ppMiniHide" : "ppMini");
+  el.mini.title = HT_t(v.foot.mini ? "ppFabHide" : "ppFab");
   fit();
   return v;
 }
@@ -589,7 +592,7 @@ function setTarget(code) {
   store({ targetLang: code, recentLangs: recent });
 }
 
-// Список выключенных сайтов общий с мини-панелью на страницах — читаем свежий перед записью.
+// Список выключенных сайтов общий с плавающей кнопкой на страницах — читаем свежий перед записью.
 async function toggleSite() {
   const v = last;
   if (!v || !v.site || v.site.dis) return;
@@ -746,7 +749,7 @@ function waitContent(id, completeAt) {
   update();
 })();
 
-// Пуши от вкладки: «Перевожу… N из M», переведено, оригинал, мини-панель.
+// Пуши от вкладки: «Перевожу… N из M», переведено, оригинал, плавающая кнопка.
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!msg || msg.type !== "pageState" || !F.tab || !sender || !sender.tab) return;
   if (sender.tab.id !== F.tab.id || (sender.frameId != null && sender.frameId !== 0)) return;

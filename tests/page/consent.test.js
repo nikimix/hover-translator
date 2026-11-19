@@ -2,7 +2,7 @@
 // (fixtures/stub.html). Проверяет: без согласия на отправку текста — ни одного translateBatch (наведение,
 // клавиша, «Перевести страницу», перепревод после смены языка); «авто» без согласия или без ключа
 // переводит встроенным и при сбое называет настоящую причину; согласие на другой сервис не считается;
-// иконки мини-панели. Страницы отдаёт свой сервер (lib/server.js).
+// значки и подписи плавающей кнопки. Страницы отдаёт свой сервер (lib/server.js).
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
@@ -118,13 +118,20 @@ const NONE = {};
     assert.ok(/DeepL не принял ключ/.test((await toastsNow()).join()), JSON.stringify(await toastsNow()));
     ok("«авто» без ключа или согласия, встроенный не смог: показана настоящая причина («не умеет переводить эту пару»), а не «не задан ключ DeepL»; ошибка ключа DeepL — по-прежнему она");
 
-    // ---- 6. мини-панель: иконки — SVG с подписями; редкое — в меню «⋯» ----
+    // ---- 6. плавающая кнопка: значки — SVG; у кружка, списка языка и кнопок меню — подписи для чтения с экрана ----
     await load({ engine: "chrome", hudShown: true });
-    const hud = await ev("(() => { const r = hudRoot(); return [...r.querySelectorAll('button:not(select > button)')].map((b) => (b.querySelector('svg') ? 'svg' : '-') + ':' + (b.getAttribute('aria-label') || b.textContent)); })()");
-    assert.deepStrictEqual(hud, ["svg:Перевести страницу", "svg:Показать оригинал", "svg:Ещё", "svg:Выключить на этом сайте", "svg:Скрыть мини-панель"]);
-    assert.strictEqual(await ev("hudRoot().querySelector('select').getAttribute('aria-label')"), "Язык перевода");
-    assert.strictEqual(await ev("hudRoot().querySelector('.menu').hidden"), true, "меню закрыто, пока не нажали «⋯»");
-    ok("мини-панель на странице: иконки как в окне (SVG), у каждой кнопки и у списка — подпись для чтения с экрана; «Выключить на этом сайте» и «Скрыть» — в меню «⋯»");
+    assert.strictEqual(await ev("fabRoot().querySelector('.fm').hidden"), true, "меню закрыто, пока его не открыли");
+    const fc = await ev("uiPoint(fabRoot(), '.fab')");
+    await t.click(fc.x, fc.y); await sleep(150);       // меню — настоящим щелчком (содержимое может строиться при открытии)
+    const fab = await ev(`(() => { const r = fabRoot(), b = r.querySelector('.fab'), s = r.querySelector('.fm-sel select');
+      const byIds = (ids) => (ids || '').split(/\\s+/).filter(Boolean).map((id) => (r.getElementById(id) || {}).textContent || '').join(' ').trim();
+      const name = (e) => e.getAttribute('aria-label') || byIds(e.getAttribute('aria-labelledby')) || (e.labels && e.labels[0] ? e.labels[0].textContent.trim() : '') || e.textContent.trim();
+      return { fab: (b.querySelector('svg') ? 'svg' : '-') + ':' + name(b), sel: name(s), open: !r.querySelector('.fm').hidden,
+        buttons: [...r.querySelectorAll('.fm button')].filter((x) => !x.closest('select')).map((x) => (x.querySelector('svg') ? 'svg' : '-') + ':' + name(x)) }; })()`);
+    const want = await ev(`({ fab: 'svg:' + HT_t('csFabAria', [HT_t('extShortName')]), sel: HT_t('targetLangAria'), open: true,
+      buttons: ['svg:' + HT_t('translatePage'), 'svg:' + HT_t('csFabSiteOff', ['127.0.0.1']), 'svg:' + HT_t('csFabHide'), 'svg:' + HT_t('ppSettings')] })`);
+    assert.deepStrictEqual(fab, want);
+    ok("плавающая кнопка: у кружка — значок SVG и подпись «" + want.fab.slice(4) + "», у списка — «" + want.sel + "», у кнопок меню — значки SVG и подписи; меню закрыто, пока его не открыли щелчком");
 
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);

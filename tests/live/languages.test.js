@@ -1,7 +1,7 @@
 // Языки вживую: настоящее расширение в Chrome без интерфейса с английским и русским языком браузера.
 // Проверяет: язык интерфейса — по языку браузера; при установке язык перевода — English (US) для английского
 // браузера и русский для русского; в видимом тексте приветствия (и в его состоянии «Подключите переводчик»), окна
-// (настоящего и всех 19 состояний), уведомлений и мини-панели на английском нет кириллицы, на русском — английских
+// (настоящего и всех 19 состояний), уведомлений и плавающей кнопки (кружок и меню) на английском нет кириллицы, на русском — английских
 // слов, кроме названий сервисов, клавиш и самого расширения; нигде нет «абзац» / «paragraph»; пустых текстов нет;
 // значок расширения на приветствии и в окне — векторный (чёткий на экране ×2); в английском окне все 19 состояний
 // влезают (место действия 72, подсказки в одну строку, ничего не обрезано, подвал ≤ 182 px, ряды одной высоты, окно
@@ -13,7 +13,7 @@
 const assert = require("assert");
 const { launch, sleep, until } = require("../lib/chrome");
 const { serve } = require("../lib/server");
-const { pageUi, popupOpener, popupView, prepareBuiltin } = require("../lib/live");
+const { pageUi, fabUi, clickUi, popupOpener, popupView, prepareBuiltin } = require("../lib/live");
 let LIVE = "";
 const LANGS = process.argv[2] ? [process.argv[2]] : ["en", "ru"];
 let pass = 0;
@@ -293,7 +293,7 @@ async function runLang(lang) {
     assert.deepStrictEqual(langProblems(lang, [title].concat(cmds.map((c) => c[1]))), []);
     ok(`${lang}: подсказка значка «${title}», описания горячих клавиш на языке браузера`);
 
-    // ---- уведомления и мини-панель на странице сайта ----
+    // ---- уведомления и плавающая кнопка на странице сайта ----
     const PAGE_RESULT = lang === "en" ? ["csVisibleInLang", "csAlreadyText", "csNothingText"] : ["csPageDone"];
     const resultTexts = await Promise.all(PAGE_RESULT.map((k) => msg(k)));
     await b.cmd("Target.activateTarget", { targetId: web.targetId });
@@ -338,17 +338,26 @@ async function runLang(lang) {
     texts.push(...page);
     await pageShots("done");
     await sw.ev(`chrome.tabs.sendMessage(${tabId}, { type: "restoreAll" }, { frameId: 0 }).then(() => true)`);
-    // мини-панель: подписи кнопок и меню «⋯»
+    // плавающая кнопка: подпись кружка, меню (язык, действие, пункты). Страницу только что переводили и вернули
+    // оригинал (restoreAll) — место действия, как в окне, сегмент «Оригинал | Перевод».
     await sw.ev(`chrome.tabs.sendMessage(${tabId}, { type: "toggleHud" }, { frameId: 0 }).then(() => true)`);
-    const hud = await until(async () => (await pageUi(web)).hud, 3000);
-    assert.ok(hud, "мини-панель показана");
-    for (const k of ["csMore", "csShowOrig", "csSiteOffMenu", "csHideHud"]) assert.ok(hud.texts.includes(await msg(k)), k + ": " + JSON.stringify(hud.texts));
-    console.log("      (мини-панель: " + JSON.stringify(hud.texts) + ")");
+    assert.ok(await until(async () => (await pageUi(web)).hud, 3000), "плавающая кнопка показана");
+    const fabAria = await msg("csFabAria", await msg("extShortName"));
+    await web.mouse("mouseMoved", 990, 20); await sleep(100);
+    await clickUi(web, "hud", fabAria);
+    assert.ok(await until(async () => (await fabUi(web)).open, 3000), "щелчок по кружку открыл меню");
+    const hud = (await pageUi(web)).hud;
+    for (const [k, sub] of [["csFabAria", await msg("extShortName")], ["targetLangAria"], ["ppOrig"], ["ppTr"], ["csFabSiteOff", "127.0.0.1"], ["csFabHide"], ["ppSettings"]]) {
+      assert.ok(hud.texts.includes(await msg(k, sub)), k + ": " + JSON.stringify(hud.texts));
+    }
+    console.log("      (плавающая кнопка: " + JSON.stringify(hud.texts) + ")");
     texts.push(...hud.texts);
-    await web.shot(`page-hud-${lang}.png`);
+    await web.shot(`page-fab-${lang}.png`);
+    await web.mouse("mouseMoved", 990, 20);
+    await web.key("rawKeyDown", "Escape", "Escape", 0, 27); await web.key("keyUp", "Escape", "Escape", 0, 27); await sleep(150);
     await sw.ev(`chrome.tabs.sendMessage(${tabId}, { type: "toggleHud" }, { frameId: 0 }).then(() => true)`);
     assert.deepStrictEqual(langProblems(lang, [...new Set(texts)]), [], "чужой язык на странице");
-    ok(`${lang}: на странице — «Перевод не работает» с кнопками и значком, «перевести страницу», мини-панель с меню «⋯»: ${new Set(texts).size} строк без чужого языка; скриншоты page-*-${lang}-*.png`);
+    ok(`${lang}: на странице — «Перевод не работает» с кнопками и значком, «перевести страницу», плавающая кнопка с меню: ${new Set(texts).size} строк без чужого языка; скриншоты page-*-${lang}-*.png`);
 
     assert.deepStrictEqual(errors, [], "исключения в консоли");
   } finally {

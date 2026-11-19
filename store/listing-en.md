@@ -46,7 +46,7 @@ FEATURES
 • Page translator: “Translate page” handles what’s on screen first and the rest as you scroll down. Stop it at any time, then switch between Original and Translation in one click.
 • Hover mode: just rest the cursor on a sentence, no keypress needed (links, buttons and menus are skipped). You can also choose Alt or Ctrl as the trigger.
 • A compact toolbar window for everyday actions, and a separate settings tab for the rest.
-• A mini panel to switch languages without opening the settings.
+• A floating button to switch languages without opening the settings.
 • Turn it off on a particular site, such as your email or bank.
 • A list of names and terms to keep as they are (DeepL and AI only).
 • 121 target languages; each service supports its own set.
@@ -75,7 +75,7 @@ LIMITATIONS
 Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trademarks of their respective owners. This extension is not affiliated with or endorsed by them.
 ```
 
-3358 characters. Checked against the store rules:
+3363 characters. Checked against the store rules:
 
 - no word other than “the/and/to…” appears more than 5 times (Shift, Alt, page, key, Chrome, text, translator,
   original, own — 5 each);

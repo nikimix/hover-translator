@@ -25,6 +25,14 @@
   const origAttach = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
   window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? (c.getAttribute("role") === "alert" ? "err" : "info") + ":" + c.querySelector(".t-b").textContent : null; }).filter(Boolean);
+  // Точка на плавающей кнопке: "warn" | "err" (видимые через запятую), null — точки нет, "нет кружка".
+  window.fabRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".fab")).pop() || null;
+  window.fabDot = () => {
+    const r = window.fabRoot();
+    if (!r) return "нет кружка";
+    const ds = [...r.querySelectorAll(".fab-dot")].filter((d) => !d.closest("[hidden]") && getComputedStyle(d).display !== "none" && d.getClientRects().length > 0);
+    return ds.map((d) => d.classList.contains("err") ? "err" : d.classList.contains("warn") ? "warn" : "?").join(",") || null;
+  };
 
   window.chrome = {
     storage: {

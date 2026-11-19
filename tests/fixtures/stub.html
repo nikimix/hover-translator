@@ -40,7 +40,27 @@
   window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? (c.getAttribute("role") === "alert" ? "err" : "info") + ":" + c.querySelector(".t-b").textContent : null; }).filter(Boolean);
   window.toastRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".toast")).pop() || null;
   window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
-  window.hudRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".hud")).pop() || null;
+  // Плавающая кнопка (кружок + меню) — один хост, закрытый root; fabInfo() — что на ней сейчас (null — кружка нет).
+  window.fabRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".fab")).pop() || null;
+  window.fabInfo = () => {
+    const r = window.fabRoot();
+    if (!r) return null;
+    const b = r.querySelector(".fab"), m = r.querySelector(".fm"), w = r.querySelector(".fab-w");
+    const box = (e) => { const q = e.getBoundingClientRect(); return { l: Math.round(q.left), t: Math.round(q.top), r: Math.round(q.right), b: Math.round(q.bottom), w: Math.round(q.width), h: Math.round(q.height) }; };
+    const shown = (e) => !!e && !e.closest("[hidden]") && getComputedStyle(e).display !== "none" && getComputedStyle(e).visibility !== "hidden" && e.getClientRects().length > 0;
+    const pill = r.querySelector(".fab-pill");
+    const dots = [...r.querySelectorAll(".fab-dot")].filter(shown).map((d) => d.classList.contains("err") ? "err" : d.classList.contains("warn") ? "warn" : "?");
+    const a = r.activeElement;
+    return {
+      on: b.classList.contains("on"), drag: b.classList.contains("is-drag"), dk: !!w && w.classList.contains("dk"),
+      ring: shown(r.querySelector(".fab-ring")), pill: shown(pill) ? pill.textContent : null, pillBox: shown(pill) ? box(pill) : null,
+      dot: dots.length ? dots.join(",") : null,
+      open: shown(m), expanded: b.getAttribute("aria-expanded"), page: m ? m.getAttribute("data-page") : null,
+      fab: box(b), menu: shown(m) ? box(m) : null,
+      // где фокус внутри нашего root: «fab», «select», data-act пункта, класс кнопки; null — не у нас
+      focus: !a ? null : a === b ? "fab" : a.tagName === "SELECT" ? "select" : a.getAttribute("data-act") || a.getAttribute("class") || a.tagName,
+    };
+  };
   // Середина элемента внутри закрытого root — в координатах страницы (для настоящих щелчков).
   window.uiPoint = (root, sel) => { const e = root.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
 

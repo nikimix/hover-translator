@@ -548,11 +548,19 @@ function HT_sites(v) {
   return out;
 }
 
-// Мини-панель: показана ли она и где стоит — общие для всех сайтов значения (hudShown, hudPos), чтобы
-// панель не пропадала при переходе на другую страницу. Позицию тоже сверяем при чтении.
-function HT_hudPos(v) {
-  return v && typeof v === "object" && Number.isFinite(v.left) && Number.isFinite(v.top)
-    ? { left: v.left, top: v.top } : null;
+// Плавающая кнопка: показана ли она и где стоит — общие для всех сайтов значения (hudShown, hudPos), чтобы
+// кнопка не пропадала при переходе на другую страницу. Место — { side: "left" | "right", top }: у какого края
+// окна кружок и сколько px от верха окна до его верха (как отпустили); null — место по умолчанию (справа внизу).
+// Сверяем при чтении. Старое место мини-панели { left, top } переводим в новое: край — та половина окна, где была
+// середина кружка (vw — ширина окна; без неё — справа), высота прежняя. Обратно в хранилище при чтении не пишем:
+// перепишется, когда кружок перетащат. Всё остальное — null.
+function HT_hudPos(v, vw) {
+  if (!v || typeof v !== "object") return null;
+  if ((v.side === "left" || v.side === "right") && Number.isFinite(v.top)) return { side: v.side, top: v.top };
+  if (Number.isFinite(v.left) && Number.isFinite(v.top)) {
+    return { side: vw && v.left + 22 < vw / 2 ? "left" : "right", top: v.top };
+  }
+  return null;
 }
 
 // ---- названия клавиш ----

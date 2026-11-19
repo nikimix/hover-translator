@@ -54,7 +54,7 @@
   </ul>
   <p>The script looks at the page only on your computer, to find the text to translate. It doesn’t record your mouse movements, key presses or the pages you visit.</p>
   <p>Text that Chrome’s built-in language detection recognizes as already being in your language is skipped. The detection runs on your computer.</p>
-  <p>On sites where you turned translation off (“Translate on &lt;site&gt;” in the extension window, or “Turn off on this site” in the mini panel’s menu), the extension doesn’t translate anything, even if you click “Translate page”.</p>
+  <p>On sites where you turned translation off (“Translate on &lt;site&gt;” in the extension window, or “Turn off on &lt;site&gt;” in the floating button menu), the extension doesn’t translate anything, even if you click “Translate page”.</p>
 
   <h2>2. The built-in translator (default)</h2>
   <p>The translator built into Google Chrome works on your computer. When you use it, the extension sends nothing over the internet. The first time, Chrome itself downloads language models for the languages you need; your text is not part of that download. The extension doesn’t save these translations.</p>
@@ -91,7 +91,7 @@
   <h2>4. What is stored on your computer</h2>
   <p>Everything below is kept in the extension’s own storage in your Chrome profile. It isn’t synced to your Google account and isn’t sent to the developer. Web pages can’t read it. Removing the extension deletes all of it.</p>
   <ul>
-    <li><strong>Settings:</strong> languages, how translation is turned on (a key or no key, delay), how translations are shown and highlighted, the “Don’t translate these words” list, the chosen translator and AI model, recently used languages, whether the mini panel is shown and where.</li>
+    <li><strong>Settings:</strong> languages, how translation is turned on (a key or no key, delay), how translations are shown and highlighted, the “Don’t translate these words” list, the chosen translator and AI model, recently used languages, whether the floating button is shown and where.</li>
     <li><strong>Your API keys</strong> for DeepL and AI, as you entered them. They are stored unencrypted, like other data in your browser profile, and used only to send requests to the service they belong to.</li>
     <li><strong>Your consent</strong> for each service, and whether each key passed the check.</li>
     <li><strong>Saved translations</strong> — only for DeepL and AI: the original text and its translation, so the same text isn’t sent and paid for twice. For AI, each entry also notes the site it came from (only the scheme and domain, like <code>https://example.com</code>), so a translation from one site is never reused on another. Saved translations are kept for <strong>14 days</strong> and up to about 4 MB; older ones are removed automatically. A copy kept for the current browser session is cleared when Chrome closes. To delete them now: settings page → “Data” → “Saved translations” → <strong>“Delete”</strong> (this also resets the statistics). Translations made by the built-in translator are not saved.</li>

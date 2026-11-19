@@ -107,14 +107,14 @@ const until = async (fn, ms = 4000, step = 50) => {
     await ev("chrome.runtime.id = undefined; chrome.runtime.sendMessage = () => { throw new Error('Extension context invalidated.'); }; true");
     await hover("#p2"); await tapShift(); await sleep(150);
     assert.strictEqual(await text("#p1"), P1, "перевод откатан к оригиналу");
-    assert.strictEqual(await ev("document.querySelectorAll('[data-ht-ui]').length"), 0, "панель и уведомления убраны");
+    assert.strictEqual(await ev("document.querySelectorAll('[data-ht-ui]').length"), 0, "плавающая кнопка и уведомления убраны");
     await hover("#p1"); await tapShift(); await sleep(100);
     await ev("setStore({ trigger: 'dwell' }); true");
     await hover("#p2"); await sleep(400);
     assert.strictEqual(await ev("__calls.length"), before, "больше ни одного обращения к расширению");
     assert.strictEqual(await errClass(), 0);
     assert.strictEqual(await ev("document.querySelectorAll('[data-ht-ui]').length"), 0, "никаких красных уведомлений");
-    ok("пропал контекст расширения: оригиналы возвращены, мини-панель убрана, обработчики сняты, ни одной ошибки");
+    ok("пропал контекст расширения: оригиналы возвращены, плавающая кнопка убрана, обработчики сняты, ни одной ошибки");
 
     // 4. Встроенный: модель не скачана — честная подсказка, не красное; щелчок — загрузка с прогрессом
     await load("fake", { engine: "chrome" });
@@ -253,6 +253,31 @@ const until = async (fn, ms = 4000, step = 50) => {
     await sleep(200);
     assert.strictEqual(await text("#p10"), "[es>ru] Riega por la mañana, [es>ru] directamente [es>ru] sobre la tierra y no sobre las hojas. [es>ru] Abono: [es>ru] cada dos semanas.");
     ok("встроенный: язык короткого узла (ссылка, выделенное слово) — по всему блоку, и клавишей, и «Перевести страницу»");
+
+    // 11. Точки на плавающей кнопке — те же условия, что у уведомлений: «Щёлкните по тексту» — янтарная (warn),
+    //     «Перевод не работает» — красная (err); причину устранили — точки нет. Одновременно — не больше одной.
+    const dotShot = (name) => ev("(() => { const r = fabRoot().host.getBoundingClientRect(); return { x: Math.max(0, r.right - 300), y: Math.max(0, r.bottom - 150) }; })()")
+      .then((o) => t.shot(name, { clip: { x: o.x, y: o.y, width: 300, height: 150, scale: 1 } }));
+    await load("fake", { engine: "chrome", hudShown: true });
+    await hover("#p1"); await tapShift(); await sleep(150);
+    assert.deepStrictEqual(await ev("toasts()"), ["info:Щёлкните по текстуСкачаю переводчик для этой пары"]);
+    assert.strictEqual(await ev("fabDot()"), "warn", "ждём щелчка по тексту — янтарная точка");
+    await dotShot("fab-dot-warn.png");
+    await hover("#p1"); await click("#p1"); await sleep(700);
+    assert.strictEqual(await text("#p1"), "[ru] " + P1);
+    assert.strictEqual(await ev("fabDot()"), null, "щелчок — переводчик скачан, перевели: точки нет");
+    await load("real", { engine: "deepl", hudShown: true });
+    await hover("#p1"); await tapShift(); await sleep(200);
+    const t11 = await ev("toasts()");
+    assert.ok(t11.length === 1 && t11[0].startsWith("err:Перевод не работает"), JSON.stringify(t11));
+    assert.strictEqual(await ev("fabDot()"), "err", "перевод не работает — красная точка");
+    await dotShot("fab-dot-err.png");
+    await ev("setStore({ apiKey: 'k:fx' }); true"); await sleep(300);
+    assert.strictEqual(await ev("fabDot()"), null, "ключ вставили — точки нет");
+    await hover("#p2"); await tapShift(); await sleep(150);
+    assert.ok((await text("#p2")).startsWith("[RU] "), "и переводит");
+    assert.strictEqual(await ev("fabDot()"), null);
+    ok("точки на плавающей кнопке: «Щёлкните по тексту» — янтарная (после щелчка и перевода — нет), «Перевод не работает» — красная (ключ вставили — нет); не больше одной");
 
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {

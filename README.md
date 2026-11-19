@@ -21,7 +21,7 @@ with your own key.
   **Translation** in one click.
 - Choose how to trigger it: Shift, Alt, Ctrl, or no key at all — rest the cursor on the text (links, buttons and menus
   are skipped).
-- Mini panel on the page to switch the language, translate the page or show the original.
+- Floating button on the page: point at it to switch the language, translate the page or show the original.
 - Turn translation off on a particular site (email, bank).
 - “Don’t translate these words” list for names and terms (DeepL and AI).
 - 121 target languages (each translator supports its own set).
@@ -49,7 +49,7 @@ use DeepL or AI with your own key.
    original.
 2. **Esc** brings back the original everywhere on the page.
 3. Click the extension icon for a small window: translation on or off (**All sites**), the language and recently
-   used ones, **Translate page**, “Translate on example.com” for the current site, the mini panel.
+   used ones, **Translate page**, “Translate on example.com” for the current site, showing or hiding the floating button.
 4. Everything else is on the **settings page** (the gear in the window, or right-click the icon → **Options**): the
    translator and keys, how to trigger and show translations, highlighting, languages, sites and words, shortcuts,
    saved translations.
@@ -100,7 +100,7 @@ Full details: [privacy policy](https://nikimix.github.io/hover-translator/privac
 hover-translate/        the extension itself (Manifest V3, no build step) — this folder goes into the store package
   manifest.json
   background.js         service worker: requests to DeepL / OpenAI / Anthropic, saved translations, limits, badge, shortcuts
-  content.js            on every page: finds the text under the cursor, replaces it, card, mini panel, notices
+  content.js            on every page: finds the text under the cursor, replaces it, card, floating button, notices
   shared.js             tables shared by all parts: languages, translators, default settings, consent, texts
   builtin.js            built-in translator status and download (no markup; used by the window, settings and welcome page)
   popup.html/.js/.css   the extension window (toolbar icon)
@@ -140,7 +140,7 @@ tests/run.sh page live/popup  # only the suites whose path contains one of the w
 | Folder | What it checks |
 |---|---|
 | `tests/unit/` | `background.js` and `shared.js` in Node (`vm` with a stubbed `chrome.*`): settings validation, spending limits, requests to DeepL / OpenAI / Anthropic, errors, consent, badge, install; and the `_locales` files — same keys in `en` and `ru`, no unused or missing messages, no Russian in code |
-| `tests/page/` | `content.js` in headless Chrome on test pages with a stubbed `chrome.*`: only real key presses and clicks count, Shift / hover / Esc, card, notices, “Translate page”, turning off a site, mini panel, consent, the built-in translator’s download hint |
+| `tests/page/` | `content.js` in headless Chrome on test pages with a stubbed `chrome.*`: only real key presses and clicks count, Shift / hover / Esc, card, notices, “Translate page”, turning off a site, floating button, consent, the built-in translator’s download hint |
 | `tests/live/` | the real extension in headless Chrome with the real built-in translator: install and welcome page, the extension window in English and Russian (height, nothing cut off), the settings page (connecting DeepL and AI step by step, with stubbed services), notices on a site, shortcuts, extension update with an open tab |
 | `tests/fixtures/` | test pages; `tests/lib/` — Chrome over CDP, a server for the test pages, a `chrome.i18n` stub |
 

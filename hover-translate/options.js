@@ -1,5 +1,5 @@
 // options.js — страница настроек (options_ui, open_in_tab). Всё сохраняется сразу в chrome.storage.local и
-// подхватывается content.js, background.js и окном расширения на лету; изменения оттуда (окно, мини-панель,
+// подхватывается content.js, background.js и окном расширения на лету; изменения оттуда (окно, плавающая кнопка,
 // приветствие) страница тоже подхватывает (storage.onChanged).
 //
 // Переводчик. Выбор карточки DeepL, ИИ или «Авто» (без подключённого DeepL) раскрывает шаги «Согласие → Ключ →
@@ -23,6 +23,7 @@ const MAC = HT_isMac();
 const DEFAULTS = Object.assign({}, HT_DEFAULTS, {
   apiKey: "", keyVerified: false, llmApiKey: "", llmVerified: false, llmKeyBy: {},
   recentLangs: [], consent: {}, disabledSites: [],
+  hudShown: false,                        // плавающая кнопка на страницах (её скрывают и из окна, и из её меню)
 });
 const DEEPL_KEYS_URL = "https://www.deepl.com/your-account/keys";
 const LLM_KEYS_URL = { openai: "https://platform.openai.com/api-keys", anthropic: "https://console.anthropic.com/settings/keys" };
@@ -648,6 +649,7 @@ function renderPage() {
   renderSwatches();
   $("showLangBadge").setAttribute("aria-checked", String(st.showLangBadge !== false));
   $("badgeD").textContent = HT_t("opBadgeD", biPair(true));
+  $("hudShown").setAttribute("aria-checked", String(st.hudShown === true));
 }
 function renderDwell() {
   const r = $("dwellMs");
@@ -744,7 +746,7 @@ function renderSites() {
   $("siteNone").hidden = list.length > 0;
   if (had && !ul.contains(document.activeElement)) focusEl(ul.querySelector("button") || $("noTranslate"));
 }
-// Список общий с окном и мини-панелью — читаем свежий перед записью.
+// Список общий с окном и плавающей кнопкой — читаем свежий перед записью.
 async function enableSite(site) {
   let list = [];
   try { list = HT_sites((await chrome.storage.local.get({ disabledSites: [] })).disabledSites); } catch (e) { /* пустой */ }
@@ -799,8 +801,8 @@ async function clearSaved() {
 // ---------- сбросить настройки ----------
 // Всё, что человек выбирал, — к значениям новой установки: HT_DEFAULTS (переводчик, язык оригинала, способ перевода и
 // показа, подсветка, метка языка, слова-исключения, включён ли перевод), язык перевода — по языку браузера, как при
-// установке (background, onInstalled); согласия на отправку текста, выключенные сайты, недавние языки окна, мини-панель
-// (скрыта, на месте по умолчанию). Остаются ключи DeepL и ИИ и то, что проверено вместе с ними: keyVerified, у ИИ —
+// установке (background, onInstalled); согласия на отправку текста, выключенные сайты, недавние языки окна, плавающая
+// кнопка (скрыта, на месте по умолчанию). Остаются ключи DeepL и ИИ и то, что проверено вместе с ними: keyVerified, у ИИ —
 // сервис, модель и проверенность (llmVerified проверялась для этой пары сервиса и ключа с этой моделью), ключи других
 // сервисов (llmKeyBy). Сохранённые переводы и счётчики — свои кнопки. Сочетания клавиш задаёт Chrome — их расширение
 // не меняет. Подтверждение — на месте: «Сбросить» (danger) и «Отмена».
@@ -980,6 +982,7 @@ function initStatic() {
   $("dispOpacity").addEventListener("input", (e) => { putSoon("dispOpacity", Number(e.target.value), 150); renderSwatches(); });
   $("dispOpacity").addEventListener("change", (e) => { flush("dispOpacity"); put({ dispOpacity: Number(e.target.value) }); });
   $("showLangBadge").addEventListener("click", () => { put({ showLangBadge: st.showLangBadge === false }); renderPage(); });
+  $("hudShown").addEventListener("click", () => { put({ hudShown: st.hudShown !== true }); renderPage(); });
   // языки
   $("targetLang").addEventListener("change", (e) => {
     const code = e.target.value;
