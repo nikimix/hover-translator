@@ -2523,6 +2523,25 @@
     toggle(p.el);
   }, true);
 
+  // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
+  // или aria-modal, раскрытое меню или список (видимый элемент с aria-expanded=true). Наши хосты [data-ht-ui] не
+  // в счёт: меню кружка, карточка и уведомления живут в закрытом shadow root, их Esc разбирает escRestore.
+  // Селекторы, которых этот Chrome не знает, отбрасываем: одна ошибка в списке сломала бы весь querySelectorAll.
+  const SITE_OPEN = [":modal", ":popover-open", "[role=dialog]", "[role=alertdialog]", "[aria-modal=true]", "[aria-expanded=true]"]
+    .filter((s) => { try { return CSS.supports("selector(" + s + ")"); } catch (e) { return false; } }).join(",");
+  function siteOpen() {
+    if (!SITE_OPEN) return false;
+    for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) return true;
+    return false;
+  }
+  // Элемент виден: не спрятан (display, visibility, прозрачность) и хоть краем в окне. Окна и меню, которые сайт
+  // держит в разметке скрытыми или унёс за край экрана, открытыми не считаем.
+  function onScreen(el) {
+    if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, opacityProperty: true, visibilityProperty: true })) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+  }
+
   // Esc возвращает оригинал везде на странице и закрывает карточку — если есть что возвращать.
   // preventDefault не зовём: Esc нужен и самому сайту (закрыть окно, меню). Фокус в поле ввода —
   // Esc для поля (закрыть подсказки поиска), переводы не трогаем. Встроенные окна вкладки (у
@@ -2536,6 +2555,12 @@
     if (typingFocus()) return;
     // Esc закрывает и уведомление расширения на странице (раньше оно висело до таймера или ✕).
     if (currentToast) currentToast.close();
+    // У сайта открыто окно или меню — Esc закрывает его (это делает сайт), перевод остаётся. Наша карточка
+    // закрывается, как и раньше: её абзац мог быть в этом окне.
+    if (siteOpen()) {
+      for (const owner of Array.from(popovers.keys())) removePopover(owner);
+      return;
+    }
     if (!anythingShown()) return;
     restoreAll();
     if (!TOP || document.querySelector("iframe, frame")) send({ type: "restoreTab" }).catch(() => {});

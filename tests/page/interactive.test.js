@@ -289,16 +289,20 @@ function pageHelpers() {
       ok("не переводятся по замыслу: плейсхолдеры, значение и текст по умолчанию textarea, пункты select, contenteditable, title/aria-label/href, заголовок вкладки");
       checkExercise(await exercise(), "после перевода клавишей");
       ok("после перевода клавишей сайт отвечает так же: все обработчики живы, ссылки ведут туда же, label фокусирует поле, форма уходит с теми же значениями, select, details, вкладки, аккордеон, меню, окна, shadow DOM, подсказка");
-      // Esc: открытое меню сайта закрывается его же обработчиком, переводы возвращаются
+      // Esc при открытом меню сайта — только сайту: меню закрывает его же обработчик, перевод на месте;
+      // следующий Esc (ничего не открыто) возвращает оригинал
       await ev("__log.length = 0; true");
       await click("#ddBtn");
+      const ruOpen = (await ev("__ru()")).length;
       await esc();
       assert.deepStrictEqual(await ev("__log.slice()"), ["dd:open", "dd:closed:esc"], "Esc дошёл до сайта");
+      assert.ok(ruOpen > 0 && (await ev("__ru()")).length === ruOpen, "меню сайта было открыто — Esc перевод не трогает");
+      await esc();
       assert.deepStrictEqual(await ev("__ru()"), [], "после Esc перевода не осталось");
       assert.deepStrictEqual(await ev("__texts()"), BASE.texts, "тексты — как до перевода");
       assert.deepStrictEqual(await ev("__struct()"), BASE.struct, "строение DOM — как до перевода");
       assert.deepStrictEqual(await ev("__moved()"), []);
-      ok("Esc: меню сайта закрылось его обработчиком (Esc дошёл до сайта), а все тексты, строение DOM и текстовые узлы — как до перевода");
+      ok("Esc: при открытом меню сайта — закрыл меню его обработчиком (Esc дошёл до сайта), перевод на месте; следующий Esc — все тексты, строение DOM и текстовые узлы как до перевода");
       checkExercise(await exercise(), "после Esc");
       ok("после Esc сайт отвечает так же");
     });

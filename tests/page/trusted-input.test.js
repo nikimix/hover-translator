@@ -282,6 +282,42 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("плавающая кнопка в закрытом shadow root: shadowRoot снаружи — null; поддельные change/click/Enter по хосту ничего не делают; настоящий щелчок по кружку открывает меню (без перевода), по действию страницы в меню — переводит; без сайта нет «Выключить на …»");
     await ev("sendCmd('toggleHud'); true");
 
+    // 16. Esc на переведённой странице: открыто окно или меню сайта — Esc закрывает его, перевод на месте; ничего не
+    //     открыто — Esc возвращает оригинал. Настоящий Esc (Input.dispatchKeyEvent): окно и поповер закрывает сам Chrome.
+    const esc = async () => { await keyDown("Escape", "Escape", 0, { vk: 27 }); await keyUp("Escape", "Escape", 0, { vk: 27 }); await sleep(150); };
+    const ru1 = async () => (await text("#p1")).startsWith("[RU] ");
+    await reset();
+    await ev("sendCmd('translatePage'); true"); await sleep(400);
+    assert.ok(await ru1(), "страница переведена");
+    assert.strictEqual(await ev(`(() => { const d = document.createElement("dialog"); d.id = "sdlg"; d.textContent = "Site dialog";
+      document.body.appendChild(d); d.showModal(); return d.matches(":modal"); })()`), true);
+    await esc();
+    assert.strictEqual(await ev("document.querySelector('#sdlg').open"), false, "Esc закрыл окно сайта");
+    assert.ok(await ru1(), "открытый <dialog> — Esc только сайту, перевод на месте");
+    assert.strictEqual(await ev(`(() => { const p = document.createElement("div"); p.id = "spop"; p.popover = "auto"; p.textContent = "Site popover";
+      document.body.appendChild(p); p.showPopover(); return p.matches(":popover-open"); })()`), true);
+    await esc();
+    assert.strictEqual(await ev("document.querySelector('#spop').matches(':popover-open')"), false, "Esc закрыл поповер сайта");
+    assert.ok(await ru1(), "открытый поповер — перевод на месте");
+    // раскрытое меню: у кнопки aria-expanded=true, по Esc сайт закрывает меню своим обработчиком (после нашего)
+    await ev(`(() => { const b = document.createElement("button"); b.id = "smenu"; b.textContent = "Menu"; b.setAttribute("aria-expanded", "true");
+      b.style.cssText = "position: fixed; top: 8px; right: 8px"; document.body.appendChild(b);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") b.setAttribute("aria-expanded", "false"); }); return true; })()`);
+    await esc();
+    assert.strictEqual(await ev("document.querySelector('#smenu').getAttribute('aria-expanded')"), "false", "сайт закрыл меню");
+    assert.ok(await ru1(), "раскрытое меню (aria-expanded) — перевод на месте");
+    // спрятанные окна и меню в разметке сайта не мешают; наш кружок (хост [data-ht-ui]) — тоже
+    await ev(`(() => { const w = document.createElement("div"); w.hidden = true; w.innerHTML = '<div role="dialog" aria-modal="true">Hidden dialog</div><button aria-expanded="true">Hidden menu</button>';
+      document.body.appendChild(w); return true; })()`);
+    await move(5, 790); await sleep(50);
+    assert.strictEqual(await ev("sendCmd('toggleHud').hud"), true);
+    await sleep(100);
+    assert.ok(await ev("!!fabRoot() && fabRoot().querySelector('.fm').hidden"), "кружок на странице, меню закрыто");
+    await esc();
+    assert.strictEqual(await text("#p1"), P1, "ничего не открыто — Esc возвращает оригинал");
+    await ev("sendCmd('toggleHud'); true");
+    ok("Esc: открыт <dialog>, поповер или меню сайта (aria-expanded) — Esc сайту, перевод на месте; закрыли — Esc возвращает оригинал; спрятанные окна сайта и наш кружок не мешают");
+
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {
     await b.close();
