@@ -1240,15 +1240,23 @@
     return { dark: canvasDark(), cream: false };
   }
 
-  // Тёмный ли сайт — для уведомлений, плавающей кнопки и её меню: фон посередине окна (там основной текст),
-  // а не тема системы: светлый сайт при тёмной теме Chrome — всё равно светлый.
+  // Тёмный ли сайт — для уведомлений, плавающей кнопки и её меню: фон сайта в окне, а не тема системы: светлый
+  // сайт при тёмной теме Chrome — всё равно светлый. Одна точка в центре попадает в полосу шапки или в картинку
+  // (The Guardian: тёмно-синяя шапка посреди окна на светлом сайте) — голосуем центром и четырьмя точками ближе
+  // к углам, большинством. Наш интерфейс в точке не в счёт — берём то, что под ним.
   function siteDark() {
-    let el = null;
-    try {
-      const all = document.elementsFromPoint(Math.round(innerWidth / 2), Math.round(innerHeight / 2));
-      el = all.find((e) => !isOurUi(e)) || null;
-    } catch (e) { el = null; }
-    return bgOf(el || document.body || document.documentElement).dark;
+    let dark = 0, n = 0;
+    for (const [fx, fy] of [[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]]) {
+      let el = null;
+      try {
+        const all = document.elementsFromPoint(Math.round(innerWidth * fx), Math.round(innerHeight * fy));
+        el = all.find((e) => !isOurUi(e)) || null;
+      } catch (e) { el = null; }
+      if (!el) continue;
+      n++;
+      if (bgOf(el).dark) dark++;
+    }
+    return n ? dark * 2 > n : bgOf(document.body || document.documentElement).dark;
   }
 
   // Подсветка переведённого наведением или клавишей (замена на месте). «Подстраивать под страницу» —

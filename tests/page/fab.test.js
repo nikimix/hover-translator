@@ -568,10 +568,23 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await ev(`document.documentElement.classList.remove("night"), true`);
     await sleep(400);
     assert.strictEqual((await F()).dk, false, "сайт снова светлый — кружок светлый");
+    // Полоса другого цвета через центр окна (The Guardian: тёмно-синяя шапка посреди светлого сайта) — тема по большинству
+    // точек, а не по центру. Класс у <html> — чтобы кружок перекрасился сразу, без наведения.
+    const band = (bg) => ev(`(() => { const d = document.createElement("div"); d.id = "band";
+      d.style.cssText = "position: fixed; left: 0; right: 0; top: 300px; height: 200px; z-index: 1; background: ${bg}";
+      document.body.appendChild(d); document.documentElement.classList.toggle("band"); return document.elementFromPoint(500, 400) === d; })()`);
+    const unband = () => ev(`(() => { document.getElementById("band").remove(); document.documentElement.classList.toggle("band"); return true; })()`);
+    assert.ok(await band("#052962"), "полоса не в центре окна");
+    await sleep(400);
+    assert.strictEqual((await F()).dk, false, "светлый сайт с тёмной полосой через центр окна — кружок светлый");
     await load({ hudShown: true }, "&dark=1");
     await away();
     f = await F();
     assert.deepStrictEqual([f.dk, ...(await look())], [true, "rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(143, 176, 255)"], "тёмный сайт — #2a2d33, рамка .4, иконка #8fb0ff");
+    assert.ok(await band("#ffffff"), "полоса не в центре окна");
+    await sleep(400);
+    assert.strictEqual((await F()).dk, true, "тёмный сайт со светлой полосой через центр окна — кружок тёмный");
+    await unband(); await sleep(400);
     await t.shot("fab-dark.png", { clip: { x: 600, y: 600, width: 400, height: 200, scale: 1 } });
     await clickFab();
     const menuDark = await ev("(() => { const m = fabRoot().querySelector('.fm'), g = getComputedStyle(m); return [m.classList.contains('dk'), g.backgroundColor, g.borderTopColor]; })()");
@@ -583,7 +596,7 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await away(); await sleep(250);
     assert.deepStrictEqual((await look()).slice(0, 1).concat((await F()).on), ["rgb(143, 176, 255)", true], "переведена на тёмном — заливка #8fb0ff");
     await t.shot("fab-dark-on.png", { clip: { x: 600, y: 600, width: 400, height: 200, scale: 1 } });
-    ok("цвета по фону сайта: светлый — белый с рамкой #c9ced5 (и при тёмной теме системы), тёмный — #2a2d33, рамка rgba(255,255,255,.4), иконка #8fb0ff, меню тёмное, «переведена» — #8fb0ff");
+    ok("цвета по фону сайта: светлый — белый с рамкой #c9ced5 (и при тёмной теме системы), тёмный — #2a2d33, рамка rgba(255,255,255,.4), иконка #8fb0ff, меню тёмное, «переведена» — #8fb0ff; полоса другого цвета через центр окна тему не меняет");
 
     // ---- 11. Поддельные события страницы ничего не делают ----
     await load({ hudShown: true });
