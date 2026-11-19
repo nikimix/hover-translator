@@ -1688,7 +1688,10 @@
     for (const n of line.nodes) {
       const rec = nodeRecs.get(n);
       if (!rec || rec.line !== line) continue; // узел перехвачен другим переводом — не трогаем
-      if (revert && n.isConnected && rec.translated != null && n.nodeValue === rec.translated) n.nodeValue = rec.orig;
+      // Отсоединённый узел тоже возвращаем: сайт мог убрать его на время (вкладки с KeepAlive во Vue, порталы, кэш
+      // строк виртуального списка) и вернуть тем же узлом — тогда показался бы перевод, который уже ничем не снять.
+      // Свой новый текст сайт пишет другим значением — его проверка nodeValue не тронет.
+      if (revert && rec.translated != null && n.nodeValue === rec.translated) n.nodeValue = rec.orig;
       nodeRecs.delete(n);
     }
     if (lineByOwner.get(owner) === line) lineByOwner.delete(owner);
@@ -1783,7 +1786,7 @@
   // Перерисовать подсветку всех переведённых строк под текущую тему.
   function restyleAll() {
     for (const line of Array.from(lines)) {
-      if (!line.owner.isConnected) { dropLine(line); continue; }
+      if (!line.owner.isConnected) { restoreLine(line); continue; }   // откат: сайт может вернуть узел (см. releaseLine)
       clearHLLine(line);
       applyHLLine(line);
     }
@@ -1889,9 +1892,11 @@
     for (let i = 0; i < entries.length; i++) writeEntry(entries[i], results[i], entries[i].rec.translated);
   }
 
-  // Периодически убираем мёртвые узлы (SPA) — против утечки памяти.
+  // Периодически убираем мёртвые узлы (SPA) — против утечки памяти. С откатом: элемент, которого сейчас нет в DOM,
+  // сайт может вернуть тем же узлом (KeepAlive, порталы) — пусть вернётся с оригиналом, а не с переводом без записи,
+  // который уже ничем не снять.
   const sweepTimer = setInterval(() => {
-    for (const line of Array.from(lines)) if (!line.owner.isConnected) dropLine(line);
+    for (const line of Array.from(lines)) if (!line.owner.isConnected) restoreLine(line);
     for (const owner of Array.from(popovers.keys())) if (!owner.isConnected) removePopover(owner);
   }, 30000);
 
