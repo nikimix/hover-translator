@@ -3011,9 +3011,9 @@
   }, true);
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
-  // или aria-modal, раскрытое всплывающее меню или список (см. popupOpen), панель или окно без ARIA поверх всей
-  // страницы (см. siteLayer). Наши хосты [data-ht-ui] не в счёт: кнопки кружка, карточка и уведомления живут
-  // в закрытом shadow root, их Esc разбирает escRestore.
+  // или aria-modal, раскрытое всплывающее меню или список (см. popupOpen, hackPopup), панель или окно без ARIA
+  // поверх всей страницы (см. siteLayer). Наши хосты [data-ht-ui] не в счёт: кнопки кружка, карточка и уведомления
+  // живут в закрытом shadow root, их Esc разбирает escRestore.
   // Селекторы, которых этот Chrome не знает, отбрасываем: одна ошибка в списке сломала бы весь querySelectorAll.
   const SITE_OPEN = [":modal", ":popover-open", "[role=dialog]", "[role=alertdialog]", "[aria-modal=true]"]
     .filter((s) => { try { return CSS.supports("selector(" + s + ")"); } catch (e) { return false; } }).join(",");
@@ -3024,10 +3024,17 @@
     const out = [];
     if (SITE_OPEN) for (const el of document.querySelectorAll(SITE_OPEN)) if (!isOurUi(el) && onScreen(el)) out.push({ el, held: false });
     const a = document.activeElement;
+    const holds = (el, pop) => !!a && a !== document.body && (el.contains(a) || pop.contains(a));
     for (const el of document.querySelectorAll('[aria-expanded="true"]')) {
       if (isOurUi(el) || !onScreen(el)) continue;
       const pop = popupOpen(el);
-      if (pop) out.push({ el, held: !!a && a !== document.body && (el.contains(a) || pop.contains(a)) });
+      if (pop) out.push({ el, held: holds(el, pop) });
+    }
+    // Меню на прозрачном чекбоксе (см. hackPopup): сам чекбокс не виден, открытым считаем меню.
+    for (const el of document.querySelectorAll(HACK_BOX)) {
+      if (isOurUi(el) || onScreen(el)) continue;
+      const pop = hackPopup(el);
+      if (pop) out.push({ el: pop, held: holds(el, pop) });
     }
     const layer = siteLayer();
     if (layer) out.push({ el: layer, held: true });
@@ -3048,18 +3055,41 @@
     const targets = ids.length ? ids.map((id) => document.getElementById(id)) : (sib && /\p{L}/u.test(sib.textContent) ? [sib] : []);
     const hp = el.getAttribute("aria-haspopup");
     if (hp && hp !== "false") return targets.find((t) => t && !isOurUi(t)) || el;
-    for (const t of targets) {
-      if (!t || isOurUi(t)) continue;
-      // Сама обёртка без позиции, а поверх страницы — её ребёнок (The Guardian «Edition»: div → ul absolute; обёртка
-      // тогда нулевой высоты, поэтому видимым должен быть тот, кого проверяем). Ребёнок — только с текстом:
-      // значок-стрелка absolute в раскрытом разделе оглавления меню не делает.
-      for (const x of [t, ...Array.from(t.children).slice(0, 3)]) {
-        if (!onScreen(x) || (x !== t && !/\p{L}/u.test(x.textContent))) continue;
-        if (/^(menu|menubar|listbox|dialog)$/.test(x.getAttribute("role") || "")) return t;
-        const pos = getComputedStyle(x).position;
-        if (pos === "absolute" || pos === "fixed") return t;
+    return targets.find((t) => t && !isOurUi(t) && floating(t)) || null;
+  }
+  // Всплывающее видно: меню, список или окно (role), либо лежит поверх страницы (absolute, fixed). Сама обёртка без
+  // позиции, а поверх страницы — её ребёнок (The Guardian «Edition»: div → ul absolute; обёртка тогда нулевой высоты,
+  // поэтому видимым должен быть тот, кого проверяем). Ребёнок — только с текстом: значок-стрелка absolute
+  // в раскрытом разделе оглавления меню не делает. Возвращает видимое (t или его ребёнка) или null.
+  function floating(t) {
+    for (const x of [t, ...Array.from(t.children).slice(0, 3)]) {
+      if (!onScreen(x) || (x !== t && !/\p{L}/u.test(x.textContent))) continue;
+      if (/^(menu|menubar|listbox|dialog)$/.test(x.getAttribute("role") || "")) return x;
+      const pos = getComputedStyle(x).position;
+      if (pos === "absolute" || pos === "fixed") return x;
+    }
+    return null;
+  }
+  // Меню на «checkbox hack» (Википедия, Vector 2022: «Инструменты», «Вид», главное меню): прозрачный чекбокс
+  // (opacity: 0) поверх своего label, меню — элемент после них, его показывает CSS «:checked ~ …». Открыто:
+  // aria-expanded=true (ставит скрипт сайта), а без aria-expanded — отмечен. Радиокнопка — только с aria-expanded:
+  // отмеченная без него — это вкладки на CSS, а не меню. Сам чекбокс не виден: кнопку рисует его label (он должен быть
+  // виден), а видимость открытого проверяем по меню. Всплывающее — как в popupOpen (floating): раскрытые на чекбоксе
+  // разделы оглавления и аккордеоны лежат в потоке страницы и меню не считаются.
+  const HACK_BOX = 'input[type=checkbox]:checked:not([aria-expanded]), input[type=checkbox][aria-expanded="true"], input[type=radio][aria-expanded="true"]';
+  // Возвращает видимое меню (по нему stillOpen и проверит, открыто ли) или null. Без aria-controls — до трёх следующих
+  // соседей с текстом, кроме label и его обёрток.
+  function hackPopup(el) {
+    const labels = Array.from(el.labels || []);
+    if (!labels.some(onScreen)) return null;
+    const ids = (el.getAttribute("aria-controls") || el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean);
+    const targets = ids.map((id) => document.getElementById(id));
+    if (!ids.length) {
+      for (let s = el.nextElementSibling; s && targets.length < 3; s = s.nextElementSibling) {
+        if (!labels.some((l) => s.contains(l)) && /\p{L}/u.test(s.textContent)) targets.push(s);
       }
     }
+    for (const t of targets) { const x = t && !isOurUi(t) && floating(t); if (x) return x; }
     return null;
   }
   // Панель или окно сайта без ARIA (панель фильтров Allbirds: кнопка без aria-атрибутов, слой div.fixed.inset-0

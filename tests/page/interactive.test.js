@@ -784,6 +784,62 @@ function pageHelpers() {
       ok("панель фильтров (слой fixed на всё окно с затемнением и размытием, без ARIA): Esc только сайту, перевод на месте и через 0,4 с; панель закрыли — Esc возвращает оригинал");
     });
 
+    // «Инструменты» Википедии (Vector 2022): кнопка — прозрачный чекбокс поверх label, меню absolute показывает CSS
+    // «:checked ~». Чекбокс не виден (opacity: 0), поэтому открытое ищется по меню. Не меню: раздел, раскрытый на таком же
+    // чекбоксе в потоке страницы.
+    await block("18. Esc при открытом меню на прозрачном чекбоксе («Инструменты» Википедии); раскрытый на чекбоксе раздел — не меню", async () => {
+      // Сколько переведено, когда перевод улёгся: щелчок прокручивает страницу, и вошедшее в окно ещё переводится
+      const steady = async () => {
+        let n = -1;
+        for (let i = 0; i < 30; i++) {
+          const m = await ru();
+          if (m === n && await ev("!document.querySelector('.ht-loading')")) return m;
+          n = m; await sleep(150);
+        }
+        return n;
+      };
+      await load();
+      const before = await ev("__texts()");
+      await tr();
+      await click("#wtLabel");             // щелчок по label приходится в чекбокс поверх него
+      assert.deepStrictEqual(await ev("[__q('#wtBox').checked, __q('#wtBox').getAttribute('aria-expanded'), document.activeElement.id]"),
+        [true, "true", "wtBox"], "меню не открылось щелчком или фокус не на чекбоксе");
+      assert.ok(await until(() => allTr("#wtMenu")), "меню «Инструменты» не переведено");
+      const nW = await steady();
+      await esc();
+      assert.strictEqual(await ru(), nW, "сразу после Esc перевод на месте");
+      await sleep(600);
+      assert.ok(await ev("__q('#wtBox').checked && getComputedStyle(__q('#wtMenu')).visibility === 'visible'"), "сайт меню по Esc не закрывает");
+      assert.strictEqual(await ru(), nW, "открыто меню на прозрачном чекбоксе, фокус на чекбоксе — Esc перевод не трогает, и через 0,6 с тоже");
+      // Меню открыто, но фокус ушёл со всего меню: Esc сначала сайту, сайт не закрыл — через 250 мс оригинал вернулся
+      await ev("__q('#filterBtn').focus(); true");
+      await esc();
+      assert.ok(await ru() > 0, "фокус не в меню: сразу после Esc перевод на месте (Esc сначала сайту)");
+      await sleep(400);
+      assert.deepStrictEqual(await ev("__ru()"), [], "фокус не в меню, сайт меню не закрыл — через 250 мс Esc наш, оригинал вернулся");
+      assert.deepStrictEqual(await ev("__texts()"), before, "тексты — как до перевода");
+      // Щелчок мимо меню его закрывает — Esc сразу возвращает оригинал
+      await tr();
+      await click("#wtLabel");
+      assert.ok(await until(() => allTr("#wtMenu")), "меню «Инструменты» не переведено");
+      await clickEmpty();
+      assert.ok(await ev("!__q('#wtBox').checked && getComputedStyle(__q('#wtMenu')).visibility === 'hidden'"), "щелчок мимо меню его не закрыл");
+      await escReverts("меню на прозрачном чекбоксе закрыто щелчком мимо");
+      ok("меню на прозрачном чекбоксе (Vector 2022): фокус на чекбоксе — Esc только сайту, перевод на месте и через 0,6 с; фокус ушёл — через 250 мс оригинал; меню закрыли щелчком мимо — Esc сразу возвращает оригинал");
+      // Раздел на прозрачном чекбоксе в потоке страницы: отмечен (только CSS), затем и с aria-expanded=true — не меню
+      await click("#moreLabel");
+      assert.deepStrictEqual(await ev("[__q('#moreBox').checked, getComputedStyle(__q('#moreList')).display, document.activeElement.id]"),
+        [true, "block", "moreBox"], "раздел не раскрылся щелчком или фокус не на чекбоксе");
+      await tr();
+      assert.ok(await until(() => allTr("#moreList")), "раскрытый раздел не переведён");
+      await escReverts("раскрытый на чекбоксе раздел в потоке страницы (отмечен, без aria-expanded)");
+      await ev("__q('#moreBox').setAttribute('aria-expanded', 'true'); __q('#moreBox').focus(); true");
+      await tr();
+      await escReverts("раскрытый на чекбоксе раздел в потоке страницы (aria-expanded=true)");
+      assert.deepStrictEqual(await ev("__texts()"), before, "тексты — как до перевода");
+      ok("раздел, раскрытый на прозрачном чекбоксе в потоке страницы (отмечен; и с aria-expanded=true), — не меню: Esc сразу возвращает оригинал");
+    });
+
     console.log("");
     if (failed.length) {
       console.log(`Не пройдено блоков: ${failed.length} — ${failed.join("; ")}`);

@@ -498,6 +498,18 @@ const SITE_OPEN = () => {
     const why = popup(el);
     if (why) out.push(desc(el) + " (aria-expanded, " + why + ")");
   }
+  // Меню на прозрачном чекбоксе (hackPopup): чекбокс не виден, label виден, меню после них — видно и absolute/fixed
+  // (Vector 2022: «Инструменты»).
+  const hack = 'input[type=checkbox]:checked:not([aria-expanded]), input[type=checkbox][aria-expanded="true"], input[type=radio][aria-expanded="true"]';
+  for (const el of document.querySelectorAll(hack)) {
+    const labels = Array.from(el.labels || []);
+    if (ours(el) || onScreen(el) || !labels.some(onScreen)) continue;
+    for (let s = el.nextElementSibling; s; s = s.nextElementSibling) {
+      if (labels.some((l) => s.contains(l)) || !onScreen(s)) continue;
+      const pos = getComputedStyle(s).position;
+      if (pos === "absolute" || pos === "fixed") { out.push(desc(s) + " (меню на прозрачном чекбоксе " + desc(el) + ")"); break; }
+    }
+  }
   return out.slice(0, 8);
 };
 

@@ -41,6 +41,18 @@
   #fxClear { position: fixed; inset: 0; z-index: 15; }
   #fxBg { position: fixed; inset: 0; z-index: -1; background: linear-gradient(#eef2ff, #fff4f0); }
   #cookie { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; padding: 8px 20px; background: #fff; border-top: 1px solid #aab; }
+  .vdd { position: relative; display: inline-block; margin: 0 0 8px; }
+  .vdd-box { position: absolute; top: 0; left: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .vdd-label { display: inline-block; padding: 2px 10px; border: 1px solid #aab; }
+  .vdd-content { position: absolute; top: 100%; left: 0; z-index: 6; width: 260px; padding: 4px 8px; background: #fff; border: 1px solid #aab;
+    opacity: 0; visibility: hidden; }
+  .vdd-box:checked ~ .vdd-content { opacity: 1; visibility: visible; }
+  .vdd-content ul { margin: 0; padding: 0; list-style: none; }
+  .more { position: relative; width: 300px; margin: 0 0 8px; }
+  .more-box { position: absolute; top: 0; left: 0; width: 100%; height: 30px; margin: 0; opacity: 0; cursor: pointer; }
+  .more-label { display: block; height: 30px; line-height: 30px; }
+  .more-list { display: none; margin: 0; }
+  .more-box:checked ~ .more-list { display: block; }
 </style>
 <script>
   // Заглушка chrome.* для content.js — как в stub.html (там подробности): хранилище, сообщения,
@@ -226,6 +238,20 @@
       <button id="edBtn" type="button" aria-expanded="false" data-testid="dropdown-button">Edition: International</button>
       <div id="edWrap" hidden><ul id="edList"><li><a href="#uk">United Kingdom edition</a></li><li><a href="#us">United States edition</a></li></ul></div>
     </div>
+    <!-- Меню «Инструменты» Википедии (Vector 2022, «checkbox hack»): прозрачный чекбокс role=button поверх своего label,
+         меню absolute после них показывает CSS «:checked ~»; aria-expanded ставит скрипт, щелчок мимо меню его
+         закрывает, Esc сайт не слушает. -->
+    <div id="wt" class="vdd">
+      <input type="checkbox" id="wtBox" class="vdd-box" role="button" aria-haspopup="true" aria-label="Page tools">
+      <label id="wtLabel" for="wtBox" class="vdd-label" aria-hidden="true">Page tools</label>
+      <div id="wtMenu" class="vdd-content"><ul><li><a href="#links">What links here</a></li><li><a href="#cite">Cite this page</a></li></ul></div>
+    </div>
+    <!-- Не меню: раздел, раскрытый на таком же прозрачном чекбоксе, — список в потоке страницы -->
+    <div id="more" class="more">
+      <input type="checkbox" id="moreBox" class="more-box">
+      <label id="moreLabel" for="moreBox" class="more-label">Show all shoe sizes</label>
+      <ul id="moreList" class="more-list"><li>Sizes from thirty six to forty eight</li></ul>
+    </div>
     <button id="filterBtn" type="button">Filter (36 products)</button>
     <div id="takeover" class="takeover" hidden>
       <aside id="filterPanel"><h3>Filter by price</h3><p>Show only shoes under seventy five dollars</p><button id="filterClose" type="button">Close the filters</button></aside>
@@ -339,6 +365,13 @@
   $("edBtn").addEventListener("click", () => { const open = $("edWrap").hidden; $("edBtn").setAttribute("aria-expanded", String(open)); $("edWrap").hidden = !open; });
   $("filterBtn").addEventListener("click", () => { $("takeover").hidden = false; });
   $("filterClose").addEventListener("click", () => { $("takeover").hidden = true; });
+  // «Инструменты»: aria-expanded — по чекбоксу; щелчок мимо меню закрывает его
+  $("wtBox").addEventListener("input", () => { $("wtBox").setAttribute("aria-expanded", String($("wtBox").checked)); });
+  document.addEventListener("click", (e) => {
+    if (!$("wtBox").checked || $("wt").contains(e.target)) return;
+    $("wtBox").checked = false;
+    $("wtBox").setAttribute("aria-expanded", "false");
+  });
   // Окна: своё (div role=dialog) и настоящее <dialog>
   $("openModal").addEventListener("click", () => { $("modal").hidden = false; log("modal:open"); });
   $("closeModal").addEventListener("click", () => { $("modal").hidden = true; log("modal:closed"); });
