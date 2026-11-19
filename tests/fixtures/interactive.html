@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stub: interactive</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" id="css" href="/src/content.css">
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; }
+  header#top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between;
+    height: 56px; padding: 0 20px; background: #f3f5f8; border-bottom: 1px solid #d5d9df; }
+  header#top nav a { margin-right: 16px; }
+  main { padding: 0 20px 40px; width: 640px; }
+  section { margin: 0 0 28px; }
+  h2 { font-size: 18px; margin: 16px 0 8px; }
+  h3 { font-size: 16px; margin: 8px 0; }
+  button { font: inherit; margin: 0 8px 8px 0; }
+  .row { margin: 0 0 10px; }
+  #iconBtn svg { vertical-align: -3px; }
+  #editor { border: 1px solid #aab; padding: 4px 8px; min-height: 48px; }
+  #editor p { margin: 0; }
+  #tablist { display: flex; gap: 4px; }
+  #tablist [aria-selected="true"] { font-weight: 700; }
+  #ddMenu { margin: 4px 0 0; padding: 4px 8px; border: 1px solid #aab; list-style: none; width: 300px; }
+  #modal { position: fixed; left: 200px; top: 140px; width: 420px; padding: 16px; background: #fff; border: 2px solid #334; z-index: 10; }
+  #tip { position: absolute; padding: 4px 8px; background: #222; color: #fff; font-size: 13px; }
+  #feed li { margin: 0 0 8px; }
+  #spacer { height: 600px; }
+</style>
+<script>
+  // Заглушка chrome.* для content.js — как в stub.html (там подробности): хранилище, сообщения,
+  // перевод в background — «[RU] текст». ?store={...}  ?builtin=fake|none.
+  const q = new URLSearchParams(location.search);
+  window.__calls = [];
+  window.__sets = [];
+  window.__noticed = {};
+  window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", apiKey: "k:fx",
+    consent: { deepl: true, openai: true, anthropic: true } },
+    JSON.parse(q.get("store") || "{}"));
+  window.__onChanged = [];
+  window.__onMessage = [];
+  window.__bgReply = null;
+  window.__bgDelay = 0;
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? (c.getAttribute("role") === "alert" ? "err" : "info") + ":" + c.querySelector(".t-b").textContent : null; }).filter(Boolean);
+  window.toastRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".toast")).pop() || null;
+  window.uiPoint = (root, sel) => { const e = root.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
+
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) {
+          const out = Object.assign({}, typeof defs === "object" && !Array.isArray(defs) ? defs : {}, JSON.parse(JSON.stringify(window.__store)));
+          if (cb) { setTimeout(() => cb(out), 0); return undefined; }
+          return Promise.resolve(out);
+        },
+        set(obj) { window.__sets.push(JSON.parse(JSON.stringify(obj))); setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      getManifest: () => ({ name: "Cursor Translate" }),
+      sendMessage(msg) {
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        if (msg.type === "noticeOnce") { const show = !window.__noticed[msg.problem]; window.__noticed[msg.problem] = true; return Promise.resolve({ ok: true, show }); }
+        if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
+        const reply = window.__bgReply ? window.__bgReply(msg) : { ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") };
+        return window.__bgDelay ? new Promise((r) => setTimeout(() => r(reply), window.__bgDelay)) : Promise.resolve(reply);
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: JSON.parse(JSON.stringify(obj[k])) }; window.__store[k] = JSON.parse(JSON.stringify(obj[k])); }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
+  window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+
+  const builtin = q.get("builtin") || "fake";
+  if (builtin === "none") { try { delete window.Translator; delete window.LanguageDetector; } catch (e) {} }
+  if (builtin === "fake") {
+    window.Translator = { async availability() { return "available"; }, async create() { return { translate: async (t) => "[ru] " + t }; } };
+    window.LanguageDetector = { async availability() { return "available"; }, async create() { return { detect: async (t) => [{ detectedLanguage: /[а-я]/i.test(t) ? "ru" : "en", confidence: 0.99 }] }; } };
+  }
+  (function tick() { requestAnimationFrame(tick); })();
+
+  // ---- «сайт»: всё, что он делает в ответ на действия, пишет в __log ----
+  window.__log = [];
+  window.__siteErrors = [];
+  window.log = (s) => window.__log.push(s);
+  addEventListener("error", (e) => window.__siteErrors.push(String(e.message)));
+</script>
+</head>
+<body>
+<header id="top">
+  <nav id="topNav"><a id="navHome" href="#home">Home page of the shop</a></nav>
+  <button id="cartBtn" type="button">Open your shopping cart</button>
+</header>
+<main id="app">
+  <section id="s-buttons">
+    <h2>Buttons and links</h2>
+    <button id="btnA" type="button">Add this item to your cart</button>
+    <button id="iconBtn" type="button"><svg id="iconSvg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/></svg> Download the full price list</button>
+    <button id="toggleBtn" type="button" aria-expanded="false">Show more product details</button>
+    <p id="toggleBody" hidden>The shoes are made from recycled materials and weigh very little.</p>
+    <p id="linkP"><a id="hashLink" href="#shipping" title="Jump to the shipping section">Read about our shipping options</a></p>
+    <p id="spaP"><a id="spaLink" href="/products/running-shoes">Browse all running shoes in the catalog</a></p>
+  </section>
+
+  <section id="s-form">
+    <h2>Newsletter form</h2>
+    <form id="form" action="/never-submitted" method="post">
+      <div class="row" id="emailRow"><label for="email" id="emailLabel">Your email address for the newsletter</label> <input id="email" name="email" type="email" placeholder="Enter your email address here" autocomplete="off"></div>
+      <div class="row" id="agreeRow"><label id="agreeLabel"><input type="checkbox" id="agree" name="agree" value="yes"> I agree with the terms of service</label></div>
+      <div class="row" id="sizeRow"><label for="size" id="sizeLabel">Choose the shirt size you need</label> <select id="size" name="size"><option value="s">Small size shirt</option><option value="m">Medium size shirt</option><option value="l">Large size shirt</option></select></div>
+      <div class="row" id="noteRow"><textarea id="note" name="note" rows="2" cols="40" placeholder="Leave a short note for the courier">Please ring the bell twice</textarea></div>
+      <div class="row" id="submitRow"><button type="submit" id="submitBtn" name="action" value="subscribe">Subscribe to the newsletter now</button></div>
+    </form>
+  </section>
+
+  <section id="s-editor">
+    <h2>Comment editor</h2>
+    <div id="editor" contenteditable="true"><p id="editorP">Write your comment about this product here</p></div>
+  </section>
+
+  <section id="s-widgets">
+    <h2>Delivery and payment</h2>
+    <details id="det"><summary id="sum">Show the delivery terms and conditions</summary><p id="detBody">Delivery takes three to five business days in most regions.</p></details>
+    <div role="tablist" id="tablist" aria-label="Product information tabs">
+      <button role="tab" id="tab1" aria-selected="true" aria-controls="panel1" tabindex="0">Shipping information</button>
+      <button role="tab" id="tab2" aria-selected="false" aria-controls="panel2" tabindex="-1">Return policy details</button>
+    </div>
+    <div role="tabpanel" id="panel1"><p id="panel1P">We ship to most countries within one week of your order.</p></div>
+    <div role="tabpanel" id="panel2" hidden><p id="panel2P">You can return any item within thirty days of purchase.</p></div>
+    <div class="acc" id="acc">
+      <h3 id="accH"><button id="accBtn" type="button" aria-expanded="false" aria-controls="accPanel">What payment methods do you accept?</button></h3>
+      <div id="accPanel" hidden><p id="accP">We accept credit cards, bank transfers and gift cards.</p></div>
+    </div>
+    <div class="dd" id="dd">
+      <button id="ddBtn" type="button" aria-haspopup="menu" aria-expanded="false">Open the account menu</button>
+      <ul id="ddMenu" role="menu" hidden>
+        <li role="none" id="ddLi1"><a role="menuitem" id="ddProfile" href="#profile">Edit your public profile</a></li>
+        <li role="none" id="ddLi2"><a role="menuitem" id="ddOrders" href="#orders">Show your recent orders</a></li>
+      </ul>
+    </div>
+    <!-- вкладки «с сохранением»: неактивная панель отсоединяется от DOM и возвращается тем же узлом (KeepAlive во Vue, порталы) -->
+    <div id="ka">
+      <div id="kaBar"><button id="kaA" type="button">Overview of the product</button> <button id="kaB" type="button">Technical specifications</button></div>
+      <div id="kaView"><p id="kaPanelA">This overview panel is detached while the other tab is open.</p></div>
+    </div>
+  </section>
+
+  <section id="s-modal">
+    <h2>Dialogs</h2>
+    <button id="openModal" type="button">Open the subscription dialog</button>
+    <button id="openDialog" type="button">Open the native dialog window</button>
+    <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+      <h3 id="modalTitle">Subscribe to our weekly newsletter</h3>
+      <p id="modalText">Get updates about new products and discounts every week.</p>
+      <button id="closeModal" type="button">Close this dialog window</button>
+    </div>
+    <dialog id="dlg"><form method="dialog" id="dlgForm"><p id="dlgText">This native dialog asks you to confirm the order.</p><button id="dlgOk" value="ok">Confirm the order now</button></form></dialog>
+  </section>
+
+  <section id="s-components">
+    <h2>Rating and tooltip</h2>
+    <x-rating id="rating"><span id="ratingSlot">Thanks for helping other customers choose</span></x-rating>
+    <p id="tipRow"><span id="tipTrigger" tabindex="0" aria-describedby="tip" aria-label="Shipping price details" title="Free shipping on orders over fifty dollars">Hover here to see the shipping price</span></p>
+  </section>
+
+  <section id="s-fw">
+    <h2>Live order status</h2>
+    <div id="fw"></div>
+  </section>
+
+  <section id="s-feed">
+    <h2>Customer reviews</h2>
+    <div id="spacer"></div>
+    <ul id="feed">
+      <li>Review number one: great shoes for long runs</li>
+      <li>Review number two: the sole is soft and durable</li>
+      <li>Review number three: they run a little small</li>
+    </ul>
+    <button id="loadMore" type="button">Show more customer reviews</button>
+    <div id="sentinel">Loading more reviews for you</div>
+  </section>
+</main>
+<script>
+  // ---- обработчики «сайта» ----
+  const $ = (id) => document.getElementById(id);
+  for (const id of ["cartBtn", "btnA", "iconBtn"]) $(id).addEventListener("click", () => log(id));
+  // Подпись кнопки — часть логики: каркас пишет новое значение в тот же текстовый узел (как React).
+  const toggleText = $("toggleBtn").firstChild;
+  $("toggleBtn").addEventListener("click", () => {
+    const open = $("toggleBtn").getAttribute("aria-expanded") !== "true";
+    $("toggleBtn").setAttribute("aria-expanded", String(open));
+    toggleText.nodeValue = open ? "Hide product details" : "Show more product details";
+    $("toggleBody").hidden = !open;
+    log("toggle:" + (open ? "open" : "closed"));
+  });
+  addEventListener("hashchange", () => log("hash:" + location.hash));
+  // Ссылка SPA: роутер перехватывает щелчок и «переходит» по href сам.
+  $("spaLink").addEventListener("click", (e) => { e.preventDefault(); log("nav:" + $("spaLink").getAttribute("href")); });
+  // Форма
+  $("email").addEventListener("focus", () => log("focus:email"));
+  $("size").addEventListener("focus", () => log("focus:size"));
+  $("agree").addEventListener("change", () => log("agree:" + $("agree").checked));
+  $("size").addEventListener("change", () => log("size:" + $("size").value));
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    log("submit:" + JSON.stringify(Object.fromEntries(new FormData($("form"), e.submitter))));
+  });
+  // Редактор
+  const EDITOR_HTML = $("editor").innerHTML;
+  window.resetEditor = () => { $("editor").innerHTML = EDITOR_HTML; };
+  $("editor").addEventListener("input", () => log("editor:input"));
+  // details, вкладки, аккордеон, выпадающее меню
+  $("det").addEventListener("toggle", () => log("details:" + ($("det").open ? "open" : "closed")));
+  function selectTab(n) {
+    for (const k of [1, 2]) {
+      $("tab" + k).setAttribute("aria-selected", String(k === n));
+      $("tab" + k).tabIndex = k === n ? 0 : -1;
+      $("panel" + k).hidden = k !== n;
+    }
+    log("tab:" + n);
+  }
+  $("tab1").addEventListener("click", () => selectTab(1));
+  $("tab2").addEventListener("click", () => selectTab(2));
+  $("accBtn").addEventListener("click", () => {
+    const open = $("accBtn").getAttribute("aria-expanded") !== "true";
+    $("accBtn").setAttribute("aria-expanded", String(open));
+    $("accPanel").hidden = !open;
+    log("acc:" + (open ? "open" : "closed"));
+  });
+  function ddSet(open, why) {
+    $("ddBtn").setAttribute("aria-expanded", String(open));
+    $("ddMenu").hidden = !open;
+    log("dd:" + (open ? "open" : "closed") + (why ? ":" + why : ""));
+  }
+  $("ddBtn").addEventListener("click", () => ddSet($("ddMenu").hidden));
+  for (const a of $("ddMenu").querySelectorAll("a")) {
+    a.addEventListener("click", (e) => { e.preventDefault(); log("dd:item:" + a.getAttribute("href")); ddSet(false); });
+  }
+  const kaPanels = { A: $("kaPanelA"), B: null };
+  function kaShow(k) {
+    if (!kaPanels[k]) {
+      const p = document.createElement("p");
+      p.id = "kaPanel" + k;
+      p.textContent = "Specifications: the shoe weighs two hundred grams.";
+      kaPanels[k] = p;
+    }
+    $("kaView").replaceChildren(kaPanels[k]);   // прежняя панель отсоединена, но жива и вернётся тем же узлом
+    log("ka:" + k);
+  }
+  $("kaA").addEventListener("click", () => kaShow("A"));
+  $("kaB").addEventListener("click", () => kaShow("B"));
+  // Esc сайта: закрывает своё меню и окно (как почти любое меню на сайтах)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!$("ddMenu").hidden) ddSet(false, "esc");
+    if (!$("modal").hidden) { $("modal").hidden = true; log("modal:closed:esc"); }
+  });
+  // Окна: своё (div role=dialog) и настоящее <dialog>
+  $("openModal").addEventListener("click", () => { $("modal").hidden = false; log("modal:open"); });
+  $("closeModal").addEventListener("click", () => { $("modal").hidden = true; log("modal:closed"); });
+  $("openDialog").addEventListener("click", () => { $("dlg").showModal(); log("dialog:open"); });
+  $("dlg").addEventListener("close", () => log("dialog:close:" + $("dlg").returnValue));
+  // Всплывающая подсказка на JS: создаётся при наведении, убирается при уходе
+  $("tipTrigger").addEventListener("mouseenter", () => {
+    if ($("tip")) return;
+    const t = document.createElement("div");
+    t.id = "tip"; t.setAttribute("role", "tooltip"); t.setAttribute("data-site", "1");
+    t.textContent = "Free returns within thirty days";
+    const r = $("tipTrigger").getBoundingClientRect();
+    t.style.left = Math.round(r.left + scrollX) + "px";
+    t.style.top = Math.round(r.bottom + scrollY + 6) + "px";
+    document.body.appendChild(t);
+    log("tip:show");
+  });
+  $("tipTrigger").addEventListener("mouseleave", () => { if ($("tip")) { $("tip").remove(); log("tip:hide"); } });
+
+  // ---- веб-компонент с открытым shadow DOM: свой текст, кнопка, поле и слот ----
+  customElements.define("x-rating", class extends HTMLElement {
+    constructor() {
+      super();
+      const r = this.attachShadow({ mode: "open" });
+      r.innerHTML = '<style>:host{display:block;padding:8px;border:1px solid #ccd}p{margin:0 0 6px}</style>' +
+        '<p id="q">How would you rate this product overall?</p>' +
+        '<button id="rate" type="button">Send my five star rating</button> <input id="why" placeholder="Why did you choose this rating">' +
+        '<p id="slotP"><slot></slot></p>';
+      r.getElementById("rate").addEventListener("click", () => log("rate"));
+    }
+  });
+
+  // ---- мини-каркас: держит ссылки на свои узлы и перерисовывает их сам (как React/Vue) ----
+  window.fw = (() => {
+    const root = $("fw");
+    let refs = null;
+    const el = (tag, attrs, ...kids) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); e.append(...kids); return e; };
+    function render() {
+      const stateText = document.createTextNode("being prepared");
+      const b = el("b", { id: "fwState" }, stateText);
+      const head = document.createTextNode("Order status: ");
+      const tail = document.createTextNode(" for delivery today");
+      const status = el("p", { id: "fwStatus" }, head, b, tail);
+      const old = el("span", { id: "fwOld" }, "This label will be replaced by the framework");
+      const swap = el("p", { id: "fwSwap" }, old);
+      const rows = ["First keyed row of the list", "Second keyed row of the list", "Third keyed row of the list"]
+        .map((t, i) => el("li", { id: "fwRow" + (i + 1) }, t));
+      const list = el("ul", { id: "fwKeyed" }, ...rows);
+      const whole = el("p", { id: "fwWhole" }, "This sentence is rendered again from scratch");
+      root.replaceChildren(status, swap, list, whole);
+      refs = { status, b, stateText, head, tail, swap, old, list, rows, whole };
+    }
+    // Ничего не ловим: если узлы, на которые каркас держит ссылки, кто-то подменил или обернул,
+    // insertBefore/removeChild/replaceChild бросят NotFoundError — в консоль, как на настоящем сайте.
+    function update() {
+      const r = refs;
+      r.stateText.nodeValue = "shipped to your address";                          // новое значение в тот же узел
+      r.status.insertBefore(document.createTextNode(" (tracking enabled)"), r.tail); // вставка перед узлом-ссылкой
+      r.swap.replaceChild(el("span", { id: "fwNew" }, "The framework rendered this new label"), r.old);
+      r.list.insertBefore(r.rows[2], r.rows[0]);                                 // ключевой список: перестановка
+      r.rows[1].removeChild(r.rows[1].firstChild);                               // текст → элемент
+      r.rows[1].appendChild(el("em", {}, "Second row now has emphasis"));
+      r.whole.textContent = "This sentence was replaced by the framework";      // textContent: новый узел
+      log("fw:update");
+    }
+    render();
+    return { render, update, updateIn: (ms) => setTimeout(update, ms) };
+  })();
+
+  // ---- бесконечная лента: «ещё» по кнопке и по прокрутке до низа (window.feedAuto) ----
+  let feedPage = 1;
+  function loadMore(why) {
+    feedPage++;
+    for (let i = 1; i <= 3; i++) {
+      const li = document.createElement("li");
+      li.className = "fresh";
+      li.textContent = "Review from page " + feedPage + ", number " + i + ": comfortable and light shoes";
+      $("feed").appendChild(li);
+    }
+    log("feed:more:" + why);
+  }
+  $("loadMore").addEventListener("click", () => loadMore("button"));
+  window.feedAuto = false;
+  new IntersectionObserver((es) => { if (window.feedAuto && es.some((e) => e.isIntersecting)) loadMore("scroll"); }).observe($("sentinel"));
+
+  // ---- content.js — как на странице с расширением, после скриптов сайта ----
+  for (const src of ["/i18n-ru.js", "/src/shared.js", "/src/content.js"]) { const s = document.createElement("script"); s.src = src; s.async = false; document.body.appendChild(s); }
+</script>
+</body>
+</html>
