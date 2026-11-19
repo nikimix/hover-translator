@@ -483,7 +483,31 @@
     const text = (el.textContent || "").trim();
     if (text.length < 2 || text.length > 2000) return false;
     if (!/\p{L}/u.test(text)) return false;
+    if (echoesField(el, text)) return false;
     return true;
+  }
+
+  // Подсветка запроса поверх поля (GitHub Issues: «is:issue state:open» → «является:выпуск состояние:открыть»):
+  // элемент повторяет набранное в поле рядом (до 3 предков вверх) — это текст человека, а не сайта. Только поля для
+  // набора текста: у кнопок и переключателей value часто совпадает с заголовком или подписью рядом («Subscribe» у
+  // submit), их переводим. Поля — из живых списков документа, а не querySelector по предкам: тот обходил бы
+  // поддерево предка (вплоть до <main>) для каждого владельца при переводе страницы.
+  const TEXT_FIELD_TYPES = new Set(["text", "search", "url", "email", "tel"]);
+  let liveInputs = null, liveTextareas = null;
+  function echoesField(el, text) {
+    if (!liveInputs) { liveInputs = document.getElementsByTagName("input"); liveTextareas = document.getElementsByTagName("textarea"); }
+    let norm = null;
+    for (const list of [liveInputs, liveTextareas]) {
+      for (const f of list) {
+        if (list === liveInputs && !TEXT_FIELD_TYPES.has(f.type)) continue;
+        const v = f.value.trim();
+        if (!v) continue;
+        if (norm === null) norm = text.replace(/\s+/g, " ");
+        if (v.replace(/\s+/g, " ") !== norm) continue;
+        for (let a = el.parentElement, i = 0; a && i < 3; a = a.parentElement, i++) if (a.contains(f)) return true;
+      }
+    }
+    return false;
   }
 
   // Можно ли переводить этот текстовый узел внутри owner-контейнера.

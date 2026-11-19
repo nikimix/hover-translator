@@ -476,6 +476,25 @@ const SHIFT = 8;
     for (const sel of ["#cmsg", "#cplain", "#wmex", "#wdog", "#inl", "#inla", "#eg", "#site"]) assert.ok(await tr(sel), sel + " переведён");
     ok("имена не переводятся: .github, examples, lib, .gitignore, History.md, «expressjs / express»; переводятся: сообщения рядом, /wiki/Mexico «Mexico», /wiki/Dog «dog», ссылка «install» внутри фразы, «e.g.», «example.com» в предложении");
 
+    // ---- 8г. Подсветка запроса поверх поля (как у GitHub Issues) не переводится: это текст человека ----
+    await load({ trigger: "shift" });
+    const query = (id, q) => `<div class="qb"><div aria-hidden="true"><div id="${id}">${q.split(" ").map((w) => `<span>${w}</span>`).join(" ")}</div></div>`
+      + `<div><input id="${id}-in" type="text"></div></div>`;
+    const form = query("qbhl", "is:issue state:open")
+      + `<p id="qbnote">Filter the issues of this repository by their state.</p>`
+      + `<form><h3 id="subh">Subscribe now</h3><div><input type="email"><input type="submit" value="Subscribe now"></div></form>`;
+    await ev(`document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(form)}); document.querySelector('#qbhl-in').value = 'is:issue state:open'; true`);
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await pageNow()) === "done", 3000), "видимое переведено");
+    assert.strictEqual(await text("#qbhl"), "is:issue state:open", "подсветка запроса — как в поле");
+    assert.ok(await tr("#qbnote") && await tr("#subh"), "текст рядом и заголовок с тем же текстом, что у кнопки submit, — переведены");
+    // новое содержимое после перевода страницы (как переход SPA на Issues)
+    await ev(`document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(query("qbhl2", "is:pr label:deps") + `<p id="late">Pull requests that update the dependencies.</p>`)});
+      document.querySelector('#qbhl2-in').value = 'is:pr label:deps'; true`);
+    assert.ok(await until(() => tr("#late"), 2000), "новый текст переведён");
+    assert.strictEqual(await text("#qbhl2"), "is:pr label:deps", "новая подсветка запроса — как в поле");
+    ok("подсветка запроса поверх поля (is:issue state:open) не переводится — ни при переводе страницы, ни появившись позже; текст рядом и заголовок, равный value кнопки submit, — переводятся");
+
     // ---- 9. Выключить на этом сайте ----
     await load({ trigger: "shift", disabledSites: ["127.0.0.1", 5, "<script>"], hudShown: true });
     assert.deepStrictEqual(await ev("sendCmd('getHudState')"), { ok: true, hud: false, site: "127.0.0.1", siteOff: true, lang: "en", page: "idle", done: 0, total: 0, count: 0, src: "" });
