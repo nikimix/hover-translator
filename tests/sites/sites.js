@@ -420,6 +420,17 @@ const SITES = [
     // "EN" — только язык оригинала (HT_SOURCE_ONLY в shared.js): как цель настройки его отвергают, остаётся RU.
     target: "EN-US",
     main: ".tm-articles-list",
+    // Окно согласия Google (Funding Choices) закрывает страницу целиком: без него ни один щелчок не доходит до сайта.
+    // Отказаться с первого экрана нельзя (только «Manage options»), поэтому — «Consent».
+    prepareName: "согласие на cookie (Funding Choices): «Consent»",
+    prepare: async (H) => {
+      const sel = ".fc-consent-root button.fc-cta-consent";
+      if (!(await H.until((s) => vis(dq(s)), sel, 8000))) return H.ok(true, "окна согласия нет");
+      const c = await H.click(sel);
+      const gone = await H.until(() => !dqa(".fc-consent-root .fc-dialog-overlay, .fc-consent-root .fc-dialog").some(vis), null, 8000);
+      await H.sleep(1000);
+      return H.ok(c.ok && gone, gone ? "" : "окно согласия не закрылось");
+    },
     key: "article .article-formatted-body",
     actions: [
       {
