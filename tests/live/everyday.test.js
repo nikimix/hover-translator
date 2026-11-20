@@ -451,21 +451,14 @@ async function shortcutsFresh(srvBase) {
     await clickUi(web, "toast", await msg("turnBackOn"));
     assert.ok(await until(async () => JSON.stringify((await get(["disabledSites"])).disabledSites) === "[]", 3000), "«Включить снова» включил сайт");
     assert.ok(await until(fabBox, 3000), "включили сайт — кружок вернулся");
-    // «⋯» → «Скрыть кнопку» → «Кнопка скрыта» с «Вернуть»
+    // «⋯» → «Скрыть кнопку» — кружок скрыт молча, без уведомления
     await openMore();
     await clickUi(web, "hud", await msg("csFabHide"));
     assert.ok(await until(async () => !(await fabBox()), 3000), "кружок скрыт");
     assert.strictEqual((await get(["hudShown"])).hudShown, false);
-    const hidToast = await until(async () => { const t = await toastNow(); return t && t.texts.includes(await msg("csFabHiddenTitle")) ? t : null; }, 3000);
-    assert.ok(hidToast && hidToast.texts.includes(await msg("csFabHiddenText")) && hidToast.texts.includes(await msg("csFabBack")), "«Кнопка скрыта» с «Вернуть»: " + JSON.stringify(hidToast && hidToast.texts));
-    await web.shot("live-fab-hidden-toast.png", { clip: { x: 500, y: 0, width: 500, height: 200, scale: 1 } });
-    await clickUi(web, "toast", await msg("csFabBack"));
-    assert.ok(await until(async () => (await get(["hudShown"])).hudShown === true, 3000), "«Вернуть» — hudShown = true");
-    assert.ok(await until(fabBox, 3000), "кружок вернулся");
-    await openMore();
-    await clickUi(web, "hud", await msg("csFabHide"));
-    assert.ok(await until(async () => (await get(["hudShown"])).hudShown === false, 3000));
-    ok("плавающая кнопка: из окна — справа внизу (16, 44); перетащили настоящей мышью — у левого края в 16, hudPos { side, top }, на следующей странице там же; щелчок показывает кнопки над кружком, не переводя (подсказка у главной); главная «Перевести страницу» — кружок залит, она становится «Показать оригинал» — оригинал; «⋯» → «Выключить на 127.0.0.1» (кружок скрыт, «Включить снова» возвращает), «Скрыть кнопку» — «Кнопка скрыта», «Вернуть» возвращает");
+    await sleep(800);
+    assert.strictEqual(await toastNow(), null, "«Скрыть кнопку» — без уведомления");
+    ok("плавающая кнопка: из окна — справа внизу (16, 44); перетащили настоящей мышью — у левого края в 16, hudPos { side, top }, на следующей странице там же; щелчок показывает кнопки над кружком, не переводя (подсказка у главной); главная «Перевести страницу» — кружок залит, она становится «Показать оригинал» — оригинал; «⋯» → «Выключить на 127.0.0.1» (кружок скрыт, «Включить снова» возвращает), «Скрыть кнопку» — без уведомления");
 
     // ---- наведение с задержкой: прокрутка без движения мыши ----
     await store({ trigger: "dwell" }); await sleep(300);

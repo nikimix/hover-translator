@@ -8,7 +8,7 @@
 // повторный / Esc скрывают; главная кнопка во всех состояниях (idle с клавишей из chrome.commands, busy — «Стоп» при
 // видимой подписи, part, done, orig, needClick, сбой) меняется на месте и не залита — такая же, как «RU»; подсказки
 // (сразу, одна, по центру своей кнопки в 8 от капсулы); «RU» — код по targetLang и панель языка; «⋯» — «Выключить
-// на <сайт>», «Скрыть кнопку» (+ «Вернуть»), «Настройки»; где капсула (44 × 124 в 8 от кружка, кнопки 36 в 4 от
+// на <сайт>», «Скрыть кнопку» (без уведомления), «Настройки»; где капсула (44 × 124 в 8 от кружка, кнопки 36 в 4 от
 // краёв и друг от друга, центры через 40), подсказки и панели (вверх, вниз .down, слева, окно 320 — подсказка
 // сужается и на капсулу не ложится); перетаскивание (≤ 4 px — щелчок, больше — прилипание к краю в 16, кнопок нет,
 // hudPos пишется один раз, место переживает перезагрузку, миграция { left, top }, мусор, узкое и низкое окно);
@@ -458,24 +458,19 @@ const inside = (q, v) => q.l >= 0 && q.t >= 0 && q.r <= v.w && q.b <= v.h;
     await click(on.x, on.y); await sleep(250);
     assert.deepStrictEqual(await ev("__store.disabledSites"), []);
     assert.ok(await F(), "«Включить снова» — кружок на месте");
-    // «Скрыть кнопку»: hudShown = false, «Кнопка скрыта» с «Вернуть» (8 с)
+    // «Скрыть кнопку»: hudShown = false, молча — без уведомления (вернуть — в окне расширения или в настройках)
     await ev("window.__sets.length = 0; true");
     await clickFab();
     await clickIn("[data-k=more]");
     await clickIn('#fk-more [data-act="hide"]'); await sleep(250);
     assert.strictEqual(await F(), null, "кружок скрыт");
     assert.deepStrictEqual(await ev("__sets"), [{ hudShown: false }]);
-    const hiddenToast = ["info:" + await T("csFabHiddenTitle") + await T("csFabHiddenText") + await T("csFabBack")];
-    assert.deepStrictEqual(await toastsNow(), hiddenToast);
-    await t.shot("toast-fab-hidden.png", { clip: { x: 500, y: 0, width: 500, height: 200, scale: 1 } });
-    await sleep(6000);
-    assert.deepStrictEqual(await toastsNow(), hiddenToast, "через 6 с уведомление ещё на экране (живёт 8 с)");
-    const back = await ev("uiPoint(toastRoot(), '.t-btn')");
-    await click(back.x, back.y); await sleep(250);
-    assert.deepStrictEqual(await ev("__sets"), [{ hudShown: false }, { hudShown: true }], "«Вернуть» — hudShown = true");
-    assert.ok(await F(), "кружок вернулся");
-    assert.deepStrictEqual(await toastsNow(), [], "после «Вернуть» уведомление закрыто");
-    ok("«⋯»: «Выключить на 127.0.0.1» — оригинал, кружок скрыт, «Перевод на 127.0.0.1 выключен» + «Включить снова» (возвращает); «Скрыть кнопку» — hudShown = false, «Кнопка скрыта» с «Вернуть» (> 6 с на экране), «Вернуть» — hudShown = true; «Настройки» → openSettings { focus: page }; выбор пункта скрывает всё");
+    assert.deepStrictEqual(await toastsNow(), [], "«Скрыть кнопку» — без уведомления");
+    await sleep(600);
+    assert.deepStrictEqual(await toastsNow(), [], "и позже уведомления нет");
+    await ev("setStore({ hudShown: true }); true");
+    assert.ok(await until(F, 2000), "hudShown = true (окно расширения) — кружок вернулся");
+    ok("«⋯»: «Выключить на 127.0.0.1» — оригинал, кружок скрыт, «Перевод на 127.0.0.1 выключен» + «Включить снова» (возвращает); «Скрыть кнопку» — hudShown = false, без уведомления; «Настройки» → openSettings { focus: page }; выбор пункта скрывает всё");
 
     // ---- 5. Где капсула, кнопки, подсказки и панели ----
     // Капсула 44 × 124 по оси кружка в 8 от него: вверх (главная ближе всех) или вниз (.down), если над кружком нет
