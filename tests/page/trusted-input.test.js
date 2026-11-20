@@ -144,16 +144,43 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok(`<select>: закрытый (фокус на нём) — Shift переводит; раскрытый (фокус: ${selOpen.focus}) — не переводит`);
     await reset();
 
-    // 8. Держу Shift и веду курсор: переводится и стартовый абзац, и пройденный; отпускание ничего не откатывает
+    // 8. Пока Shift держат, ничего не переводится — перевод только по отпусканию, как щелчок: над тем же элементом,
+    //    без колеса. Shift держат и для своих жестов: Shift+колесо листает список вбок, а рука по пути сдвигает мышь.
     const P2 = await text("#p2");
+    const nothing = async (what) => { assert.strictEqual(await calls(), 0, what); assert.deepStrictEqual([await text("#p1"), await text("#p2")], [P1, P2], what); };
+    // а) зажат 300 мс без движения — до отпускания ничего, после — перевод
+    await hover("#p1");
+    await shiftDown(); await sleep(300);
+    await nothing("зажатый Shift сам по себе не переводит");
+    await shiftUp(); await sleep(150);
+    assert.strictEqual(await text("#p1"), "[RU] " + P1, "отпустили над тем же абзацем — перевод");
+    await reset();
+    // б) зажат и курсор ушёл на другой абзац — ни стартовый, ни пройденный; отпускание над другим — тоже ничего
     await hover("#p1");
     await shiftDown(); await sleep(30);
-    await hover("#p2", SHIFT);
-    await sleep(150);
+    await hover("#p2", SHIFT); await sleep(200);
+    await nothing("зажатый Shift и движение мыши на другой абзац не переводят");
+    await shiftUp(); await sleep(200);
+    await nothing("нажали над одним абзацем, отпустили над другим — не перевод");
+    // в) зажат, мышь сдвинулась на другой элемент и колесо (листают список вбок) — ничего ни до, ни после отпускания
+    await hover("#p1");
+    await shiftDown(); await sleep(30);
+    const c8 = await hover("#p2", SHIFT); await sleep(50);
+    for (let i = 0; i < 3; i++) { await cmd("Input.dispatchMouseEvent", { type: "mouseWheel", x: c8.x, y: c8.y, deltaX: 0, deltaY: 60, modifiers: SHIFT }); await sleep(40); }
+    await move(c8.x + 3, c8.y, SHIFT); await sleep(150);
+    await nothing("Shift+колесо со сдвигом мыши — ничего, пока держат");
+    await shiftUp(); await sleep(200);
+    await nothing("Shift+колесо со сдвигом мыши — ничего и после отпускания");
+    await sleep(500);                       // после колеса с модификатором нажатие 500 мс не считается (MOD_WHEEL_GRACE)
+    // г) ушли с абзаца и вернулись на него, не отпуская, — по отпусканию перевод (как щелчок: вернулись на кнопку)
+    await hover("#p1");
+    await shiftDown(); await sleep(30);
+    await hover("#p2", SHIFT); await sleep(50);
+    await hover("#p1", SHIFT); await sleep(150);
+    await nothing("вернулись на абзац, Shift ещё зажат — ничего");
     await shiftUp(); await sleep(150);
-    assert.strictEqual(await text("#p1"), "[RU] " + P1);
-    assert.strictEqual(await text("#p2"), "[RU] " + P2);
-    ok("держу Shift и веду курсор: переведены и стартовый, и пройденный абзацы, отпускание не откатывает");
+    assert.deepStrictEqual([await text("#p1"), await text("#p2")], ["[RU] " + P1, P2], "отпустили над абзацем, где нажали, — перевод только его");
+    ok("пока Shift зажат — ничего не переводится (и при движении мыши, и с колесом); по отпусканию — только абзац, над которым нажали и отпустили");
     await reset();
 
     // 9. Курсор ушёл из окна — hoverEl сброшен
