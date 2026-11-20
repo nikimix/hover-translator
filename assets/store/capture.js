@@ -14,8 +14,11 @@
 //   s1-before.png, s1-after.png — абзацы до и после перевода клавишей (600×540, ×2);
 //   s2-card.png                 — перевод карточкой рядом с абзацем (860×440, ×2);
 //   s3-settings.png             — страница настроек, раздел «На странице»: способ перевода и показа (×3);
-//   s4-popup.png, s4-page.png   — окно расширения с кнопкой «Перевести страницу» (×3) и переведённая
-//                                 страница с плавающей кнопкой (860×480, ×2);
+//   s4-popup.png                — окно расширения с кнопкой «Перевести страницу» (×3);
+//   s4-page.png                 — переведённая страница без плавающей кнопки (860×480, ×2);
+//   s4-capsule.png              — только наш интерфейс на прозрачном фоне, тот же вид (860×480, ×2): кружок
+//                                 слева внизу, открытая наведением капсула и подсказка главной кнопки
+//                                 «Перевести страницу» с сочетанием клавиш (на картинке — поверх s4-page.png);
 //   s5-translator.png           — страница настроек, раздел «Переводчик»: выбран DeepL, шаг согласия (×3).
 //
 // Окно расширения: Extensions.triggerAction открывает настоящее окно по значку — так расширение получает
@@ -24,6 +27,8 @@
 // подменяется chrome.tabs.query (до скриптов окна), чтобы «активной» была вкладка статьи — её адрес после
 // triggerAction виден. Высота — как у настоящего окна.
 // Настройки, чтение вкладок и команды странице — из service worker расширения.
+// Копия расширения в конце удаляется из профиля (Extensions.uninstall): в постоянном профиле (--profile) иначе
+// копятся прежние установки, и сочетание клавиш «Перевести страницу» остаётся за одной из них — у новой его нет.
 const { spawn } = require("child_process");
 const fs = require("fs");
 const os = require("os");
@@ -181,6 +186,21 @@ async function uiClose(tab) {
   }
   return ids.length;
 }
+// Узлы нашего интерфейса, для которых test(атрибуты) — правда; у узла — его поддерево (children из DOM.getDocument).
+const attrsOf = (n) => { const o = {}, a = n.attributes || []; for (let i = 0; i < a.length; i += 2) o[a[i]] = a[i + 1]; return o; };
+const hasClass = (c) => (a) => (" " + (a.class || "") + " ").includes(" " + c + " ");
+const textOf = (n) => (n.nodeType === 3 ? n.nodeValue : (n.children || []).map(textOf).join(" ")).replace(/\s+/g, " ").trim();
+async function uiFind(tab, test) {
+  const out = [];
+  await walkUi(tab, (n) => { if (n.nodeType === 1 && test(attrsOf(n))) out.push(n); });
+  return out;
+}
+// Рамка узла в CSS-пикселях; null — узла нет или он скрыт.
+async function boxOf(tab, n) {
+  if (!n) return null;
+  try { const q = (await tab.cmd("DOM.getBoxModel", { nodeId: n.nodeId })).model.border; return { x: q[0], y: q[1], w: q[4] - q[0], h: q[5] - q[1] }; }
+  catch { return null; }
+}
 
 // Раздел страницы настроек (выражение для страницы): по id, иначе по заголовку, иначе по порядку.
 const findSection = (key) => `(() => {
@@ -219,8 +239,9 @@ async function run(lang) {
   console.log(`== ${lang}: профиль ${profile}`);
   const b = await launch(lang, profile);
   const layout = {};
+  let id = "";
   try {
-    const { id } = await b.cmd("Extensions.loadUnpacked", { path: extDir });
+    ({ id } = await b.cmd("Extensions.loadUnpacked", { path: extDir }));
     const EXT = `chrome-extension://${id}/`;
 
     // Service worker расширения: через него — настройки, вкладки и сообщения странице.
@@ -342,9 +363,11 @@ async function run(lang) {
     await web.key("rawKeyDown", "Escape", "Escape", 0, 27); await web.key("keyUp", "Escape", "Escape", 0, 27); await sleep(300);
     await store({ displayMode: "replace" }); await sleep(300);
 
-    // ---- 4. Окно расширения и переведённая страница с плавающей кнопкой ----
-    // Сначала окно (страница только что загружена — на месте действия «Перевести страницу»), потом перевод.
-    await store({ hudShown: true, hudPos: null }); await sleep(300);   // кружок — на своём месте (справа внизу в 16 px); страница переведена — залит акцентом
+    // ---- 4. Окно расширения, капсула у кружка и переведённая страница ----
+    // Окно и капсула — на только что загруженной странице: главная кнопка (как и окно) говорит «Перевести
+    // страницу» только до перевода. Потом перевод и снимок страницы без кружка — на картинке капсула ложится поверх.
+    // Кружок — слева внизу, в 16 px от краёв (hudPos: левый край, верх кружка 44 — в 16 от низа окна 480).
+    await store({ hudShown: true, hudPos: { side: "left", top: 480 - 16 - 44 } }); await sleep(300);
     await view(860, 480, 2);
     await web.cmd("Page.reload"); await sleep(1500); await scrollTo(0); await park();
     const popupH = await grant();
@@ -368,6 +391,45 @@ async function run(lang) {
     if (!btn) warn("нет кнопки «Перевести страницу» (" + SEL.popupPrimary + ") — рамки на картинке не будет");
     await shot(pt, path.join(OUT, "s4-popup.png"));
     await b.cmd("Target.closeTarget", { targetId: pt.targetId });
+    // Капсула: настоящее наведение — на кружок (появляются кнопки), затем на главную кнопку (её подсказка;
+    // сочетание клавиш в ней — из chrome.commands, приходит чуть позже).
+    await web.cmd("Page.bringToFront"); await park();
+    const fr = await until(async () => boxOf(web, (await uiFind(web, hasClass("fab")))[0]), 4000);
+    if (!fr) throw new Error("нет плавающей кнопки");
+    await web.mouse("mouseMoved", fr.x + fr.w / 2, fr.y + fr.h / 2); await sleep(60);
+    await web.mouse("mouseMoved", fr.x + fr.w / 2 + 1, fr.y + fr.h / 2);
+    const mainBox = async () => boxOf(web, (await uiFind(web, (a) => a["data-k"] === "main"))[0]);
+    if (!(await until(mainBox, 4000))) throw new Error("наведение на кружок не показало кнопки");
+    await sleep(300);                                    // капсула появляется за 120 мс (сдвиг и прозрачность)
+    const mb = await mainBox();
+    await web.mouse("mouseMoved", mb.x + mb.w / 2, mb.y + mb.h / 2 + 4); await sleep(60);
+    await web.mouse("mouseMoved", mb.x + mb.w / 2, mb.y + mb.h / 2);
+    const tipNow = async () => {
+      const [t] = await uiFind(web, hasClass("fk-tip"));
+      if (!(await boxOf(web, t))) return null;
+      const [k] = await uiFind(web, hasClass("fk-kbd"));
+      return { text: textOf(t), kbd: k ? textOf(k) : "" };
+    };
+    if (!(await until(tipNow, 4000))) throw new Error("у главной кнопки нет подсказки");
+    const tip = (await until(async () => { const t = await tipNow(); return t && t.kbd ? t : null; }, 4000)) || await tipNow();
+    console.log(`   подсказка: «${tip.text}»`);
+    checkState("подсказка у капсулы", tip.text);
+    if (!tip.kbd) warn("в подсказке нет сочетания клавиш — оно у другой копии расширения в профиле (chrome://extensions/shortcuts)");
+    await sleep(300);
+    const main = await mainBox();
+    // Только наш интерфейс на прозрачном фоне: страница скрыта стилем в <head> (атрибуты <html> и <body> не трогаем:
+    // по их смене кружок перекрашивается под фон сайта), фон окна — прозрачный.
+    await web.ev(`(() => { const s = document.createElement("style"); s.id = "ht-capture-ui-only";
+      s.textContent = "html, body { background: transparent !important; } body > :not([data-ht-ui]) { visibility: hidden !important; }";
+      document.head.appendChild(s); return true; })()`);
+    await web.cmd("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
+    await sleep(800);                                    // перекраска по фону сайта (если бы случилась) — с повтором через 600 мс
+    if ((await uiFind(web, hasClass("dk"))).length) warn("капсула без страницы перекрасилась в тёмную тему");
+    await shot(web, path.join(OUT, "s4-capsule.png"));
+    await web.ev(`(document.getElementById("ht-capture-ui-only").remove(), true)`);
+    await web.cmd("Emulation.setDefaultBackgroundColorOverride", {});
+    await park(); await sleep(200);
+    await store({ hudShown: false }); await sleep(300);   // страница — без кружка: капсула со своим кружком ляжет поверх
     // перевод страницы — той же командой, что шлёт кнопка окна
     await web.cmd("Page.bringToFront"); await park();
     await send({ type: "translatePage", via: "popup" });
@@ -381,8 +443,8 @@ async function run(lang) {
     await uiClose(web);   // уведомление «Страница переведена» на картинке закрыло бы окно расширения
     await park(); await sleep(400);
     await shot(web, path.join(OUT, "s4-page.png"));
-    layout.s4 = { view: [860, 480], popup: { w: 340, h: ph, btn } };
-    await restore(); await store({ hudShown: false });
+    layout.s4 = { view: [860, 480], popup: { w: 340, h: ph, btn }, main };
+    await restore(); await store({ hudShown: false, hudPos: null });
 
     // ---- 3 и 5. Страница настроек ----
     // Ширина 620 (кадр 5): меню разделов — полосой сверху, колонка разделов ~570 — крупнее на картинке; кадр 3 — 660.
@@ -430,6 +492,7 @@ async function run(lang) {
 
     fs.writeFileSync(path.join(OUT, "layout.js"), `// Записано capture.js: координаты (CSS-пиксели снимка) для курсора и рамок на картинках.\nwindow.LAYOUT = ${JSON.stringify(layout, null, 1)};\n`);
   } finally {
+    if (id) await b.cmd("Extensions.uninstall", { id }).catch((e) => console.log("   копия расширения не удалилась из профиля: " + e.message));
     await b.close();
     fs.rmSync(tmp, { recursive: true, force: true });   // копия расширения (и новый профиль, если не задан свой)
   }

@@ -863,7 +863,7 @@ async function translateMany(items, o, origin, budgetKey) {
 }
 
 // Последний сбой DeepL или ИИ — для окна расширения (состояния «ключ отклонён», «лимит исчерпан», «нет связи»)
-// и для «!» на значке, когда DeepL не принял ключ (problemNow).
+// и для «!» на значке, когда DeepL или ИИ не принял ключ (problemNow).
 // storage.session.htNetErr = { code, via: "deepl" | "llm", provider, at } — только коды, по которым окну есть что
 // показать; успешный ответ того же сервиса запись снимает. Смена ключа, переводчика или сервиса — тоже (см. ниже).
 const NET_ERR_CODES = new Set(["bad-key", "quota", "money", "network", "timeout", "server", "denied"]);
@@ -1009,21 +1009,23 @@ function originOf(sender) {
 // ---- значок расширения ----
 // «!» — выбранный переводчик не может работать (нет ключа или согласия на отправку текста, нет
 // встроенного в браузере): content на страницах тогда ничего не делает, а объяснение — в подсказке
-// значка и в окне расширения. «!» и тогда, когда переводчик ходит в DeepL, а DeepL не принял ключ
-// (htNetErr): с запасным встроенным перевод идёт, но человек должен узнать, что ключ не работает.
+// значка и в окне расширения. «!» и тогда, когда сервис, в который ходит переводчик (DeepL или ИИ), не
+// принял ключ (htNetErr): с запасным встроенным перевод идёт, но человек должен узнать, что ключ не работает.
 // «off» — перевод выключен, он важнее «!». Состояние значка браузер не сохраняет между запусками,
 // поэтому пересчитываем при каждом старте воркера, а дальше — по изменениям в хранилище.
 const BADGE_KEYS = ["enabled", "engine", "apiKey", "llmApiKey", "llmProvider", "consent", "htBuiltinApi", "targetLang", "sourceLang"];
 const BADGE_OFF_COLOR = "#6b7280";
 const BADGE_PROBLEM_COLOR = "#d93025";
 
-// { off, problem, badKey, st }: problem — причина из HT_engineProblem; badKey — DeepL не принял ключ, а
-// выбранный переводчик (DeepL или DeepL с запасным встроенным) ходит в DeepL. В HT_PROBLEMS badKey не
-// входит: по причинам оттуда content решает, что переводить нельзя, а с запасным встроенным можно.
+// { off, problem, badKey, st }: problem — причина из HT_engineProblem; badKey — название сервиса, который
+// не принял ключ, если в него ходит выбранный переводчик: DeepL (DeepL или DeepL с запасным встроенным)
+// или выбранный сервис ИИ (llmProvider); иначе "". Название — как в окне расширения. В HT_PROBLEMS badKey
+// не входит: по причинам оттуда content решает, что переводить нельзя, а с запасным встроенным можно.
 // Отметку берём из storage.session (htNetErr), а не из памяти: воркер засыпает, а значок после
-// пробуждения должен остаться тем же. Новый ключ или переводчик снимают htNetErr (см. выше), успешный
-// ответ DeepL — тоже.
-function deeplKeyRejected(x) { return !!x && x.code === "bad-key" && x.via === "deepl"; }
+// пробуждения должен остаться тем же. Новый ключ, переводчик или сервис ИИ снимают htNetErr (см. выше),
+// успешный ответ того же сервиса — тоже.
+// Какой сервис не принял ключ: "deepl" | "openai" | "anthropic" (htNetErr.provider), или "".
+function keyRejectedBy(x) { return x && x.code === "bad-key" ? x.provider || "" : ""; }
 function problemNow() {
   return Promise.all([
     chrome.storage.local.get({
@@ -1041,7 +1043,10 @@ function problemNow() {
       targetLang: HT_valid("targetLang", s.targetLang), sourceLang: HT_valid("sourceLang", s.sourceLang) };
     const engine = HT_valid("engine", s.engine);
     const problem = HT_engineProblem(engine, st, builtin);
-    const badKey = !!s.apiKey && HT_engine(engine).via === "deepl" && deeplKeyRejected(g && g.htNetErr);
+    const by = keyRejectedBy(g && g.htNetErr);
+    const via = HT_engine(engine).via;
+    const badKey = via === "deepl" && by === "deepl" && s.apiKey ? "DeepL"
+      : via === "llm" && by && by === HT_valid("llmProvider", s.llmProvider) && s.llmApiKey ? llmName(by) : "";
     return { off: s.enabled === false, problem, badKey, st };
   });
 }
@@ -1050,7 +1055,7 @@ function problemNow() {
 // (manifest name) для подсказки слишком длинное. b — от problemNow.
 function badgeTitle(b) {
   const name = HT_t("extShortName");
-  const why = b.problem ? HT_problemText(b.problem, "short", b.st) : b.badKey ? HT_t("probDeeplBadKey") : "";
+  const why = b.problem ? HT_problemText(b.problem, "short", b.st) : b.badKey ? HT_t("ppBadKeyT", b.badKey) : "";
   return b.off ? HT_t("badgeOff", name) : why ? HT_t("badgeProblem", [name, why]) : name;
 }
 
@@ -1071,11 +1076,11 @@ async function updateBadge() {
 updateBadge();
 chrome.runtime.onStartup?.addListener?.(updateBadge);
 // htNetErr переписывается при каждом сбое (с отклонённым ключом — на каждый перевод), а значку важно
-// только «DeepL не принял ключ» — да или нет.
+// только, какой сервис не принял ключ, если такой есть.
 chrome.storage.onChanged?.addListener?.((changes, area) => {
   const net = area === "session" && changes.htNetErr;
   if (area === "local" ? BADGE_KEYS.some((k) => k in changes)
-    : net && deeplKeyRejected(net.oldValue) !== deeplKeyRejected(net.newValue)) updateBadge();
+    : net && keyRejectedBy(net.oldValue) !== keyRejectedBy(net.newValue)) updateBadge();
 });
 
 // Сайт выключен в окне расширения или в «⋯» у кружка — «off» на значке только этой вкладки. Сообщает

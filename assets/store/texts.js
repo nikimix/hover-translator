@@ -5,7 +5,7 @@ window.TEXTS = {
     s1: { h: "Point at text, press <n><k>Shift</k>&nbsp;—</n> it’s translated right on the page", sub: "Links, bold text and layout stay as they were", before: "Before", after: "After" },
     s2: { h: "Or read the translation in a card next to the text", sub: "The original stays as it is" },
     s3: { h: "Choose how to translate", sub: "<k>Shift</k>, <k>Alt</k>, <n><k>Ctrl</k>&nbsp;—</n> <n>or simply hover</n>" },
-    s4: { h: "Translate the whole page in one click", sub: "A button in the extension window or <k>Alt</k>+<k>Shift</k>+<k>G</k>" },
+    s4: { h: "Translate the whole page in one click", sub: "A button on the page, in the extension window, or <k>Alt</k>+<k>Shift</k>+<k>G</k>" },
     s5: {
       h: "Free and private",
       points: [
@@ -19,7 +19,7 @@ window.TEXTS = {
     s1: { h: "Наведите курсор на текст и нажмите <n><k>Shift</k>&nbsp;—</n> перевод появится прямо на странице", sub: "Ссылки и оформление остаются как были", before: "До", after: "После" },
     s2: { h: "Или читайте перевод в карточке рядом с текстом", sub: "Оригинал при этом не меняется" },
     s3: { h: "Выберите, как переводить", sub: "<k>Shift</k>, <k>Alt</k>, <n><k>Ctrl</k>&nbsp;—</n> или просто наведение курсора" },
-    s4: { h: "Вся страница&nbsp;— одним нажатием", sub: "Кнопка в окне расширения или <k>Alt</k>+<k>Shift</k>+<k>G</k>" },
+    s4: { h: "Вся страница&nbsp;— одним нажатием", sub: "Кнопка на странице, в окне расширения или <k>Alt</k>+<k>Shift</k>+<k>G</k>" },
     s5: {
       h: "Бесплатно и приватно",
       points: [

@@ -2,8 +2,9 @@
 // tabs.sendMessage, runtime.openOptionsPage и значок для вкладки. Проверяет: понятные ошибки с кодами, последний сбой
 // сервиса для окна (htNetErr), способ включения при установке/обновлении и миграцию настроек, горячие клавиши,
 // «Открыть настройки», Esc во всех фреймах, встроенные окна (hoverFrame, frameKey — всем фреймам вкладки), значок
-// «off» для выключенного сайта, нижнюю границу токенов ИИ, «!» на значке, когда DeepL не принял ключ (по htNetErr —
-// переживает перезапуск воркера: новый vm-контекст с теми же storage.local и storage.session).
+// «off» для выключенного сайта, нижнюю границу токенов ИИ, «!» на значке, когда DeepL или ИИ (OpenAI, Anthropic) не
+// принял ключ, а выбранный переводчик ходит в этот сервис (по htNetErr — переживает перезапуск воркера: новый
+// vm-контекст с теми же storage.local и storage.session); подсказка — тем же текстом, что в окне расширения.
 const vm = require("vm");
 const fs = require("fs");
 const path = require("path");
@@ -81,7 +82,8 @@ function makeEnv(initialLocal = {}, opts = {}) {
           { name: "translate-page", shortcut: opts.noKeys ? "" : "Alt+Shift+G", description: "" },
         ]),
       },
-      i18n: Object.assign(require("../lib/i18n-stub").makeI18n("ru"), { getUILanguage: () => opts.ui || "ru" }), // этап 4а: тексты из _locales/ru
+      // этап 4а: тексты из _locales/ru (opts.lang: "en" — из _locales/en)
+      i18n: Object.assign(require("../lib/i18n-stub").makeI18n(opts.lang || "ru"), { getUILanguage: () => opts.ui || opts.lang || "ru" }),
       tabs: {
         create: (o) => { tabsCreated.push(o.url); return Promise.resolve({}); },
         sendMessage: (tabId, msg, o) => { tabMsgs.push({ tabId, msg, o }); return opts.noContent ? Promise.reject(new Error("Could not establish connection. Receiving end does not exist.")) : Promise.resolve(true); },
@@ -286,6 +288,110 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(llm.session.htNetErr.code, "bad-key");
     badgeIs(llm, "", "Hover Translator", "переводчик ИИ: отклонённый ключ DeepL на значке не показываем");
     ok("«!» на значке, когда DeepL не принял ключ — в «авто» и в чистом DeepL; переживает перезапуск воркера; снимают новый ключ, успешный ответ DeepL, смена переводчика; «off» важнее; подсказка вкладки — та же");
+  }
+
+  // ---- «!» на значке: ИИ (OpenAI, Anthropic) не принял ключ ----
+  {
+    const RED = "#d93025", GREY = "#6b7280";
+    const BAD = (svc) => "Hover Translator — " + svc + " не принял ключ";
+    const msg = (engine, t) => ({ type: "translateBatch", engine, targetLang: "RU", sourceLang: "auto", formality: "default", noTranslate: "", by: "user-initiated", items: [t] });
+    const r401 = () => jsonRes(401, { error: { message: "Incorrect API key provided.", code: "invalid_api_key" } });
+    // один текст в запросе — один перевод в ответе
+    const ai200 = (url) => {
+      const json = JSON.stringify({ translations: ["x"] });
+      return url.includes("anthropic") ? jsonRes(200, { stop_reason: "end_turn", content: [{ type: "text", text: json }] })
+        : jsonRes(200, { choices: [{ finish_reason: "stop", message: { content: json } }] });
+    };
+    const badgeIs = (env, text, title, why) => assert.ok(env.badge.text === text && env.badge.title === title && (text !== "!" || env.badge.color === RED), why + ": " + JSON.stringify(env.badge));
+    const fail = async (env, t) => {
+      env.setFetch(r401);
+      const r = await env.send(msg("llm", t), sender(1));
+      assert.strictEqual(r.code, "bad-key", JSON.stringify(r));
+      await sleep(20);
+    };
+
+    // OpenAI: 401 — «!» и название сервиса, как в окне расширения
+    const oa = makeEnv({ apiKey: "k:fx", llmApiKey: "sk-proj-bad", llmProvider: "openai", engine: "llm" });
+    await sleep(20);
+    badgeIs(oa, "", "Hover Translator", "ИИ: до запроса значок чистый");
+    await fail(oa, "o1");
+    badgeIs(oa, "!", BAD("OpenAI"), "OpenAI не принял ключ");
+    const oa2 = makeEnv({}, { local: oa.local, session: oa.session });
+    await sleep(20);
+    badgeIs(oa2, "!", BAD("OpenAI"), "ИИ: после перезапуска воркера «!» остаётся");
+    await oa2.send({ type: "siteBadge", off: false }, sender(8, 0));
+    await sleep(10);
+    assert.ok(oa2.badge.tab[8].text === null && oa2.badge.tab[8].color === RED && oa2.badge.tab[8].title === BAD("OpenAI"), JSON.stringify(oa2.badge.tab[8]));
+    await oa2.ctx.chrome.storage.local.set({ enabled: false });
+    await sleep(20);
+    assert.ok(oa2.badge.text === "off" && oa2.badge.color === GREY && oa2.badge.title === "Hover Translator — перевод выключен", "ИИ: «off» важнее «!»: " + JSON.stringify(oa2.badge));
+    await oa2.ctx.chrome.storage.local.set({ enabled: true });
+    await sleep(20);
+    badgeIs(oa2, "!", BAD("OpenAI"), "ИИ: перевод снова включён — «!» на месте");
+    // успешный ответ того же сервиса снимает «!»
+    oa2.setFetch(ai200);
+    const ro = await oa2.send(msg("llm", "o2"), sender(1));
+    assert.ok(ro.ok, JSON.stringify(ro));
+    await sleep(20);
+    badgeIs(oa2, "", "Hover Translator", "успешный ответ OpenAI снимает «!»");
+    // новый ключ ИИ снимает «!»
+    await fail(oa2, "o3");
+    badgeIs(oa2, "!", BAD("OpenAI"), "OpenAI снова не принял ключ");
+    await oa2.ctx.chrome.storage.local.set({ llmApiKey: "sk-proj-new" });
+    await sleep(20);
+    badgeIs(oa2, "", "Hover Translator", "новый ключ ИИ снимает «!»");
+    // последний сбой — уже DeepL (проверка его ключа), а переводит ИИ: значок перерисован, «!» снят
+    await fail(oa2, "o4");
+    badgeIs(oa2, "!", BAD("OpenAI"), "OpenAI не принял и новый ключ");
+    oa2.setFetch(() => jsonRes(403, {}));
+    await oa2.send({ type: "checkUsage" });
+    await sleep(20);
+    assert.deepStrictEqual([oa2.session.htNetErr.code, oa2.session.htNetErr.via], ["bad-key", "deepl"]);
+    badgeIs(oa2, "", "Hover Translator", "последний отклонённый ключ — DeepL, переводчик ИИ: «!» снят");
+    // смена сервиса ИИ снимает «!»
+    await fail(oa2, "o5");
+    badgeIs(oa2, "!", BAD("OpenAI"), "OpenAI не принял ключ (перед сменой сервиса)");
+    await oa2.ctx.chrome.storage.local.set({ llmProvider: "anthropic", llmApiKey: "sk-ant-x" });
+    await sleep(20);
+    badgeIs(oa2, "", "Hover Translator", "смена сервиса ИИ снимает «!»");
+
+    // Anthropic: так же; смена переводчика снимает «!»
+    const an = makeEnv({ apiKey: "k:fx", llmApiKey: "sk-ant-bad", llmProvider: "anthropic", engine: "llm" });
+    await fail(an, "a1");
+    badgeIs(an, "!", BAD("Anthropic"), "Anthropic не принял ключ");
+    const an2 = makeEnv({}, { local: an.local, session: an.session });
+    await sleep(20);
+    badgeIs(an2, "!", BAD("Anthropic"), "Anthropic: после перезапуска воркера «!» остаётся");
+    await an2.ctx.chrome.storage.local.set({ engine: "deepl" });
+    await sleep(20);
+    badgeIs(an2, "", "Hover Translator", "переводчик DeepL — «!» ИИ снят");
+
+    // ключ ИИ отклонён, а переводчик DeepL, «авто» или встроенный — «!» нет
+    const dl = makeEnv({ apiKey: "k:fx", llmApiKey: "sk-proj-bad", llmProvider: "openai", engine: "deepl" });
+    dl.setFetch(r401);
+    const rc = await dl.send({ type: "checkLlm" });
+    assert.strictEqual(rc.code, "bad-key", JSON.stringify(rc));
+    await sleep(20);
+    assert.deepStrictEqual([dl.session.htNetErr.code, dl.session.htNetErr.via, dl.session.htNetErr.provider], ["bad-key", "llm", "openai"]);
+    badgeIs(dl, "", "Hover Translator", "переводчик DeepL: отклонённый ключ ИИ на значке не показываем");
+    for (const engine of ["auto", "chrome"]) {
+      dl.session.htNetErr = { code: "bad-key", via: "llm", provider: "openai", at: 1 };
+      const d2 = makeEnv({}, { local: Object.assign(dl.local, { engine }), session: dl.session });
+      await sleep(20);
+      badgeIs(d2, "", "Hover Translator", "переводчик «" + engine + "»: отклонённый ключ ИИ на значке не показываем");
+    }
+
+    // подсказка — общим текстом окна расширения («$service$ не принял ключ») и для DeepL, и для ИИ
+    const en = makeEnv({ apiKey: "bad:fx", engine: "deepl" }, { lang: "en" });
+    en.setFetch(() => jsonRes(403, {}));
+    await en.send(msg("deepl", "e1"), sender(1));
+    await sleep(20);
+    const enTitle = (svc) => en.ctx.HT_t("badgeProblem", ["Hover Translator", en.ctx.HT_t("ppBadKeyT", svc)]);
+    assert.ok(en.badge.text === "!" && en.badge.title === enTitle("DeepL") && en.badge.title === "Hover Translator — DeepL didn't accept the key", JSON.stringify(en.badge));
+    await en.ctx.chrome.storage.local.set({ engine: "llm", llmApiKey: "sk-ant-bad", llmProvider: "anthropic" });
+    await fail(en, "e2");
+    assert.ok(en.badge.text === "!" && en.badge.title === enTitle("Anthropic") && en.badge.title === "Hover Translator — Anthropic didn't accept the key", JSON.stringify(en.badge));
+    ok("«!» на значке, когда ИИ не принял ключ — OpenAI и Anthropic, с названием сервиса; переживает перезапуск воркера; снимают успешный ответ, новый ключ, смена сервиса или переводчика, сбой DeepL поверх; «off» важнее; при переводчике DeepL/«авто»/встроенном — нет; подсказка (и для DeepL) — текстом окна расширения");
   }
 
   // ---- ошибки ИИ ----
