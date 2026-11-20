@@ -2475,6 +2475,8 @@
   const MUT_SKIP = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "HEAD", "IFRAME"]);
   const hasLetter = (s) => /\p{L}/u.test(s || "");
 
+  // Что наблюдатель нового содержимого смотрит у страницы — одни опции для всех мест, за которыми он следит.
+  const MUT_OPTS = { childList: true, characterData: true, subtree: true };
   function watchPage() {
     if (mutObserver || dead || !pageActive) return;
     mutTries = new WeakMap();
@@ -2482,7 +2484,7 @@
     mutNew = new WeakSet();
     keepOrig = new WeakSet();
     mutObserver = new MutationObserver(onMutations);
-    mutObserver.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+    mutObserver.observe(document.documentElement, MUT_OPTS);
   }
   function unwatchPage() {
     if (mutObserver) { mutObserver.disconnect(); mutObserver = null; }
