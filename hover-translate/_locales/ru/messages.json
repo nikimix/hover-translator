@@ -828,15 +828,6 @@
   "csFabHide": {
     "message": "Скрыть кнопку"
   },
-  "csFabHiddenTitle": {
-    "message": "Кнопка скрыта"
-  },
-  "csFabHiddenText": {
-    "message": "Вернуть её можно в окне расширения и в настройках."
-  },
-  "csFabBack": {
-    "message": "Вернуть"
-  },
   "csFkMore": {
     "message": "Ещё"
   },

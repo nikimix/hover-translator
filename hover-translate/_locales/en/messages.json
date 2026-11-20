@@ -828,15 +828,6 @@
   "csFabHide": {
     "message": "Hide the button"
   },
-  "csFabHiddenTitle": {
-    "message": "Button hidden"
-  },
-  "csFabHiddenText": {
-    "message": "You can bring it back in the extension window or in settings."
-  },
-  "csFabBack": {
-    "message": "Bring back"
-  },
   "csFkMore": {
     "message": "More"
   },

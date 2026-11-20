@@ -4128,14 +4128,8 @@
   }
   // Кнопка в окне расширения. Где кружку нельзя быть, не показываем — окно объяснит почему.
   function toggleHud() { if (fabAllowed()) setHudWanted(!fab); }
-  // «Скрыть кнопку» — на всех сайтах; вернуть — кнопкой в уведомлении, в окне расширения или в настройках.
-  function hideFab() {
-    setHudWanted(false);
-    notice(HT_t("csFabHiddenText"), 8000, {
-      title: HT_t("csFabHiddenTitle"),
-      actions: [{ label: HT_t("csFabBack"), run: () => setHudWanted(true) }],
-    });
-  }
+  // «Скрыть кнопку» — на всех сайтах, молча: вернуть её можно в окне расширения или в настройках.
+  function hideFab() { setHudWanted(false); }
 
   // ---- выключить на этом сайте ----
   // Список общий с окном расширения; читаем свежий перед записью, чтобы не затереть чужое изменение.
