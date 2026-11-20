@@ -1,9 +1,9 @@
 // Ошибки и горячие клавиши: background.js в node через vm (как background-install.test.js), плюс commands,
 // tabs.sendMessage, runtime.openOptionsPage и значок для вкладки. Проверяет: понятные ошибки с кодами, последний сбой
 // сервиса для окна (htNetErr), способ включения при установке/обновлении и миграцию настроек, горячие клавиши,
-// «Открыть настройки», Esc во всех фреймах, значок «off» для выключенного сайта, нижнюю границу токенов ИИ,
-// «!» на значке, когда DeepL не принял ключ (по htNetErr — переживает перезапуск воркера: новый vm-контекст с теми
-// же storage.local и storage.session).
+// «Открыть настройки», Esc во всех фреймах, встроенные окна (hoverFrame, frameKey — всем фреймам вкладки), значок
+// «off» для выключенного сайта, нижнюю границу токенов ИИ, «!» на значке, когда DeepL не принял ключ (по htNetErr —
+// переживает перезапуск воркера: новый vm-контекст с теми же storage.local и storage.session).
 const vm = require("vm");
 const fs = require("fs");
 const path = require("path");
@@ -429,6 +429,19 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const m = env.tabMsgs.pop();
     assert.ok(m.tabId === 4 && m.msg.type === "restoreAll" && !("frameId" in m.o), JSON.stringify(m));
     ok("Esc: background рассылает restoreAll во все фреймы вкладки");
+
+    await env.send({ type: "frameKey", at: 1700000000123, extra: "x" }, sender(4, 3));
+    const k = env.tabMsgs.pop();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(k)), { tabId: 4, msg: { type: "frameKey", at: 1700000000123 }, o: {} }, "всем фреймам вкладки, только type и at");
+    await env.send({ type: "frameKey", at: "<x>" }, sender(4, 0));
+    assert.strictEqual(env.tabMsgs.pop().msg.at, 0, "at не число — 0 (фрейм тогда ничего не переводит)");
+    await env.send({ type: "hoverFrame", from: "abc123", at: 5 }, sender(4, 2));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(env.tabMsgs.pop())), { tabId: 4, msg: { type: "hoverFrame", from: "abc123" }, o: {} });
+    const before = env.tabMsgs.length;
+    await env.send({ type: "frameKey", at: 1 }, {});
+    await env.send({ type: "hoverFrame", from: "x" }, {});
+    assert.strictEqual(env.tabMsgs.length, before, "не из вкладки — некому пересылать");
+    ok("встроенные окна: «курсор пришёл в этот фрейм» (hoverFrame) и клавишу-триггер для другого фрейма (frameKey) background пересылает всем фреймам вкладки отправителя");
 
     await env.send({ type: "siteBadge", off: true }, sender(8, 2));      // не верхний фрейм — не слушаем
     await sleep(10);

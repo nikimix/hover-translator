@@ -56,6 +56,7 @@
   let pageGen = 0;                    // токен отмены перевода страницы (инкрементится при сбросе/новом запуске)
   let liveGen = 0;                    // токен отмены всех показов: сброс всех/выключение перевода во время await
   let hoverEl = null;
+  let hoverAt = 0;                    // когда hoverEl сменился (см. setHover, frameKey)
   let dwellTimer = null;
   let dwellFor = null;                // элемент, для которого взведён таймер задержки (или отсеян фильтром)
   let lastXY = null;                  // где был курсор при последнем mousemove — отличает движение от прокрутки
@@ -63,7 +64,7 @@
   let edgeOwner = null;               // элемент, который по задержке не переводим, пока курсор не уйдёт с него
   let popCloseTimer = 0;              // отложенное закрытие карточки (курсор идёт с абзаца на карточку)
   let popCloseOwner = null;
-  let modPress = null;                // { key, el }: клавиша-триггер нажата, ждём её отпускания
+  let modPress = null;                // { key, el, at }: клавиша-триггер нажата, ждём отпускания; el null — текст в другом фрейме
   let modWheelUntil = 0;              // до этого времени модификатор занят жестом прокрутки/зума
   let lastToastAt = 0;
   let detector = null;
@@ -681,6 +682,39 @@
     try { return sel.matches(":open"); } catch (e) { return false; }
   }
 
+  function setHover(el) { if (el !== hoverEl) hoverAt = Date.now(); hoverEl = el; }
+
+  // Встроенные окна (iframe). Клавиши получает фрейм с фокусом (обычно верхний), а текст под курсором может быть
+  // в другом фрейме вкладки. Страница, с которой курсор ушёл во встроенное окно с другого сайта, этого не видит
+  // (Chrome 157: ни mouseout, ни mouseover), и hoverEl остаётся на абзаце, с которого курсор ушёл. Поэтому фрейм,
+  // куда курсор пришёл, говорит об этом остальным через background (hoverFrame), а «чистое» нажатие во фрейме без
+  // курсора пересылается так же (frameKey) — переводит фрейм, где курсор над текстом. FRAME_TAG — чтобы своё же
+  // сообщение не принять за чужое.
+  const FRAME_TAG = Math.random().toString(36).slice(2);
+  let cursorIn = TOP;                 // курсор в этом фрейме, а не в другом фрейме вкладки или вне окна
+  function otherFrames() { return !TOP || !!document.querySelector("iframe, frame"); }
+  // Настоящее движение мыши здесь, а курсор считался в другом фрейме (или вне окна).
+  function cursorBack() {
+    if (!active() || settings.trigger === "dwell" || dead) return;
+    cursorIn = true;
+    if (otherFrames()) send({ type: "hoverFrame", from: FRAME_TAG }).catch(() => {});
+  }
+  // Курсор пришёл в другой фрейм вкладки: элемента под курсором здесь нет до следующего движения мыши здесь.
+  function cursorAway(from) {
+    if (from === FRAME_TAG) return;
+    cursorIn = false;
+    hoverEl = null; lastOverTarget = null; clearTimeout(dwellTimer); dwellFor = null;
+    hoverLost = true;
+  }
+  // Клавишу-триггер отпустили в другом фрейме вкладки, а курсор над текстом здесь. at — когда её нажали: курсор с тех
+  // пор сменил элемент (нажали над одним, отпустили над другим) или модификатор крутил колесо — нажатие не «чистое»,
+  // как hoverEl !== p.el и modBusy в keyup. Поле ввода проверил фрейм с фокусом: клавиши шли в него.
+  function frameKey(at) {
+    if (!active() || settings.trigger === "dwell" || !alive()) return;
+    if (!cursorIn || !hoverEl || !(at > 0) || hoverAt > at || modWheelUntil > at) return;
+    toggle(hoverEl);
+  }
+
   // Запустить/снять перевод owner-а под курсором (по клавише-триггеру).
   function toggle(owner) {
     if (!owner) return;
@@ -701,7 +735,7 @@
 
   // Запись о переводе элемента — если перевод ещё на экране или в пути. Сайт мог перерисовать элемент после
   // перевода (React/Vue вписали свой текст, textContent заменил узлы): нашего перевода уже нет, а «мёртвая» запись
-  // мешала — первый Shift «снимал» невидимый перевод и ничего не делал, наведение и жест «держу и веду» считали
+  // мешала — первый Shift «снимал» невидимый перевод и ничего не делал, наведение с задержкой считало
   // элемент занятым. Такую запись снимаем (откатывать нечего) — элемент переводится заново.
   function lineOf(owner) {
     const line = lineByOwner.get(owner);
@@ -2876,7 +2910,7 @@
     lastOverTarget = e.target;            // и при выключенном переводе: см. keydown
     hoverLost = false;
     if (!active() || !alive()) return;
-    hoverEl = hoverTarget(e.target, e.clientX, e.clientY);
+    setHover(hoverTarget(e.target, e.clientX, e.clientY));
     if (popCloseOwner && popCloseOwner === hoverEl) popCloseCancel();   // вернулись на абзац с карточкой
     if (!pointerMoved(e)) return;
     if (hoverEl !== edgeOwner) edgeOwner = null;   // курсор действительно ушёл на другой элемент
@@ -2889,17 +2923,18 @@
   // под курсор, ждёт, пока мышь сдвинется. Таймер — один раз на заход на элемент (dwellFor), так что
   // и фильтр dwellSkip считается один раз, а не на каждое движение.
   const DRIFT_PX = 16;
-  let hoverLost = false;              // элемент под курсором сброшен потерей фокуса окна
+  let hoverLost = false;              // элемент под курсором сброшен: окно потеряло фокус или курсор ушёл в другой фрейм
   on(document, "mousemove", (e) => {
     if (!e.isTrusted || !pointerMoved(e)) return;
     lastXY = { x: e.clientX, y: e.clientY };
+    if (!cursorIn) cursorBack();
     // Окно теряло фокус (открыли окно расширения, Alt+Tab): «элемент под курсором» тогда сброшен, а
     // mouseover после возврата не приходит, если курсор остался на том же элементе. Без этого клавиша
     // и щелчок по абзацу (повтор для загрузки переводчика) после закрытия окна расширения не работали.
     if (hoverLost) {
       hoverLost = false;
       lastOverTarget = e.target;
-      if (active() && !dead) hoverEl = hoverTarget(e.target, e.clientX, e.clientY);
+      if (active() && !dead) setHover(hoverTarget(e.target, e.clientX, e.clientY));
     }
     if (settings.trigger !== "dwell" || !active() || dead) return;
     if (drift && !settleDrift(e)) return;
@@ -2945,7 +2980,7 @@
     dwellFor = null;
     // Курсор ушёл из окна (или из этого фрейма): элемента под курсором больше нет. Иначе нажатие
     // клавиши-триггера потом переводило бы абзац, с которого курсор давно ушёл.
-    if (!e.relatedTarget) { hoverEl = null; lastOverTarget = null; }
+    if (!e.relatedTarget) { hoverEl = null; lastOverTarget = null; cursorIn = false; }
     if (settings.trigger !== "dwell") return; // в режиме клавиши перевод остаётся
     const owner = under || pickTarget(e.target);
     if (!owner) return;
@@ -2985,10 +3020,13 @@
     // перевод был выключен, mouseover элемент не запоминал — берём его из последнего наведения. Под накладкой
     // (hoverEl её не содержит) — заново по точке: курсор мог сдвинуться по ней, а mouseover внутри неё не приходит.
     if (lastOverTarget && (!hoverEl || !hoverEl.contains(lastOverTarget))) {
-      hoverEl = lastOverTarget.isConnected ? hoverTarget(lastOverTarget, lastXY && lastXY.x, lastXY && lastXY.y) : null;
+      setHover(lastOverTarget.isConnected ? hoverTarget(lastOverTarget, lastXY && lastXY.x, lastXY && lastXY.y) : null);
     }
-    if (!hoverEl || modBusy() || typingFocus()) return;
-    modPress = { key: e.key, el: hoverEl }; // …а одиночный модификатор над текстом начинает новое
+    if (modBusy() || typingFocus()) return;
+    const away = !cursorIn && otherFrames();
+    if (!away && !hoverEl) return;
+    // …а одиночный модификатор над текстом (здесь или в другом фрейме вкладки) начинает новое
+    modPress = { key: e.key, el: away ? null : hoverEl, at: Date.now() };
   }, true);
 
   on(document, "keyup", (e) => {
@@ -2998,7 +3036,9 @@
     modPress = null;
     // hoverEl === p.el отсекает случай, когда за время нажатия курсор ушёл с элемента (в том числе
     // из окна) или под него при прокрутке приехал другой.
-    if (!active() || settings.trigger === "dwell" || modBusy() || hoverEl !== p.el) return;
+    if (!active() || settings.trigger === "dwell" || modBusy()) return;
+    if (!p.el) { if (!cursorIn) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
+    if (hoverEl !== p.el) return;
     toggle(p.el);
   }, true);
 
@@ -3243,6 +3283,8 @@
       else if (msg.type === "toggleHud") { toggleHud(); sendResponse(tabState()); }
       else if (msg.type === "getHudState") { sendResponse(tabState()); }
       else if (msg.type === "say") { say(msg); sendResponse(true); }
+      else if (msg.type === "hoverFrame") { cursorAway(msg.from); sendResponse(true); }
+      else if (msg.type === "frameKey") { frameKey(msg.at); sendResponse(true); }
       else sendResponse(true); // подтверждаем получение
     });
   }
