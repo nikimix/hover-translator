@@ -1217,12 +1217,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (sender && sender.tab) toTab(sender.tab.id, { type: "restoreAll" });
     return;
   }
-  // Встроенные окна: курсор пришёл в этот фрейм (hoverFrame, from — кто сообщил) и клавиша-триггер, отпущенная во
-  // фрейме без курсора (frameKey, at — когда нажата), — всем фреймам вкладки; разбирается каждый сам (см. content.js).
+  // Встроенные окна: курсор пришёл в этот фрейм (hoverFrame, from — кто сообщил, at — когда) и клавиша-триггер,
+  // отпущенная во фрейме без курсора (frameKey, at — когда нажата), — всем фреймам вкладки; разбирается каждый сам
+  // (см. content.js).
   // Какой фрейм под курсором, здесь не запоминаем: воркер засыпает через полминуты без дела, и память пропала бы.
   if (msg.type === "hoverFrame" || msg.type === "frameKey") {
     if (sender && sender.tab) toTab(sender.tab.id, msg.type === "frameKey" ? { type: "frameKey", at: Number(msg.at) || 0 }
-      : { type: "hoverFrame", from: String(msg.from || "").slice(0, 20) });
+      : { type: "hoverFrame", from: String(msg.from || "").slice(0, 20), at: Number(msg.at) || 0 });
     return;
   }
   if (msg.type === "siteBadge") {

@@ -729,22 +729,58 @@
   // (Chrome 157: ни mouseout, ни mouseover), и hoverEl остаётся на абзаце, с которого курсор ушёл. Поэтому фрейм,
   // куда курсор пришёл, говорит об этом остальным через background (hoverFrame), а «чистое» нажатие во фрейме без
   // курсора пересылается так же (frameKey) — переводит фрейм, где курсор над текстом. FRAME_TAG — чтобы своё же
-  // сообщение не принять за чужое.
+  // сообщение не принять за чужое. Окно того же сайта страница видит сама (mouseover на <iframe>, см. frameEl): от
+  // окна без нашего скрипта (about:blank, srcdoc) сообщения не будет никогда.
   const FRAME_TAG = Math.random().toString(36).slice(2);
   let cursorIn = TOP;                 // курсор в этом фрейме, а не в другом фрейме вкладки или вне окна
   function otherFrames() { return !TOP || !!document.querySelector("iframe, frame"); }
-  // Настоящее движение мыши здесь, а курсор считался в другом фрейме (или вне окна).
+  function frameEl(el) { return !!el && (el.tagName === "IFRAME" || el.tagName === "FRAME"); }
+  // Настоящее движение мыши здесь, а курсор считался в другом фрейме (или вне окна). at — когда курсор пришёл (см. upHere).
   function cursorBack() {
     if (!active() || settings.trigger === "dwell" || dead) return;
     cursorIn = true;
-    if (otherFrames()) send({ type: "hoverFrame", from: FRAME_TAG }).catch(() => {});
+    if (otherFrames()) send({ type: "hoverFrame", from: FRAME_TAG, at: Date.now() }).catch(() => {});
   }
   // Курсор пришёл в другой фрейм вкладки: элемента под курсором здесь нет до следующего движения мыши здесь.
-  function cursorAway(from) {
+  function cursorAway(from, at) {
     if (from === FRAME_TAG) return;
     cursorIn = false;
     hoverEl = null; lastOverTarget = null; clearTimeout(dwellTimer); dwellFor = null;
     hoverLost = true;
+    for (const d of upWait) if (!(at > d.up)) d.away = true;   // пришёл туда раньше отпускания здесь
+  }
+  // Сообщение hoverFrame идёт через background и может опоздать (воркер просыпается, машина занята): курсор уже во
+  // встроенном окне, а здесь отпустили клавишу и считаем его над абзацем, с которого он ушёл. Сам этот фрейм ухода в
+  // окно с другого сайта не видит (ни mouseout, ни :hover), но уйти туда курсор может только через край окна, и
+  // последнее движение, которое фрейм видел, — у края: между двумя событиями мыши курсор проходит самое большее
+  // десятки пикселей, а с места мышь трогается плавно. Поэтому отпускание над текстом здесь, если мышь только что
+  // двигалась у окна (FRAME_NEAR), ждёт FRAME_LAG от последнего движения — с запасом на доставку. Пришло hoverFrame,
+  // и курсор ушёл в окно раньше отпускания — клавиша для того фрейма (frameKey, там решат, «чистое» ли нажатие);
+  // иначе переводим здесь. Остальные нажатия — сразу, без ожидания.
+  const FRAME_LAG = 300;
+  const FRAME_NEAR = 150;
+  let moveAt = 0;                     // когда мышь в последний раз двигалась в этом фрейме
+  const upWait = [];                  // отпускания, ждущие hoverFrame: { el, at, up, away }
+  function frameNear() {
+    if (!lastXY) return false;
+    for (const f of document.querySelectorAll("iframe, frame")) {
+      const r = f.getBoundingClientRect();
+      if (r.width && r.height && lastXY.x > r.left - FRAME_NEAR && lastXY.x < r.right + FRAME_NEAR
+        && lastXY.y > r.top - FRAME_NEAR && lastXY.y < r.bottom + FRAME_NEAR) return true;
+    }
+    return false;
+  }
+  function upHere(p) {
+    const wait = moveAt + FRAME_LAG - Date.now();
+    if (wait <= 0 || !frameNear()) { toggle(p.el); return; }
+    upWait.push({ el: p.el, at: p.at, up: Date.now(), away: false });
+    // по порядку: срок у следующего отпускания не раньше, чем у прежнего (moveAt только растёт)
+    setTimeout(() => {
+      const d = upWait.shift();
+      if (!d || dead || !active() || settings.trigger === "dwell") return;
+      if (d.away) send({ type: "frameKey", at: d.at }).catch(() => {});
+      else toggle(d.el);
+    }, wait);
   }
   // Клавишу-триггер отпустили в другом фрейме вкладки, а курсор над текстом здесь. at — когда её нажали: курсор с тех
   // пор сменил элемент (нажали над одним, отпустили над другим) или модификатор крутил колесо — нажатие не «чистое»,
@@ -3382,6 +3418,7 @@
     lastOverTarget = target;              // и при выключенном переводе: см. keydown
     hoverLost = false;
     if (!active() || !alive()) return;
+    if (frameEl(target)) cursorIn = false;   // курсор ушёл во встроенное окно (того же сайта — это видно): см. FRAME_TAG
     setHover(hoverTarget(target, e.clientX, e.clientY));
     if (popCloseOwner && popCloseOwner === hoverEl) popCloseCancel();   // вернулись на абзац с карточкой
     if (!pointerMoved(e)) return;
@@ -3399,7 +3436,7 @@
   on(document, "mousemove", (e) => {
     if (!e.isTrusted || !pointerMoved(e)) return;
     lastXY = { x: e.clientX, y: e.clientY };
-    if (!cursorIn) cursorBack();
+    moveAt = Date.now(); if (!cursorIn && !frameEl(evTarget(e))) cursorBack();
     // Окно теряло фокус (открыли окно расширения, Alt+Tab): «элемент под курсором» тогда сброшен, а
     // mouseover после возврата не приходит, если курсор остался на том же элементе. Без этого клавиша
     // и щелчок по абзацу (повтор для загрузки переводчика) после закрытия окна расширения не работали.
@@ -3516,9 +3553,12 @@
     // hoverEl === p.el отсекает случай, когда за время нажатия курсор ушёл с элемента (в том числе
     // из окна) или под него при прокрутке приехал другой.
     if (!active() || settings.trigger === "dwell" || modBusy()) return;
-    if (!p.el) { if (!cursorIn) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
-    if (hoverEl !== p.el) return;
-    toggle(p.el);
+    // Курсор в другом фрейме вкладки — нажатие для него. И когда при нажатии курсор считался здесь, а hoverFrame пришло
+    // до отпускания: курсор ушёл в окно раньше, чем нажали (сообщение опоздало), или пока держали — тогда «чистым»
+    // нажатие не признает фрейм под курсором.
+    if (!cursorIn) { if (otherFrames()) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
+    if (!p.el || hoverEl !== p.el) return;
+    upHere(p);
   }, true);
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
@@ -3762,7 +3802,7 @@
       else if (msg.type === "toggleHud") { toggleHud(); sendResponse(tabState()); }
       else if (msg.type === "getHudState") { sendResponse(tabState()); }
       else if (msg.type === "say") { say(msg); sendResponse(true); }
-      else if (msg.type === "hoverFrame") { cursorAway(msg.from); sendResponse(true); }
+      else if (msg.type === "hoverFrame") { cursorAway(msg.from, msg.at); sendResponse(true); }
       else if (msg.type === "frameKey") { frameKey(msg.at); sendResponse(true); }
       else sendResponse(true); // подтверждаем получение
     });
