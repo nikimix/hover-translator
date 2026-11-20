@@ -4,12 +4,10 @@
     "description": "Language code of this file. Used for number formats, plural forms and language names. Not shown."
   },
   "extName": {
-    "message": "Hover Translator — Translate Text In Place",
-    "description": "Full extension name (manifest name, Chrome Web Store, extensions page), up to 75 characters. Used nowhere else."
+    "message": "Hover Translator — Translate Text In Place"
   },
   "extShortName": {
-    "message": "Hover Translator",
-    "description": "Short extension name: manifest short_name, toolbar icon tooltip, extension window, welcome page, notification titles on pages. Change both names here (and in the other messages.json) — everything else takes them from here."
+    "message": "Hover Translator"
   },
   "extDescription": {
     "message": "Hover over any text and press Shift to translate it in place. Free and private with Chrome’s built-in translator, no sign-up.",
@@ -21,56 +19,11 @@
   "translatePage": {
     "message": "Translate page"
   },
-  "showOriginal": {
-    "message": "Show original"
-  },
-  "showOriginalEsc": {
-    "message": "Show original (Esc)"
-  },
   "openSettings": {
     "message": "Open settings"
   },
-  "switchToBuiltin": {
-    "message": "Switch to built-in"
-  },
-  "agree": {
-    "message": "I agree"
-  },
-  "check": {
-    "message": "Check"
-  },
-  "close": {
-    "message": "Close"
-  },
-  "targetLangAria": {
-    "message": "Translation language"
-  },
   "srcAuto": {
     "message": "Detect automatically"
-  },
-  "engChrome": {
-    "message": "Built into Chrome"
-  },
-  "engChromeHint": {
-    "message": "free; your text stays on your computer"
-  },
-  "engDeepl": {
-    "message": "DeepL"
-  },
-  "engDeeplHint": {
-    "message": "more accurate; uses your key, 500,000 characters a month free"
-  },
-  "engAuto": {
-    "message": "DeepL, with built-in as backup"
-  },
-  "engAutoHint": {
-    "message": "keeps translating if your DeepL limit runs out or the connection drops"
-  },
-  "engLlm": {
-    "message": "AI (ChatGPT / Claude)"
-  },
-  "engLlmHint": {
-    "message": "uses your key; paid"
   },
   "modelFast": {
     "message": "$model$ — fast and cheap",
@@ -98,34 +51,22 @@
     "message": "Other…"
   },
   "keyHintDeepl": {
-    "message": "No DeepL key yet — click the extension icon and paste your key."
+    "message": "No DeepL key yet — paste it in the extension settings."
   },
   "keyHintLlm": {
-    "message": "No AI key yet — click the extension icon and paste your key."
+    "message": "No AI key yet — paste it in the extension settings."
   },
   "probNoDeeplKey": {
     "message": "no DeepL key"
   },
-  "probNoDeeplKeyPage": {
-    "message": "Translation isn’t working: there’s no DeepL key. Click the extension icon to paste a key or switch to the built-in translator."
-  },
   "probNoLlmKey": {
     "message": "no AI key"
-  },
-  "probNoLlmKeyPage": {
-    "message": "Translation isn’t working: there’s no AI key. Click the extension icon to paste a key or switch to the built-in translator."
   },
   "probNoConsent": {
     "message": "your consent is needed to send text"
   },
-  "probNoConsentPage": {
-    "message": "Translation isn’t working: the selected translator needs your consent before any text is sent. Click the extension icon to agree or switch to the built-in translator."
-  },
   "probNoBuiltin": {
     "message": "the built-in translator isn’t available in this browser"
-  },
-  "probNoBuiltinPage": {
-    "message": "Translation isn’t working: the built-in translator isn’t available in this browser (it needs Chrome 138 or newer on a computer). Click the extension icon to connect DeepL."
   },
   "probDeeplLangTo": {
     "message": "DeepL can’t translate into $lang$",
@@ -137,7 +78,7 @@
     }
   },
   "probDeeplLangToPage": {
-    "message": "Translation isn’t working: DeepL can’t translate into $lang$. Click the extension icon to choose another language or translator.",
+    "message": "Translation isn’t working: DeepL can’t translate into $lang$. Choose another language or translator in the extension settings.",
     "placeholders": {
       "lang": {
         "content": "$1",
@@ -155,7 +96,7 @@
     }
   },
   "probDeeplLangFromPage": {
-    "message": "Translation isn’t working: DeepL can’t translate from $lang$. Click the extension icon to choose another original language or translator.",
+    "message": "Translation isn’t working: DeepL can’t translate from $lang$. Choose another original language or translator in the extension settings.",
     "placeholders": {
       "lang": {
         "content": "$1",
@@ -172,15 +113,6 @@
       }
     }
   },
-  "probBuiltinLangToPage": {
-    "message": "Translation isn’t working: the built-in translator can’t translate into $lang$. Click the extension icon to choose another language or connect DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
   "probBuiltinLangFrom": {
     "message": "the built-in translator can’t translate from $lang$",
     "placeholders": {
@@ -189,102 +121,6 @@
         "example": "Hindi"
       }
     }
-  },
-  "probBuiltinLangFromPage": {
-    "message": "Translation isn’t working: the built-in translator can’t translate from $lang$. Click the extension icon to choose another original language or connect DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "popupTitle": {
-    "message": "$name$ settings",
-    "placeholders": {
-      "name": {
-        "content": "$1",
-        "example": "Hover Translator"
-      }
-    }
-  },
-  "enabledOn": {
-    "message": "Translation is on"
-  },
-  "enabledOff": {
-    "message": "Translation is off"
-  },
-  "siteOn": {
-    "message": "Translate on this site"
-  },
-  "reloadTab": {
-    "message": "Reload tab"
-  },
-  "targetLang": {
-    "message": "Translate into"
-  },
-  "trigger": {
-    "message": "Translate with"
-  },
-  "triggerDwell": {
-    "message": "Hover"
-  },
-  "dwellLabel": {
-    "message": "Delay before translating"
-  },
-  "dwellFaster": {
-    "message": "faster"
-  },
-  "dwellSlower": {
-    "message": "slower"
-  },
-  "hudBtn": {
-    "message": "Mini panel on page"
-  },
-  "quality": {
-    "message": "Translation quality"
-  },
-  "engineLegend": {
-    "message": "Translator"
-  },
-  "consentRevoke": {
-    "message": "Withdraw consent"
-  },
-  "deeplKey": {
-    "message": "DeepL key"
-  },
-  "deeplKeyPlaceholder": {
-    "message": "DeepL API key"
-  },
-  "showKey": {
-    "message": "Show key"
-  },
-  "hideKey": {
-    "message": "Hide key"
-  },
-  "howtoSummary": {
-    "message": "How to get a free DeepL key"
-  },
-  "howto1": {
-    "message": "Go to {a}deepl.com/pro-api{/a} and choose the free plan (Free)."
-  },
-  "howto2": {
-    "message": "Sign up. DeepL asks for a bank card to verify your account — you won’t be charged on the free plan."
-  },
-  "howto3": {
-    "message": "In your account, open “API Keys” and copy your key — it ends with “:fx”."
-  },
-  "howto4": {
-    "message": "Paste the key into the field above — the extension checks it right away."
-  },
-  "howtoFree": {
-    "message": "Free: 500,000 characters a month. You’ll see how much is left right here, under the key."
-  },
-  "llmService": {
-    "message": "Service"
-  },
-  "llmKey": {
-    "message": "Key"
   },
   "llmModel": {
     "message": "Model"
@@ -295,17 +131,8 @@
   "llmModelAria": {
     "message": "Model name"
   },
-  "llmNote": {
-    "message": "Your key stays in this browser. AI conveys meaning and phrasing better, but it’s slower than DeepL, and every translation is billed to your account with the service."
-  },
-  "more": {
-    "message": "More settings"
-  },
   "sourceLang": {
     "message": "Original language"
-  },
-  "formality": {
-    "message": "Formality (DeepL only)"
   },
   "formalityDefault": {
     "message": "Let the translator decide"
@@ -315,24 +142,6 @@
   },
   "formalityLess": {
     "message": "Informal"
-  },
-  "formalityNote": {
-    "message": "Works only for some languages: German, French, Italian, Spanish, Dutch, Polish, Portuguese, Russian and Japanese. Other languages aren’t affected."
-  },
-  "displayMode": {
-    "message": "Show the translation"
-  },
-  "displayReplace": {
-    "message": "In place of the original text"
-  },
-  "displayPopover": {
-    "message": "In a card next to the text"
-  },
-  "displayNote": {
-    "message": "The card appears only when you translate under the cursor; “Translate page” always replaces the text in place."
-  },
-  "showLangBadge": {
-    "message": "Show the original language in the card (DE → EN)"
   },
   "dispMode": {
     "message": "Highlight translated text"
@@ -346,33 +155,6 @@
   "dispNone": {
     "message": "No highlight"
   },
-  "dispColor": {
-    "message": "Highlight color"
-  },
-  "dispOpacity": {
-    "message": "Highlight intensity"
-  },
-  "dispBorder": {
-    "message": "Border"
-  },
-  "dispBorderStyle": {
-    "message": "Border style"
-  },
-  "borderSolid": {
-    "message": "Solid"
-  },
-  "borderDashed": {
-    "message": "Dashed"
-  },
-  "borderDotted": {
-    "message": "Dotted"
-  },
-  "borderDouble": {
-    "message": "Double"
-  },
-  "dispBorderColor": {
-    "message": "Border color"
-  },
   "noTranslate": {
     "message": "Don’t translate these words"
   },
@@ -382,328 +164,47 @@
   "savedTranslations": {
     "message": "Saved translations"
   },
-  "clearCache": {
-    "message": "Delete saved translations"
-  },
-  "shortcuts": {
-    "message": "Keyboard shortcuts"
-  },
   "shortcutsEdit": {
     "message": "Change shortcuts"
   },
   "checkFail": {
     "message": "Couldn’t check the key"
   },
-  "noPage": {
-    "message": "Extensions can’t run on this page — it’s a Chrome system page or the Chrome Web Store."
-  },
-  "storeFull": {
-    "message": "storage is full. Delete saved translations under “More settings”"
-  },
-  "settingsNotSaved": {
-    "message": "Settings weren’t saved: $reason$.",
-    "placeholders": {
-      "reason": {
-        "content": "$1",
-        "example": "QUOTA_BYTES quota exceeded"
-      }
-    }
-  },
-  "notSaved": {
-    "message": "Couldn’t save: $reason$.",
-    "placeholders": {
-      "reason": {
-        "content": "$1",
-        "example": "QUOTA_BYTES quota exceeded"
-      }
-    }
-  },
-  "hotkeyTip": {
-    "message": "Shortcut: $keys$",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "hudShownTip": {
-    "message": "The mini panel is shown — click to hide it"
-  },
-  "hudHiddenTip": {
-    "message": "Show a language switcher panel on the page"
-  },
-  "disclosure": {
-    "message": "The text you translate will be sent to $service$ using your key. The built-in translator doesn’t send anything.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "disclosureAuto": {
-    "message": "The text you translate will be sent to $service$ using your key. The built-in translator doesn’t send anything. Until you agree, the built-in translator is used.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "consentGiven": {
-    "message": "The text you translate is sent to $service$ using your key.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "setupNoDeeplKey": {
-    "message": "Translation isn’t working: there’s no DeepL key."
-  },
-  "setupNoDeeplKeyBuiltin": {
-    "message": "Translation isn’t working: there’s no DeepL key. Paste a key or switch to the built-in translator — it’s free and needs no key."
-  },
-  "setupNoLlmKey": {
-    "message": "Translation isn’t working: there’s no AI key."
-  },
-  "setupNoLlmKeyBuiltin": {
-    "message": "Translation isn’t working: there’s no AI key. Paste a key or switch to the built-in translator — it’s free and needs no key."
-  },
-  "setupNoConsent": {
-    "message": "Translation won’t work until you agree. The text you translate will be sent to $service$ using your key. The built-in translator doesn’t send anything.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "setupNoBuiltin": {
-    "message": "The built-in translator isn’t available in this browser (it needs Chrome 138 or newer on a computer). Connect DeepL with your own key — 500,000 characters a month are free."
-  },
-  "setupAutoConsent": {
-    "message": "The built-in translator is working for now: DeepL gets text only with your consent. The text you translate will be sent to $service$ using your key. The built-in translator doesn’t send anything.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "setupDeeplLangTo": {
-    "message": "DeepL can’t translate into $lang$. Choose another language or translator.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupDeeplLangFrom": {
-    "message": "DeepL can’t translate from $lang$. Choose another original language under “More settings”, or another translator.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupBuiltinLangTo": {
-    "message": "The built-in translator can’t translate into $lang$. Choose another language or connect DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupBuiltinLangFrom": {
-    "message": "The built-in translator can’t translate from $lang$. Choose another original language under “More settings”, or connect DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "setupGoKey": {
-    "message": "Add key"
-  },
-  "setupGoDeepl": {
-    "message": "Use DeepL"
-  },
-  "setupGoLang": {
-    "message": "Choose language"
-  },
-  "setupFixChrome": {
-    "message": "Use built-in"
-  },
-  "setupFixKeep": {
-    "message": "Keep built-in"
-  },
-  "setupAgreed": {
-    "message": "Done: text for translation now goes to $service$.",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      }
-    }
-  },
-  "sumBuiltin": {
-    "message": "Built-in"
-  },
-  "sumAuto": {
-    "message": "DeepL + built-in"
-  },
-  "sumUnavailable": {
-    "message": "unavailable"
-  },
-  "sumDownload": {
-    "message": "download needed"
-  },
-  "sumNoLang": {
-    "message": "unsupported language"
-  },
-  "sumNoKey": {
-    "message": "no key"
-  },
-  "sumNoConsent": {
-    "message": "no consent"
-  },
-  "sumTip": {
-    "message": "$name$: $status$",
-    "placeholders": {
-      "name": {
-        "content": "$1",
-        "example": "Hover Translator"
-      },
-      "status": {
-        "content": "$2",
-        "example": "no key"
-      }
-    }
-  },
-  "triggerHintDwell": {
-    "message": "Rest the cursor on some text to translate it. Move the cursor away to bring back the original. Links and buttons aren’t translated this way."
-  },
-  "triggerHintKey": {
-    "message": "Point at some text, then press and release $key$. Press again to bring back the original.",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "dwellValue": {
-    "message": "$sec$ s",
-    "placeholders": {
-      "sec": {
-        "content": "$1",
-        "example": "0.6"
-      }
-    }
-  },
-  "seconds_one": {
-    "message": "$n$ second",
+  "quotaUsed_one": {
+    "message": "This month: $n$ character translated. No limit is set for this key.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
   },
-  "seconds_few": {
-    "message": "$n$ seconds",
+  "quotaUsed_few": {
+    "message": "This month: $n$ characters translated. No limit is set for this key.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
   },
-  "seconds_many": {
-    "message": "$n$ seconds",
+  "quotaUsed_many": {
+    "message": "This month: $n$ characters translated. No limit is set for this key.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
   },
-  "seconds_other": {
-    "message": "$n$ seconds",
+  "quotaUsed_other": {
+    "message": "This month: $n$ characters translated. No limit is set for this key.",
     "placeholders": {
       "n": {
         "content": "$1",
-        "example": "15"
+        "example": "87,650"
       }
     }
-  },
-  "recentLabel": {
-    "message": "Recent:"
-  },
-  "recentTip": {
-    "message": "Translate into this language"
-  },
-  "quotaLeft_one": {
-    "message": "$left$ of $limit$ character left this month.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "quotaLeft_few": {
-    "message": "$left$ of $limit$ characters left this month.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "quotaLeft_many": {
-    "message": "$left$ of $limit$ characters left this month.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "quotaLeft_other": {
-    "message": "$left$ of $limit$ characters left this month.",
-    "placeholders": {
-      "limit": {
-        "content": "$1",
-        "example": "500,000"
-      },
-      "left": {
-        "content": "$2",
-        "example": "412,350"
-      }
-    }
-  },
-  "keyRejected": {
-    "message": "That key didn’t work — make sure you copied all of it."
   },
   "withDetail": {
     "message": "$text$ ($detail$)",
@@ -721,177 +222,8 @@
   "pasteKeyFirst": {
     "message": "Paste your key first."
   },
-  "checkingKey": {
-    "message": "Checking the key…"
-  },
-  "checkingLlmKey": {
-    "message": "Checking the key: translating one word…"
-  },
-  "keyWorks": {
-    "message": "✓ The key works."
-  },
-  "statsSent_one": {
-    "message": "Sent for translation: $n$ character.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsSent_few": {
-    "message": "Sent for translation: $n$ characters.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsSent_many": {
-    "message": "Sent for translation: $n$ characters.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsSent_other": {
-    "message": "Sent for translation: $n$ characters.",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsHits_one": {
-    "message": "Reused from saved translations: $n$ time ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsHits_few": {
-    "message": "Reused from saved translations: $n$ times ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsHits_many": {
-    "message": "Reused from saved translations: $n$ times ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsHits_other": {
-    "message": "Reused from saved translations: $n$ times ($free$).",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      },
-      "free": {
-        "content": "$2",
-        "example": "≈1,200 characters for free"
-      }
-    }
-  },
-  "statsFree_one": {
-    "message": "≈$n$ character for free",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsFree_few": {
-    "message": "≈$n$ characters for free",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsFree_many": {
-    "message": "≈$n$ characters for free",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsFree_other": {
-    "message": "≈$n$ characters for free",
-    "placeholders": {
-      "n": {
-        "content": "$1",
-        "example": "15"
-      }
-    }
-  },
-  "statsKept": {
-    "message": "They’re kept for 14 days."
-  },
-  "tabReload": {
-    "message": "Reload the tab to start translating."
-  },
-  "tabUnknown": {
-    "message": "Translation isn’t working on this tab yet. If it’s a regular website, reload the tab."
-  },
-  "tabReloading": {
-    "message": "Reloading the tab…"
-  },
-  "tabReloaded": {
-    "message": "Done — translation works on this tab now."
-  },
-  "siteOffNow": {
-    "message": "Translation is off on this site: no hover, no key, no panel."
-  },
   "keyNotSet": {
     "message": "not set"
-  },
-  "keysToggle": {
-    "message": "turn translation on or off"
-  },
-  "keysPage": {
-    "message": "translate the page"
-  },
-  "keysEsc": {
-    "message": "show the original"
-  },
-  "offTurnOn": {
-    "message": "Translation is off — turn it on with the switch above."
-  },
-  "siteOffCheck": {
-    "message": "Translation is off on this site — check “Translate on this site”."
-  },
-  "siteOffHud": {
-    "message": "Translation is off on this site, so the panel isn’t shown."
   },
   "deleting": {
     "message": "Deleting…"
@@ -902,98 +234,11 @@
   "tryAgainFailed": {
     "message": "That didn’t work — please try again."
   },
-  "biPrepare": {
-    "message": "Set up translator"
-  },
-  "biNone": {
-    "message": "The built-in translator isn’t available in this browser: it needs Google Chrome 138 or newer on a computer. Connect DeepL with your own key."
-  },
-  "biPairNo": {
-    "message": "The built-in translator can’t translate this language pair: $pair$. Choose another language or connect DeepL.",
-    "placeholders": {
-      "pair": {
-        "content": "$1",
-        "example": "English → Russian"
-      }
-    }
-  },
-  "biLangNo": {
-    "message": "The built-in translator can’t translate into $lang$. Choose another language or connect DeepL.",
-    "placeholders": {
-      "lang": {
-        "content": "$1",
-        "example": "Hindi"
-      }
-    }
-  },
-  "biDetector": {
-    "message": "language detection"
-  },
-  "biReady": {
-    "message": "✓ Ready: $pair$. Translation happens on your computer.",
-    "placeholders": {
-      "pair": {
-        "content": "$1",
-        "example": "English → Russian"
-      }
-    }
-  },
-  "biReadyNoDetector": {
-    "message": "✓ Ready: $pair$. Translation happens on your computer. Language detection isn’t available — set the original language in the settings.",
-    "placeholders": {
-      "pair": {
-        "content": "$1",
-        "example": "English → Russian"
-      }
-    }
-  },
-  "biGoing": {
-    "message": "The models are already downloading ($what$). Click the button to see the progress.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "biNeed": {
-    "message": "Language models need to be downloaded once: $what$. It’s free, and after that translation works even offline.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "biChecking": {
-    "message": "Checking the built-in translator…"
-  },
-  "biDownloading": {
-    "message": "Downloading language models…"
-  },
-  "biDownloadingPct": {
-    "message": "Downloading language models… $pct$%",
-    "placeholders": {
-      "pct": {
-        "content": "$1",
-        "example": "42"
-      }
-    }
-  },
   "biOnceMore": {
     "message": "Almost there — click the button once more."
   },
   "biFailed": {
     "message": "Couldn’t download the model. Check your internet connection and click again."
-  },
-  "biFailedWhy": {
-    "message": "Couldn’t download the model: $why$. Check your internet connection and click again.",
-    "placeholders": {
-      "why": {
-        "content": "$1",
-        "example": "NetworkError"
-      }
-    }
   },
   "welcomeTitle": {
     "message": "Getting started with $name$",
@@ -1003,250 +248,6 @@
         "example": "Hover Translator"
       }
     }
-  },
-  "step1": {
-    "message": "Which language to translate into"
-  },
-  "step1Hint": {
-    "message": "You can change it anytime in the extension window."
-  },
-  "step2": {
-    "message": "Set up the translator"
-  },
-  "step2Text": {
-    "message": "Chrome’s built-in translator runs on your computer: it’s free, needs no keys, and your text isn’t sent anywhere."
-  },
-  "step3": {
-    "message": "How to translate"
-  },
-  "shiftName": {
-    "message": "With the $key$ key",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "shiftChoice": {
-    "message": "— recommended. Point at some text, then press and release Shift. Press it again to bring back the original. Nothing gets translated by accident while you just move the mouse or scroll."
-  },
-  "dwellName": {
-    "message": "By hovering."
-  },
-  "dwellChoice": {
-    "message": "Rest the cursor on some text and it gets translated. Move the cursor away to bring back the original. Links, buttons, menus and short labels aren’t translated by hovering."
-  },
-  "step4": {
-    "message": "Try it"
-  },
-  "step5": {
-    "message": "Pin the icon to the toolbar"
-  },
-  "pinText": {
-    "message": "Click the Extensions icon (the puzzle piece) to the right of the address bar, then the pin next to “$name$”. The icon opens the settings and the “Translate page” button, and a “!” on it tells you if translation stops working.",
-    "placeholders": {
-      "name": {
-        "content": "$1",
-        "example": "Hover Translator"
-      }
-    }
-  },
-  "pinHint": {
-    "message": "Reload any tabs that were open before you installed the extension — translation will work on them after that."
-  },
-  "extraTitle": {
-    "message": "For more accurate translations"
-  },
-  "extraText": {
-    "message": "You can connect DeepL or AI (ChatGPT, Claude) with your own key: in the extension window, open “Translation quality”, choose a translator and paste your key. A DeepL key is free for 500,000 characters a month; get one at {a}deepl.com/pro-api{/a} (sign-up required). Keep in mind: the text you translate is then sent to DeepL or the AI service you chose — the extension asks for your consent before sending anything."
-  },
-  "heroKey": {
-    "message": "Point at any text and press $key$ — it’s translated right on the page. Works right away: no keys, no sign-up.",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "heroDwell": {
-    "message": "Rest the cursor on any text — it’s translated right on the page. Works right away: no keys, no sign-up."
-  },
-  "trainerKey": {
-    "message": "Point at the text above, then press and release $key$. Press it again to bring back the original.",
-    "placeholders": {
-      "key": {
-        "content": "$1",
-        "example": "Shift"
-      }
-    }
-  },
-  "trainerDwell": {
-    "message": "Rest the cursor on the text above. Move it away to bring back the original."
-  },
-  "trainerPrep": {
-    "message": "First, set up the translator (step 2). $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerLang": {
-    "message": "First, choose another language (step 1). $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoBuiltin": {
-    "message": "The built-in translator isn’t available in this browser — connect DeepL (see below). $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoDeeplKey": {
-    "message": "Translation isn’t working yet: there’s no DeepL key. Paste it in the extension window (“Translation quality”) or choose the built-in translator there. $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoLlmKey": {
-    "message": "Translation isn’t working yet: there’s no AI key. Paste it in the extension window (“Translation quality”) or choose the built-in translator there. $how$",
-    "placeholders": {
-      "how": {
-        "content": "$1",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "trainerNoConsent": {
-    "message": "Translation isn’t working yet: sending text to $service$ needs your consent. Give it in the extension window (“Translation quality”) or choose the built-in translator there. $how$",
-    "placeholders": {
-      "service": {
-        "content": "$1",
-        "example": "DeepL"
-      },
-      "how": {
-        "content": "$2",
-        "example": "Point at the text above…"
-      }
-    }
-  },
-  "keysEscHint": {
-    "message": "Esc brings back the original everywhere on the page."
-  },
-  "keysToggleHint": {
-    "message": "$keys$ turns translation on or off.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "keysPageHint": {
-    "message": "$keys$ translates the whole page.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "keysChangeHint": {
-    "message": "You can change shortcuts at chrome://extensions/shortcuts."
-  },
-  "dlDetector": {
-    "message": "the language detection model"
-  },
-  "dlPair": {
-    "message": "the language model ($from$ → $to$)",
-    "placeholders": {
-      "from": {
-        "content": "$1",
-        "example": "English"
-      },
-      "to": {
-        "content": "$2",
-        "example": "Japanese"
-      }
-    }
-  },
-  "dlProgress": {
-    "message": "Downloading $what$…",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlProgressPct": {
-    "message": "Downloading $what$… $pct$%",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      },
-      "pct": {
-        "content": "$2",
-        "example": "42"
-      }
-    }
-  },
-  "dlWait": {
-    "message": "The built-in translator is downloading $what$. Wait a moment and try again.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlClick": {
-    "message": "Click the text to translate it. Chrome’s built-in translator only starts $what$ after a click; if it isn’t on your computer yet, it’s downloaded first — that’s needed only once.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlClickPrep": {
-    "message": "Click the text to translate it. Chrome’s built-in translator only starts $what$ after a click; if it isn’t on your computer yet, it’s downloaded first — that’s needed only once. You can also download it in advance: extension icon → “Set up translator”.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "language detection"
-      }
-    }
-  },
-  "dlClickSite": {
-    "message": "Click the text to translate it. $lang$ isn’t in Chrome’s language list, so on each new site Chrome only starts $what$ after a click (and downloads it first if it isn’t on your computer yet). To skip the click, add this language in Chrome settings → Languages.",
-    "placeholders": {
-      "what": {
-        "content": "$1",
-        "example": "the language model (Spanish → English)"
-      },
-      "lang": {
-        "content": "$2",
-        "example": "Spanish"
-      }
-    }
-  },
-  "detectFail": {
-    "message": "The built-in translator couldn’t tell what language this text is in — set the original language in the extension window."
   },
   "pairUnavailable": {
     "message": "The built-in translator can’t translate this language pair: $from$ → $to$.",
@@ -1267,101 +268,11 @@
   "txFail": {
     "message": "Couldn’t translate the text."
   },
-  "fbQuota": {
-    "message": "Your DeepL limit for this month has run out — translating with Chrome’s built-in translator."
-  },
-  "fbNetwork": {
-    "message": "Can’t reach DeepL — translating with Chrome’s built-in translator."
-  },
-  "fbTimeout": {
-    "message": "DeepL isn’t responding — translating with Chrome’s built-in translator."
-  },
-  "fbServer": {
-    "message": "DeepL is unavailable right now — translating with Chrome’s built-in translator."
-  },
-  "builtinOn": {
-    "message": "Chrome’s built-in translator is now on — it works without a key. You can change this in the extension window."
-  },
   "cardLabel": {
     "message": "Translation"
   },
-  "cardLoading": {
-    "message": "Translating…"
-  },
-  "cardClose": {
-    "message": "Close (Esc)"
-  },
   "cardCloseAria": {
     "message": "Close translation"
-  },
-  "offViaKeys": {
-    "message": "Translation is off. To turn it on, press $keys$ or use the extension icon.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "offViaWindow": {
-    "message": "Translation is off. You can turn it on in the extension window."
-  },
-  "siteOffPage": {
-    "message": "Translation is off on this site. You can turn it on in the extension window: check “Translate on this site”."
-  },
-  "nothingOnPage": {
-    "message": "Nothing to translate: there’s no text to translate on this page."
-  },
-  "translatingPage": {
-    "message": "Translating the page…"
-  },
-  "alreadyInLang": {
-    "message": "Nothing to translate: the page is already in your language."
-  },
-  "visibleInLang": {
-    "message": "This part of the page is already in your language. The rest will be translated as you scroll to it."
-  },
-  "scrollToTranslate": {
-    "message": "There’s no text to translate on screen. The rest of the page will be translated as you scroll to it."
-  },
-  "doneScroll": {
-    "message": "Done. The rest will be translated as you scroll to it."
-  },
-  "donePage": {
-    "message": "Done — the page is translated."
-  },
-  "toggledOn": {
-    "message": "Translation is on."
-  },
-  "toggledOff": {
-    "message": "Translation is off."
-  },
-  "toggledOffKeys": {
-    "message": "Translation is off. Press $keys$ to turn it back on.",
-    "placeholders": {
-      "keys": {
-        "content": "$1",
-        "example": "Alt+Shift+O"
-      }
-    }
-  },
-  "hudDrag": {
-    "message": "Drag the panel"
-  },
-  "hudSiteOff": {
-    "message": "Turn off translation on this site"
-  },
-  "hudHide": {
-    "message": "Hide panel"
-  },
-  "siteDisabled": {
-    "message": "Translation is off on $site$. You can turn it back on in the extension window.",
-    "placeholders": {
-      "site": {
-        "content": "$1",
-        "example": "example.com"
-      }
-    }
   },
   "turnBackOn": {
     "message": "Turn back on"
@@ -1431,7 +342,7 @@
     }
   },
   "deeplBadKey": {
-    "message": "DeepL didn’t accept the key — check it in the extension window."
+    "message": "DeepL didn’t accept the key — check it in the extension settings."
   },
   "deeplQuota": {
     "message": "Your DeepL limit for this month has run out."
@@ -1491,11 +402,20 @@
     "message": "DeepL sent an unexpected response — try again."
   },
   "llmBadKey": {
-    "message": "$service$ didn’t accept the key — check it in the extension window.",
+    "message": "$service$ didn’t accept the key — check it in the extension settings.",
     "placeholders": {
       "service": {
         "content": "$1",
         "example": "DeepL"
+      }
+    }
+  },
+  "llmWrongKey": {
+    "message": "This looks like a key for a different service. Paste your $service$ key.",
+    "placeholders": {
+      "service": {
+        "content": "$1",
+        "example": "Anthropic"
       }
     }
   },
@@ -1509,7 +429,7 @@
     }
   },
   "llmModelUnknown": {
-    "message": "$service$ doesn’t know the model “$model$” — check the name in the extension window.",
+    "message": "$service$ doesn’t know the model “$model$” — check the name in the extension settings.",
     "placeholders": {
       "service": {
         "content": "$1",
@@ -1678,5 +598,1577 @@
         "example": "Hover Translator"
       }
     }
+  },
+  "pairArrow": {
+    "message": "$from$ → $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "intoLang": {
+    "message": "Into $lang$",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "dlTitle": {
+    "message": "Downloading the translator"
+  },
+  "dlPct": {
+    "message": "$what$ · $pct$%",
+    "placeholders": {
+      "what": {
+        "content": "$1"
+      },
+      "pct": {
+        "content": "$2"
+      }
+    }
+  },
+  "dlDetectorName": {
+    "message": "Language detection"
+  },
+  "probTitle": {
+    "message": "Translation isn't working"
+  },
+  "useBuiltin": {
+    "message": "Use built-in"
+  },
+  "badKeyHint": {
+    "message": "Check the key in settings. Nothing is translated until then."
+  },
+  "swAmber": {
+    "message": "Amber"
+  },
+  "swGreen": {
+    "message": "Green"
+  },
+  "swBlue": {
+    "message": "Blue"
+  },
+  "swPink": {
+    "message": "Pink"
+  },
+  "swLilac": {
+    "message": "Lilac"
+  },
+  "swGray": {
+    "message": "Gray"
+  },
+  "csOr": {
+    "message": "or"
+  },
+  "csCloseTip": {
+    "message": "Close · Esc"
+  },
+  "csShowOrig": {
+    "message": "Show original"
+  },
+  "csOrigShown": {
+    "message": "Showing the original"
+  },
+  "csPageDone": {
+    "message": "Page translated"
+  },
+  "csNothingTitle": {
+    "message": "Nothing to translate"
+  },
+  "csNothingText": {
+    "message": "There’s no text to translate on this page."
+  },
+  "csAlreadyText": {
+    "message": "The page is already in your language."
+  },
+  "csVisibleInLang": {
+    "message": "What’s on screen is already in your language. The rest will be translated as you scroll."
+  },
+  "csScrollToTranslate": {
+    "message": "There’s no text to translate on screen. The rest will be translated as you scroll."
+  },
+  "csFbQuota": {
+    "message": "Your DeepL limit has run out — using the built-in translator."
+  },
+  "csFbNetwork": {
+    "message": "Can’t reach DeepL — using the built-in translator."
+  },
+  "csFbTimeout": {
+    "message": "DeepL isn’t responding — using the built-in translator."
+  },
+  "csFbServer": {
+    "message": "DeepL is unavailable — using the built-in translator."
+  },
+  "csFbBadKey": {
+    "message": "DeepL didn’t accept the key — using the built-in translator for now."
+  },
+  "csFailTitle": {
+    "message": "Couldn’t translate"
+  },
+  "csBadKeyTitle": {
+    "message": "$service$ didn’t accept the key",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "csDetectFail": {
+    "message": "The built-in translator couldn’t tell what language this is — set the original language in settings."
+  },
+  "csClickTitle": {
+    "message": "Click the text"
+  },
+  "csClickPair": {
+    "message": "I’ll download a translator for this pair"
+  },
+  "csClickDetector": {
+    "message": "Chrome will start language detection"
+  },
+  "csClickSite": {
+    "message": "$lang$ isn’t among Chrome’s languages, so a click is needed on every site",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "csDlWaitTitle": {
+    "message": "The translator is still downloading"
+  },
+  "csDlWaitText": {
+    "message": "$what$ · try again in a minute",
+    "placeholders": {
+      "what": {
+        "content": "$1"
+      }
+    }
+  },
+  "csSiteOffTitle": {
+    "message": "Translation is off on this site"
+  },
+  "csSiteOffText": {
+    "message": "You can turn it on in the extension window: “Translate on $site$”.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "csSiteDisabledTitle": {
+    "message": "Translation is off on $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "csSiteDisabledText": {
+    "message": "Hover and keys don’t work here"
+  },
+  "csOnTitle": {
+    "message": "Translation is on"
+  },
+  "csOffTitle": {
+    "message": "Translation is off"
+  },
+  "csOffKeys": {
+    "message": "Press $keys$ to turn it back on",
+    "placeholders": {
+      "keys": {
+        "content": "$1"
+      }
+    }
+  },
+  "csOffWindow": {
+    "message": "You can turn it on in the extension window: “All sites”"
+  },
+  "csOffPageKeys": {
+    "message": "To turn it on, press $keys$ or use “All sites” in the extension window",
+    "placeholders": {
+      "keys": {
+        "content": "$1"
+      }
+    }
+  },
+  "csBuiltinOnTitle": {
+    "message": "Using the built-in translator"
+  },
+  "csBuiltinOnText": {
+    "message": "It needs no key. You can change the translator in settings."
+  },
+  "csCopy": {
+    "message": "Copy"
+  },
+  "csCopied": {
+    "message": "Copied"
+  },
+  "csFabAria": {
+    "message": "$name$ — translation buttons",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Hover Translator"
+      }
+    }
+  },
+  "csFabSiteOff": {
+    "message": "Turn off on $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "csFabHide": {
+    "message": "Hide the button"
+  },
+  "csFkMore": {
+    "message": "More"
+  },
+  "csFkLang": {
+    "message": "Translate to: $lang$",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "English"
+      }
+    }
+  },
+  "csFkFind": {
+    "message": "Find a language"
+  },
+  "csFkRecent": {
+    "message": "Recent"
+  },
+  "csFkAll": {
+    "message": "All languages"
+  },
+  "csFkNone": {
+    "message": "No matches"
+  },
+  "csFkOrKey": {
+    "message": "Or point at any text and press $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1",
+        "example": "Shift"
+      }
+    }
+  },
+  "csFkOrDwell": {
+    "message": "Or rest the pointer on any text"
+  },
+  "csFkStop": {
+    "message": "Stop translating"
+  },
+  "csFkStopSub": {
+    "message": "What’s translated so far stays on the page"
+  },
+  "csFkShowTr": {
+    "message": "Show translation"
+  },
+  "csFkErrSub": {
+    "message": "$reason$ · click to see what to do",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "No DeepL key"
+      }
+    }
+  },
+  "ppScope": {
+    "message": "All sites"
+  },
+  "ppScopeAria": {
+    "message": "Translate on all sites"
+  },
+  "ppScopeTip": {
+    "message": "Translation on all sites except the ones you turned off"
+  },
+  "ppScopeTipKey": {
+    "message": "Translation on all sites except the ones you turned off · $keys$",
+    "placeholders": {
+      "keys": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLang": {
+    "message": "Translate into"
+  },
+  "ppRecent": {
+    "message": "Recent languages"
+  },
+  "ppHintKey": {
+    "message": "Point at any text and press $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppHintDwell": {
+    "message": "Rest the pointer on any text to translate it"
+  },
+  "ppAlready": {
+    "message": "Only text in other languages gets translated"
+  },
+  "ppDownload": {
+    "message": "Download translator"
+  },
+  "ppOffline": {
+    "message": "$pair$ · then works offline",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppDlAgain": {
+    "message": "Click once more to continue"
+  },
+  "ppDownloading": {
+    "message": "Downloading translator"
+  },
+  "ppDownloadingWait": {
+    "message": "Downloading translator…"
+  },
+  "ppBusy": {
+    "message": "Translating…"
+  },
+  "ppBusyN": {
+    "message": "$n$ of $total$",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "ppBusyAria": {
+    "message": "Translating the visible part"
+  },
+  "ppStop": {
+    "message": "Stop"
+  },
+  "ppRestLater": {
+    "message": "The rest gets translated as you scroll"
+  },
+  "ppSegAria": {
+    "message": "What to show on the page"
+  },
+  "ppOrig": {
+    "message": "Original"
+  },
+  "ppTr": {
+    "message": "Translation"
+  },
+  "ppEscHint": {
+    "message": "$pair$ · Esc — original",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppOrigHint": {
+    "message": "$pair$ · showing original",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_one": {
+    "message": "Translated in $n$ place",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_few": {
+    "message": "Translated in $n$ places",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_many": {
+    "message": "Translated in $n$ places",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPartDone_other": {
+    "message": "Translated in $n$ places",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppShowOrig": {
+    "message": "Show original"
+  },
+  "ppReload": {
+    "message": "Reload tab"
+  },
+  "ppReloading": {
+    "message": "Reloading tab…"
+  },
+  "ppReloadHint": {
+    "message": "Opened before the extension was added"
+  },
+  "ppSiteRow": {
+    "message": "Translate on $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppSiteOffT": {
+    "message": "Turned off on this site"
+  },
+  "ppSiteOffD": {
+    "message": "Hover and keys don't work here"
+  },
+  "ppAllOffT": {
+    "message": "Turned off on all sites"
+  },
+  "ppAllOffD": {
+    "message": "Hover and keys don't work"
+  },
+  "ppClosedT": {
+    "message": "Translation doesn't work here"
+  },
+  "ppClosedD": {
+    "message": "Chrome doesn't let extensions in here"
+  },
+  "ppOpenSettings": {
+    "message": "Open settings"
+  },
+  "ppNoBuiltinT": {
+    "message": "This browser has no built-in translator"
+  },
+  "ppNoBuiltinD": {
+    "message": "It needs Chrome 138 or later on a computer. You can connect DeepL or AI with your own key."
+  },
+  "ppBiLangT": {
+    "message": "Built-in can't translate into this language"
+  },
+  "ppBiLangFromT": {
+    "message": "Built-in can't translate from this language"
+  },
+  "ppDlLangT": {
+    "message": "DeepL can't translate into this language"
+  },
+  "ppDlLangFromT": {
+    "message": "DeepL can't translate from this language"
+  },
+  "ppLangDeeplAiD": {
+    "message": "$lang$ is available with DeepL and AI. Or choose another language.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLangBiAiD": {
+    "message": "$lang$ is available with built-in and AI. Or choose another language.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLangAiD": {
+    "message": "$lang$ is available with AI. Or choose another language.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppLangFromD": {
+    "message": "$lang$ is set as the source language in settings. Choose another language or translator there.",
+    "placeholders": {
+      "lang": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppPickLang": {
+    "message": "Choose another language"
+  },
+  "ppDlFailT": {
+    "message": "Couldn't download the translator"
+  },
+  "ppDlFailD": {
+    "message": "Check your internet connection and try again."
+  },
+  "ppRetry": {
+    "message": "Try again"
+  },
+  "ppConsentT": {
+    "message": "Send text to $service$?",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppConsentD": {
+    "message": "The text you translate will go to $service$. The built-in translator sends nothing.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppAllowSend": {
+    "message": "Allow sending"
+  },
+  "ppNoKeyT": {
+    "message": "$service$ key needed",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppNoKeyDeeplD": {
+    "message": "DeepL doesn't translate without a key. A free key gives 500,000 characters a month."
+  },
+  "ppNoKeyLlmD": {
+    "message": "$name$ doesn't translate without a key. You get one in your $service$ account.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "service": {
+        "content": "$2"
+      }
+    }
+  },
+  "ppAddKey": {
+    "message": "Add key in settings"
+  },
+  "ppBadKeyT": {
+    "message": "$service$ didn't accept the key",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppBadKeyD": {
+    "message": "The key may have been deleted in your $service$ account or pasted incompletely.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppCheckKey": {
+    "message": "Check key in settings"
+  },
+  "ppQuotaT": {
+    "message": "DeepL monthly limit used up"
+  },
+  "ppQuotaD": {
+    "message": "The free plan's 500,000 characters are used up. Auto will use built-in and switch back to DeepL when the limit renews."
+  },
+  "ppQuotaOwnD": {
+    "message": "The limit set for this key in DeepL is used up. Auto will use built-in and switch back to DeepL when the limit renews."
+  },
+  "ppAuto": {
+    "message": "Turn on Auto"
+  },
+  "ppMoneyT": {
+    "message": "Your $service$ account is out of credit",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppMoneyD": {
+    "message": "Top it up or use built-in — it's free."
+  },
+  "ppDeniedT": {
+    "message": "$service$ denied access",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppDeniedD": {
+    "message": "For example, the service may not work in your country. The built-in translator works without it."
+  },
+  "ppNetT": {
+    "message": "Can't reach $service$",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppNetD": {
+    "message": "Check your internet. The built-in translator works without it."
+  },
+  "ppServerT": {
+    "message": "$service$ isn't responding",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "ppServerD": {
+    "message": "The service is having trouble. The built-in translator works without it."
+  },
+  "ppRecheck": {
+    "message": "Check again"
+  },
+  "ppChecking": {
+    "message": "Checking…"
+  },
+  "ppStatusTip": {
+    "message": "Change translator"
+  },
+  "ppFab": {
+    "message": "Floating button on the page"
+  },
+  "ppFabHide": {
+    "message": "Hide the floating button"
+  },
+  "ppSettings": {
+    "message": "Settings"
+  },
+  "ppNameBuiltinFull": {
+    "message": "Built-in translator"
+  },
+  "ppNameBuiltin": {
+    "message": "Built-in"
+  },
+  "ppNameAuto": {
+    "message": "Auto"
+  },
+  "ppFoot": {
+    "message": "$name$: $status$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "status": {
+        "content": "$2"
+      }
+    }
+  },
+  "ppStNeed": {
+    "message": "download needed"
+  },
+  "ppStDl": {
+    "message": "downloading…"
+  },
+  "ppStNone": {
+    "message": "not in this browser"
+  },
+  "ppStLang": {
+    "message": "language missing"
+  },
+  "ppStFail": {
+    "message": "download failed"
+  },
+  "ppStConsent": {
+    "message": "consent needed"
+  },
+  "ppStNoKey": {
+    "message": "no key"
+  },
+  "ppStBadKey": {
+    "message": "key rejected"
+  },
+  "ppStQuota": {
+    "message": "limit used up"
+  },
+  "ppStAutoQuota": {
+    "message": "DeepL limit"
+  },
+  "ppStNet": {
+    "message": "offline"
+  },
+  "ppStServer": {
+    "message": "not responding"
+  },
+  "ppStMoney": {
+    "message": "no credit"
+  },
+  "ppStDenied": {
+    "message": "no access"
+  },
+  "wlLeadKey": {
+    "message": "Point at any text and press $key$ — the translation appears right on the page. Free, no sign-up: Chrome downloads the translator once.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlLeadDwell": {
+    "message": "Rest the cursor on any text — the translation appears right on the page. Free, no sign-up: Chrome downloads the translator once."
+  },
+  "wlStep1": {
+    "message": "Which language to translate into"
+  },
+  "wlStep1Hint": {
+    "message": "You can change it anytime — in the extension window."
+  },
+  "wlStep2": {
+    "message": "Download the translator and try it"
+  },
+  "wlStep2Conn": {
+    "message": "Connect a translator"
+  },
+  "wlStep2Desc": {
+    "message": "Chrome’s built-in translator runs on your computer: no keys, no sign-up, and your text never leaves it."
+  },
+  "wlDownload": {
+    "message": "Download translator"
+  },
+  "wlOnce": {
+    "message": "$pair$ · once, then it works offline",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlOnceMore": {
+    "message": "Almost there — click the button once more."
+  },
+  "wlWaitCap": {
+    "message": "You can try it as soon as the download finishes."
+  },
+  "wlDlLabel": {
+    "message": "Downloading the translator"
+  },
+  "wlReady": {
+    "message": "Ready: $pair$",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlTryKey": {
+    "message": "Point at the sample text and press $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlNoKey": {
+    "message": "Rather not press a key?"
+  },
+  "wlToHover": {
+    "message": "Translate on hover"
+  },
+  "wlTryDwell": {
+    "message": "Rest the cursor on the sample text — it translates by itself"
+  },
+  "wlIsHover": {
+    "message": "Translating on hover."
+  },
+  "wlBackKey": {
+    "message": "Back to $key$",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlWorks": {
+    "message": "It works! Same on any website"
+  },
+  "wlWorksKey": {
+    "message": "Press $key$ again or Esc to bring back the original.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlWorksDwell": {
+    "message": "Move the cursor away or press Esc to bring back the original."
+  },
+  "wlWorksMore": {
+    "message": "For other languages, Chrome downloads a translator the first time you translate — you’ll need to click the text."
+  },
+  "wlFailT": {
+    "message": "Couldn’t download the translator"
+  },
+  "wlFailD": {
+    "message": "Check your internet connection and try again."
+  },
+  "wlRetry": {
+    "message": "Try again"
+  },
+  "wlNoT": {
+    "message": "This browser has no built-in translator"
+  },
+  "wlNoD": {
+    "message": "It needs Chrome 138 or newer on a computer. You can connect DeepL or AI with your own key."
+  },
+  "wlProbFix": {
+    "message": "$why$. You can fix this in settings.",
+    "placeholders": {
+      "why": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlProbLang": {
+    "message": "$why$. Choose another language above or connect DeepL or AI in settings.",
+    "placeholders": {
+      "why": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlPairNo": {
+    "message": "the built-in translator can’t translate $pair$",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlOpenSettings": {
+    "message": "Open settings"
+  },
+  "wlStep3": {
+    "message": "Pin the icon to the toolbar"
+  },
+  "wlExtensions": {
+    "message": "Extensions"
+  },
+  "wlPinD": {
+    "message": "Click the Extensions icon to the right of the address bar, then the pin next to $name$. The icon gives you the language, “Translate page” and settings.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "wlReload": {
+    "message": "Reload tabs that are already open — translation won’t work on them until then."
+  },
+  "wlMoreT": {
+    "message": "Need more accurate translations?"
+  },
+  "wlMoreD": {
+    "message": "Connect DeepL or AI (ChatGPT, Claude) with your own key. DeepL gives you 500,000 characters a month for free. The extension asks for your consent before it first sends any text."
+  },
+  "wlMoreGeo": {
+    "message": "DeepL and AI aren’t available in every country."
+  },
+  "opTitle": {
+    "message": "$name$ settings",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "opHowTo": {
+    "message": "How to use"
+  },
+  "opH1": {
+    "message": "Settings"
+  },
+  "opNavAria": {
+    "message": "Sections"
+  },
+  "opSecTranslator": {
+    "message": "Translator"
+  },
+  "opSecPage": {
+    "message": "On the page"
+  },
+  "opSecLangs": {
+    "message": "Languages"
+  },
+  "opSecSites": {
+    "message": "Sites and words"
+  },
+  "opSecKeys": {
+    "message": "Shortcuts"
+  },
+  "opSecData": {
+    "message": "Data"
+  },
+  "opNotSaved": {
+    "message": "Couldn’t save: $reason$.",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
+  },
+  "opStoreFull": {
+    "message": "storage is full — delete saved translations under “Data”"
+  },
+  "opTranslatorDesc": {
+    "message": "The built-in translator runs on your computer and sends nothing. DeepL and AI are more accurate, but they receive the text you translate."
+  },
+  "opNotEverywhere": {
+    "message": "DeepL and AI aren’t available in every country."
+  },
+  "opEngBuiltin": {
+    "message": "Built into Chrome"
+  },
+  "opEngBuiltinD": {
+    "message": "Free, no key needed. Your text never leaves your computer."
+  },
+  "opEngBuiltinNoneD": {
+    "message": "Needs Chrome 138 or later on a computer."
+  },
+  "opEngDeeplD": {
+    "message": "More accurate. With your own key: 500,000 characters a month free."
+  },
+  "opEngAuto": {
+    "message": "Auto: DeepL, with built-in as backup"
+  },
+  "opEngAutoD": {
+    "message": "Translation keeps going if your DeepL limit runs out or the connection drops."
+  },
+  "opEngAutoNoneD": {
+    "message": "Without the built-in translator there’s nothing to fall back on."
+  },
+  "opEngLlm": {
+    "message": "AI: ChatGPT or Claude"
+  },
+  "opEngLlmD": {
+    "message": "With your own key, paid. Better at meaning and turns of phrase, but slower."
+  },
+  "opTagReady": {
+    "message": "Connected"
+  },
+  "opTagKeyBad": {
+    "message": "Key rejected"
+  },
+  "opTagNoBrowser": {
+    "message": "Not in this browser"
+  },
+  "opTagNeedBuiltin": {
+    "message": "Needs built-in"
+  },
+  "opBiReady": {
+    "message": "Ready · $pair$",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "opBiNeed": {
+    "message": "Download needed"
+  },
+  "opBiDownloading": {
+    "message": "Downloading…"
+  },
+  "opBiDownloadingPct": {
+    "message": "Downloading $pct$%",
+    "placeholders": {
+      "pct": {
+        "content": "$1"
+      }
+    }
+  },
+  "opBiFailed": {
+    "message": "Download failed"
+  },
+  "opBiNoLang": {
+    "message": "Language not supported"
+  },
+  "opBiDownload": {
+    "message": "Download translator"
+  },
+  "opBiDownloadShort": {
+    "message": "Download"
+  },
+  "opBiOffline": {
+    "message": "$pair$ · then works offline",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "opBiProgress": {
+    "message": "Downloading the translator"
+  },
+  "opRetry": {
+    "message": "Try again"
+  },
+  "opStepsAria": {
+    "message": "Setup steps"
+  },
+  "opStepConsent": {
+    "message": "Consent"
+  },
+  "opStepKey": {
+    "message": "Key"
+  },
+  "opStepDone": {
+    "message": "Done"
+  },
+  "opWaitBuiltin": {
+    "message": "Built-in translates for now"
+  },
+  "opWaitOther": {
+    "message": "$name$ translates for now",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "opConsentQ": {
+    "message": "Send text to $service$?",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opConsentDeepl": {
+    "message": "The text you translate will go to DeepL. The built-in translator sends nothing."
+  },
+  "opConsentOpenai": {
+    "message": "The text you translate will go to OpenAI (ChatGPT). Consent for Anthropic is asked separately."
+  },
+  "opConsentAnthropic": {
+    "message": "The text you translate will go to Anthropic (Claude). Consent for OpenAI is asked separately."
+  },
+  "opAllow": {
+    "message": "Allow sending"
+  },
+  "opCancel": {
+    "message": "Cancel"
+  },
+  "opConsentLine": {
+    "message": "The text you translate is sent to $service$ with your key.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opRevoke": {
+    "message": "Withdraw consent"
+  },
+  "opDeeplKey": {
+    "message": "DeepL key"
+  },
+  "opDeeplKeyPh": {
+    "message": "Paste your DeepL key"
+  },
+  "opLlmKey": {
+    "message": "$service$ key",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opLlmKeyPh": {
+    "message": "Paste your $service$ key",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opShowKey": {
+    "message": "Show key"
+  },
+  "opHideKey": {
+    "message": "Hide key"
+  },
+  "opCheck": {
+    "message": "Check"
+  },
+  "opChecking": {
+    "message": "Checking…"
+  },
+  "opKeyOkFree": {
+    "message": "Key …$tail$ works · free plan",
+    "placeholders": {
+      "tail": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeyOkPro": {
+    "message": "Key …$tail$ works · paid plan",
+    "placeholders": {
+      "tail": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeyOk": {
+    "message": "Key …$tail$ works",
+    "placeholders": {
+      "tail": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeyBad": {
+    "message": "DeepL didn’t accept the key. Copy it again in full — a free key ends in “:fx”."
+  },
+  "opLlmKeyBad": {
+    "message": "$service$ didn’t accept the key. Copy it again in full.",
+    "placeholders": {
+      "service": {
+        "content": "$1"
+      }
+    }
+  },
+  "opHowGetKey": {
+    "message": "How to get a key"
+  },
+  "opQuotaLbl": {
+    "message": "Left this month"
+  },
+  "opQuotaAria": {
+    "message": "DeepL quota left"
+  },
+  "opQuotaLeft_one": {
+    "message": "$left$ of $n$ character left. Translating the same text again doesn’t use the limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaLeft_few": {
+    "message": "$left$ of $n$ characters left. Translating the same text again doesn’t use the limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaLeft_many": {
+    "message": "$left$ of $n$ characters left. Translating the same text again doesn’t use the limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaLeft_other": {
+    "message": "$left$ of $n$ characters left. Translating the same text again doesn’t use the limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_one": {
+    "message": "$left$ of $n$ character left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_few": {
+    "message": "$left$ of $n$ characters left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_many": {
+    "message": "$left$ of $n$ characters left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opQuotaOwn_other": {
+    "message": "$left$ of $n$ characters left — the limit set for this key in DeepL.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "left": {
+        "content": "$2"
+      }
+    }
+  },
+  "opService": {
+    "message": "Service"
+  },
+  "opModel": {
+    "message": "Model"
+  },
+  "opAutoConnect": {
+    "message": "Connect DeepL"
+  },
+  "opAutoQuotaOut": {
+    "message": "This month’s limit is used up"
+  },
+  "opAutoLeft_one": {
+    "message": "Connected · $n$ character left",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoLeft_few": {
+    "message": "Connected · $n$ characters left",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoLeft_many": {
+    "message": "Connected · $n$ characters left",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoLeft_other": {
+    "message": "Connected · $n$ characters left",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opAutoNote": {
+    "message": "The key and consent are shared with the DeepL card. When DeepL is available again, Auto goes back to it by itself."
+  },
+  "opPageDesc": {
+    "message": "How to call up a translation and how to show it."
+  },
+  "opTrig": {
+    "message": "How to translate text"
+  },
+  "opTrigKeyD": {
+    "message": "Point at some text and press $key$. Press it again to bring back the original.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "opTrigDwellD": {
+    "message": "Rest the cursor on some text and it translates by itself. Move away sooner and nothing happens."
+  },
+  "opTrigNone": {
+    "message": "No key"
+  },
+  "opAltWarn": {
+    "message": "On Windows, pressing Alt alone opens the Chrome menu — Shift works better there."
+  },
+  "opDelay": {
+    "message": "Delay"
+  },
+  "opMs": {
+    "message": "$n$ ms",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_one": {
+    "message": "$n$ millisecond",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_few": {
+    "message": "$n$ milliseconds",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_many": {
+    "message": "$n$ milliseconds",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opMsLong_other": {
+    "message": "$n$ milliseconds",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opDelayHint": {
+    "message": "Shorter is faster, but more gets translated by accident."
+  },
+  "opDisp": {
+    "message": "How to show the translation"
+  },
+  "opDispD": {
+    "message": "“Translate page” always replaces the text in place."
+  },
+  "opDispReplace": {
+    "message": "Instead of the text"
+  },
+  "opDispReplaceD": {
+    "message": "The translation replaces the text, links and fonts stay"
+  },
+  "opDispCard": {
+    "message": "In a card nearby"
+  },
+  "opDispCardD": {
+    "message": "The original stays, the translation goes below it"
+  },
+  "opHlAutoD": {
+    "message": "An amber background that adapts to the page colors."
+  },
+  "opHlCustomD": {
+    "message": "Your own color — the same on every site."
+  },
+  "opHlNoneD": {
+    "message": "Translated text isn’t marked in any way."
+  },
+  "opColor": {
+    "message": "Color"
+  },
+  "opColorOther": {
+    "message": "Other color"
+  },
+  "opSat": {
+    "message": "Intensity"
+  },
+  "opDemoLight": {
+    "message": "This is how translated text looks on a light site."
+  },
+  "opDemoDark": {
+    "message": "And on a dark one."
+  },
+  "opBadge": {
+    "message": "Original language on the card"
+  },
+  "opBadgeD": {
+    "message": "For example, “$pair$” above the translation.",
+    "placeholders": {
+      "pair": {
+        "content": "$1"
+      }
+    }
+  },
+  "opFab": {
+    "message": "Show the floating button"
+  },
+  "opFabD": {
+    "message": "A small circle at the edge of the page. Point at it to show buttons for translating the page and choosing the language. If it covers something, drag it away."
+  },
+  "opTarget": {
+    "message": "Translation language"
+  },
+  "opTargetD": {
+    "message": "You can also change it in the extension window and in the floating button menu."
+  },
+  "opSourceD": {
+    "message": "If a page mixes languages or its language is detected wrong."
+  },
+  "opSrcAuto": {
+    "message": "Detect automatically"
+  },
+  "opFormality": {
+    "message": "Formality"
+  },
+  "opOnlyDeepl": {
+    "message": "DeepL only"
+  },
+  "opFormalityD": {
+    "message": "For German, French, Italian, Spanish, Dutch, Polish, Portuguese, Russian and Japanese."
+  },
+  "opSitesOff": {
+    "message": "Turned off on these sites"
+  },
+  "opSitesOffD": {
+    "message": "Hover, keys and the floating button don’t work here. You can turn a site off in the extension window."
+  },
+  "opSitesNone": {
+    "message": "No sites yet."
+  },
+  "opSiteOn": {
+    "message": "Turn on"
+  },
+  "opSiteOnAria": {
+    "message": "Turn on for $site$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "opKeysD": {
+    "message": "Chrome sets the shortcuts — you can change them on its page."
+  },
+  "opKeyToggle": {
+    "message": "Turn translation on or off on all sites"
+  },
+  "opKeyEsc": {
+    "message": "Bring back the original on the page"
+  },
+  "opKeyEscD": {
+    "message": "Always works and can’t be changed."
+  },
+  "opKeysOpens": {
+    "message": "Opens chrome://extensions/shortcuts"
+  },
+  "opSavedD_one": {
+    "message": "$n$ translation, $size$. Kept for 14 days: translating it again is instant and doesn’t use your DeepL or AI limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedD_few": {
+    "message": "$n$ translations, $size$. Kept for 14 days: translating them again is instant and doesn’t use your DeepL or AI limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedD_many": {
+    "message": "$n$ translations, $size$. Kept for 14 days: translating them again is instant and doesn’t use your DeepL or AI limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedD_other": {
+    "message": "$n$ translations, $size$. Kept for 14 days: translating them again is instant and doesn’t use your DeepL or AI limit.",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      },
+      "size": {
+        "content": "$2"
+      }
+    }
+  },
+  "opSavedNone": {
+    "message": "Nothing yet. DeepL and AI translations are kept for 14 days: translating again is instant and doesn’t use your limit."
+  },
+  "opDelete": {
+    "message": "Delete"
+  },
+  "opKeysData": {
+    "message": "Keys"
+  },
+  "opKeysDataD": {
+    "message": "DeepL and AI keys are stored only in this browser. Each is sent only to its own service, when translating."
+  },
+  "wlDlGoesOn": {
+    "message": "No need to wait on this page — the download will continue on its own."
+  },
+  "opSizeKb": {
+    "message": "$n$ KB",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opSizeMb": {
+    "message": "$n$ MB",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "opResetT": {
+    "message": "Reset settings"
+  },
+  "opResetD": {
+    "message": "Everything goes back to how it was right after installing. Your DeepL and AI keys and saved translations stay."
+  },
+  "opReset": {
+    "message": "Reset"
+  },
+  "opResetQ": {
+    "message": "Reset all settings?"
+  },
+  "opResetDone": {
+    "message": "Done — settings are back to how they were after installing."
   }
 }

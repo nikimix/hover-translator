@@ -17,8 +17,13 @@
 <script>
   // Заглушка chrome.* для content.js (как в stub-builtin.html) + то, что нужно этапу 2б:
   // storage.get без колбэка возвращает Promise, сообщения не только translateBatch.
-  // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)
+  // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)  ?dark=1  ?mqdark=1
   const q = new URLSearchParams(location.search);
+  // ?dark=1 — тёмный сайт (фон у <html>, у body своего фона нет)
+  if (q.get("dark")) document.documentElement.style.cssText = "background: #121316; color: #d7dade;";
+  // ?mqdark=1 — тема сайта по теме системы (@media в CSS) с плавной сменой фона, как у Хабра
+  if (q.get("mqdark")) document.head.appendChild(document.createElement("style")).textContent =
+    "html, body { background: #fff; transition: background-color .2s; } @media (prefers-color-scheme: dark) { html, body { background: #121316; color: #d7dade; } }";
   window.__calls = [];
   window.__sets = [];
   window.__noticed = {};
@@ -30,14 +35,47 @@
   window.__onMessage = [];
   window.__bgReply = null;            // (msg) => ответ background на translateBatch
   window.__bgDelay = 0;
+  window.__shortcut = "";
   window.__roots = [];
   const origAttach = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
   // Тексты наших уведомлений и карточек (закрытые shadow root перехвачены выше).
-  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? c.className.replace("toast", "").replace("show", "").trim() + ":" + c.querySelector(".main").textContent : null; }).filter(Boolean);
+  // «err:текст» / «info:текст»: ошибка — role=alert; текст — всё, что под значком (заголовок, описание, кнопки).
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? (c.getAttribute("role") === "alert" ? "err" : "info") + ":" + c.querySelector(".t-b").textContent : null; }).filter(Boolean);
   window.toastRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".toast")).pop() || null;
-  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".card"));
-  window.hudRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".bar")).pop() || null;
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
+  // Плавающая кнопка (кружок + кнопки над ним) — один хост, закрытый root; fabInfo() — что на ней сейчас (null — кружка нет).
+  window.fabRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".fab")).pop() || null;
+  window.fabInfo = () => {
+    const r = window.fabRoot();
+    if (!r) return null;
+    const b = r.querySelector(".fab"), k = r.querySelector(".fk"), w = r.querySelector(".fab-w"), tip = r.querySelector("#fk-tip");
+    const box = (e) => { const q = e.getBoundingClientRect(); return { l: Math.round(q.left), t: Math.round(q.top), r: Math.round(q.right), b: Math.round(q.bottom), w: Math.round(q.width), h: Math.round(q.height) }; };
+    const shown = (e) => !!e && !e.closest("[hidden]") && getComputedStyle(e).display !== "none" && getComputedStyle(e).visibility !== "hidden" && e.getClientRects().length > 0;
+    const pill = r.querySelector(".fab-pill");
+    const dots = [...r.querySelectorAll(".fab-dot")].filter(shown).map((d) => d.classList.contains("err") ? "err" : d.classList.contains("warn") ? "warn" : "?");
+    const a = r.activeElement, open = shown(k);
+    const pop = ["lang", "more"].find((x) => shown(r.querySelector("#fk-" + x))) || "";
+    const tx = (e) => e ? e.textContent.replace(/\s+/g, " ").trim() : "";
+    return {
+      on: b.classList.contains("on"), drag: b.classList.contains("is-drag"), dk: !!w && w.classList.contains("dk"),
+      ring: shown(r.querySelector(".fab-ring")), pill: shown(pill) ? pill.textContent : null, pillBox: shown(pill) ? box(pill) : null,
+      dot: dots.length ? dots.join(",") : null,
+      // капсула с кнопками (.fk): показана ли, вниз ли (.down), её место (bar), кнопки по порядку DOM (main, lang, more)
+      // с местом; cls — и прежний .pri (залитая главная), чтобы проверки его заметили
+      open, down: !!k && k.classList.contains("down"), expanded: b.getAttribute("aria-expanded"),
+      fab: box(b), bar: open ? box(k) : null,
+      btns: open ? [...k.querySelectorAll(".fk-btn")].map((x) => ({ k: x.getAttribute("data-k"), act: x.getAttribute("data-act"),
+        cls: ["pri", "bad", "is-open"].filter((c) => x.classList.contains(c)).join(" "), box: box(x) })) : null,
+      // подсказка: заголовок (без чипа клавиши), чип, пояснение, у какой кнопки (aria-describedby), место
+      tip: shown(tip) ? { t: [...tip.querySelector(".t").childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim(),
+        kbd: tx(tip.querySelector(".fk-kbd")) || null, sub: shown(tip.querySelector(".sub")) ? tx(tip.querySelector(".sub")) : null,
+        of: [...r.querySelectorAll("[aria-describedby]")].map((x) => x.getAttribute("data-k")).join(), box: box(tip) } : null,
+      panel: pop, panelBox: pop ? box(r.querySelector("#fk-" + pop)) : null,
+      // где фокус внутри нашего root: «fab», data-k кнопки столбика, data-act пункта, класс; null — не у нас
+      focus: !a ? null : a === b ? "fab" : a.getAttribute("data-k") || a.getAttribute("data-act") || a.getAttribute("class") || a.tagName,
+    };
+  };
   // Середина элемента внутри закрытого root — в координатах страницы (для настоящих щелчков).
   window.uiPoint = (root, sel) => { const e = root.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
 
@@ -60,6 +98,10 @@
       sendMessage(msg) {
         window.__calls.push(JSON.parse(JSON.stringify(msg)));
         if (msg.type === "noticeOnce") { const show = !window.__noticed[msg.problem]; window.__noticed[msg.problem] = true; return Promise.resolve({ ok: true, show }); }
+        // сочетание «Перевести страницу» из chrome.commands (как shortcutOf в background): "" — не задано
+        if (msg.type === "shortcut") return Promise.resolve(window.__shortcut || "");
+        // курсор пришёл в этот фрейм, клавиша-триггер для другого фрейма: как background — всем фреймам вкладки
+        if (msg.type === "hoverFrame" || msg.type === "frameKey") tabCast(msg);
         if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
         const reply = window.__bgReply ? window.__bgReply(msg) : { ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") };
         return window.__bgDelay ? new Promise((r) => setTimeout(() => r(reply), window.__bgDelay)) : Promise.resolve(reply);
@@ -73,6 +115,15 @@
     for (const fn of window.__onChanged) fn(changes, "local");
   }
   function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
+  // Рассылка «как background» всем фреймам вкладки: себе — через onMessage, встроенным окнам — postMessage { htTab };
+  // от встроенного окна (у него своя заглушка, stub-frame.html) просьба приходит сюда как { htUp }.
+  // __tabDelay — сколько мс «background» везёт рассылку (воркер просыпается, машина занята); порядок сохраняется.
+  window.__tabDelay = 0;
+  function tabCast(msg) {
+    const go = () => { sendCmd(msg); for (const f of document.querySelectorAll("iframe")) f.contentWindow.postMessage({ htTab: msg }, "*"); };
+    if (window.__tabDelay) setTimeout(go, window.__tabDelay); else go();
+  }
+  addEventListener("message", (e) => { if (e.data && e.data.htUp) tabCast(e.data.htUp); });
   window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
   window.typeCalls = (t) => window.__calls.filter((c) => c.type === t);
 

@@ -165,7 +165,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     const base = { type: "translateBatch", engine: "deepl", targetLang: "RU", sourceLang: "auto", formality: "default", noTranslate: "", by: "page-initiated" };
     for (let i = 0; i < 5; i++) {
       const r = await env.send(Object.assign({}, base, { items: [txt(5000, "nokey" + i)] }), sender(1, "https://a.example"));
-      assert.ok(!r.ok && /Не задан ключ DeepL — нажмите на значок расширения/.test(r.error) && r.code === "no-key", JSON.stringify(r));
+      assert.ok(!r.ok && /Не задан ключ DeepL — вставьте его в настройках расширения/.test(r.error) && r.code === "no-key", JSON.stringify(r));
     }
     env.local.apiKey = "k:fx";
     const r = await env.send(Object.assign({}, base, { items: [txt(5000, "withkey")] }), sender(1, "https://a.example"));
@@ -236,7 +236,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     await env.send(msg(["three"]), sender(1, "https://a"));
     assert.strictEqual(env.fetches[3].body.max_completion_tokens, 512);
     assert.ok(!("reasoning_effort" in env.fetches[3].body), "вписанной вручную модели добавок из списка нет");
-    env.local.llmProvider = "anthropic"; env.local.llmModel = "";
+    env.local.llmProvider = "anthropic"; env.local.llmModel = ""; env.local.llmApiKey = "sk-ant-test";
     await env.send(msg(["four"]), sender(1, "https://a"));
     b = env.fetches[4].body;
     // этап 3: по умолчанию claude-haiku-5-5 с выключенным рассуждением
@@ -247,7 +247,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("OpenAI: без temperature, max_completion_tokens = want (gpt-4* и модели из списка) / want+4096 (gpt-5, o-серия); Anthropic: Haiku 5.5 без рассуждения");
 
     // кусок для ИИ: 6 абзацев по 1000 знаков → куски ≤ 2500
-    env.local.llmProvider = "openai";
+    env.local.llmProvider = "openai"; env.local.llmApiKey = "sk-test";
     const before = env.fetches.length;
     const items = [1, 2, 3, 4, 5, 6].map((i) => txt(1000, "chunk" + i));
     const r = await env.send(msg(items), sender(1, "https://a"));
@@ -293,10 +293,10 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     r = await env.send({ type: "checkLlm" });
     assert.ok(r.ok, JSON.stringify(r));
     assert.ok(!env.fetches.some((x) => x.url.includes("/v1/models")));
-    env.local.llmProvider = "anthropic"; env.local.llmModel = "claude-wrong";
+    env.local.llmProvider = "anthropic"; env.local.llmModel = "claude-wrong"; env.local.llmApiKey = "sk-ant-test";
     env.setFetch(() => jsonRes(404, { type: "error", error: { type: "not_found_error", message: "model: claude-wrong" } }));
     r = await env.send({ type: "checkLlm" });
-    assert.ok(!r.ok && r.code === "model" && r.error === "Anthropic не знает модель «claude-wrong» — проверьте название в окне расширения." && r.detail === "код ответа 404: model: claude-wrong", JSON.stringify(r));
+    assert.ok(!r.ok && r.code === "model" && r.error === "Anthropic не знает модель «claude-wrong» — проверьте название в настройках расширения." && r.detail === "код ответа 404: model: claude-wrong", JSON.stringify(r));
     ok("checkLlm: POST chat/completions (или messages) к выбранной модели, ошибка — с текстом провайдера");
   }
 

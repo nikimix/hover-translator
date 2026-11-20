@@ -17,6 +17,12 @@
     consent: { deepl: true, openai: true, anthropic: true } };  // этап 3: согласие уже дано
   window.__onChanged = [];
   window.__onMessage = [];
+  // Закрытые shadow root перехватываем: снаружи (h.shadowRoot) они по-прежнему null, а проверка находит кнопки внутри.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.fabRoot = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".fab")).pop() || null;
+  window.uiPoint = (root, sel) => { const e = root && root.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
   window.chrome = {
     storage: {
       local: {
@@ -29,6 +35,8 @@
       id: "test-extension-id",          // этап 2а: без id content считает контекст расширения пропавшим
       getURL: (p) => "chrome-extension://test-extension-id/" + p,
       sendMessage(msg) {
+        // Сообщения окну (pageState) — отдельно: __calls — только запросы перевода.
+        if (msg.type === "pageState") { (window.__states = window.__states || []).push(JSON.parse(JSON.stringify(msg.state))); return Promise.resolve(); }
         window.__calls.push(JSON.parse(JSON.stringify(msg)));
         return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
       },
