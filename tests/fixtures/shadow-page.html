@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stub: shadow page</title>
+<link rel="stylesheet" id="css" href="/src/content.css">
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; padding: 20px; }
+  p { margin: 0 0 20px; width: 600px; }
+  .filler { height: 90px; margin: 0 0 10px; background: #fafafa; }
+</style>
+<script>
+  // Заглушка chrome.* для content.js — как в stub.html, только то, что нужно переводу страницы.
+  // ?store={...} — настройки поверх умолчаний.
+  const q = new URLSearchParams(location.search);
+  window.__calls = [];
+  window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", apiKey: "k:fx",
+    consent: { deepl: true, openai: true, anthropic: true } }, JSON.parse(q.get("store") || "{}"));
+  window.__onChanged = [];
+  window.__onMessage = [];
+  window.__bgReply = null;            // (msg) => ответ background на translateBatch
+  window.__bgDelay = 0;
+  // Все shadow root страницы, и закрытые (наш интерфейс, x-closed): проверкам нужен их текст.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) {
+          const out = Object.assign({}, typeof defs === "object" && !Array.isArray(defs) ? defs : {}, JSON.parse(JSON.stringify(window.__store)));
+          if (cb) { setTimeout(() => cb(out), 0); return undefined; }
+          return Promise.resolve(out);
+        },
+        set(obj) { setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      getManifest: () => ({ name: "Hover Translator" }),
+      sendMessage(msg) {
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        if (msg.type === "noticeOnce") return Promise.resolve({ ok: true, show: true });
+        if (msg.type === "shortcut") return Promise.resolve("");
+        if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
+        const reply = window.__bgReply ? window.__bgReply(msg) : { ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") };
+        return window.__bgDelay ? new Promise((r) => setTimeout(() => r(reply), window.__bgDelay)) : Promise.resolve(reply);
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: JSON.parse(JSON.stringify(obj[k])) }; window.__store[k] = JSON.parse(JSON.stringify(obj[k])); }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
+  window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+  // Все тексты, ушедшие в перевод.
+  window.sent = () => window.trCalls().flatMap((c) => c.items);
+  // Элемент в root: deep("#outer", "x-inner", "p") — #outer в документе, x-inner в его root, p в root x-inner.
+  window.deep = (...sels) => {
+    let n = null;
+    for (let i = 0; i < sels.length; i++) { n = (i ? n.shadowRoot : document).querySelector(sels[i]); if (!n) return null; }
+    return n;
+  };
+  // Тексты нашего интерфейса (закрытые root с хостом data-ht-ui).
+  window.ourTexts = () => window.__roots.filter((r) => r.host.hasAttribute("data-ht-ui") && r.mode === "closed")
+    .map((r) => r.textContent.replace(/\s+/g, " ").trim()).filter(Boolean);
+
+  // ---- компоненты сайта ----
+  // Свой лист у компонента (как у Lit): наш лист к нему добавляется, а не заменяет.
+  const cardSheet = new CSSStyleSheet();
+  cardSheet.replaceSync(".ttl { color: rgb(1, 2, 3); }");
+  const define = (name, html, mode = "open", sheet = null) => customElements.define(name, class extends HTMLElement {
+    constructor() {
+      super();
+      const r = this.attachShadow({ mode });
+      if (sheet) r.adoptedStyleSheets = [sheet];
+      r.innerHTML = html;
+    }
+  });
+  // Карточка: заголовок в root и текст light DOM через <slot>.
+  define("x-card", `<div class="card"><h3 class="ttl">Card title inside the shadow root</h3><slot></slot></div>`, "open", cardSheet);
+  // Компонент в компоненте.
+  define("x-inner", `<p class="in">Nested component text inside another one</p><input class="q" placeholder="Search inside the nested component">`);
+  define("x-outer", `<section><h3>Outer component heading text</h3><x-inner></x-inner></section>`);
+  // Переключатель темы, как у MDN: одно слово в кнопке.
+  define("x-switch", `<button type="button" aria-label="Switch the colour theme"><span class="lbl">Theme</span></button>`);
+  // Закрытый root сайта: его текст не трогаем.
+  define("x-closed", `<p title="Closed tooltip text must stay">Closed component text must stay as is</p>`, "closed");
+  // Хост под notranslate: запрет автора касается и содержимого компонента.
+  define("x-brand", `<p>Brand widget text that the author keeps</p>`);
+  // Далеко внизу: переводится, когда его прокрутят.
+  define("x-far", `<p class="far">Far component text below the fold</p>`);
+  // Добавляются после перевода страницы.
+  define("x-leaf", `<span class="leaf" title="Tooltip of the late leaf component">Leaf text inside a late component</span>`);
+  define("x-late", `<div><p class="late">Component added after the page was translated</p><div><x-leaf></x-leaf></div></div>`);
+
+  (function tick() { requestAnimationFrame(tick); })();
+</script>
+</head>
+<body>
+  <p id="p1">Plain document paragraph before the components.</p>
+  <x-card id="card"><p id="slotted">Slotted light text shown through the slot.</p></x-card>
+  <x-switch id="switch"></x-switch>
+  <x-outer id="outer"></x-outer>
+  <x-closed id="closed"></x-closed>
+  <x-brand id="brand" class="notranslate"></x-brand>
+  <div data-ht-ui id="ours"></div>
+  <p id="p2">Another document paragraph after the components.</p>
+  <div id="later"></div>
+  <div id="fillers"></div>
+  <x-far id="far"></x-far>
+  <script>
+    // Хост с пометкой нашего интерфейса и открытым root: его текст не переводится никогда.
+    document.getElementById("ours").attachShadow({ mode: "open" }).innerHTML = "<p>Own interface text must stay</p>";
+    const f = document.getElementById("fillers");
+    for (let i = 0; i < 30; i++) { const p = document.createElement("p"); p.className = "filler"; p.textContent = "Filler paragraph number " + i + " with enough words to translate."; f.appendChild(p); }
+    for (const src of ["/i18n-ru.js", "/src/shared.js", "/src/content.js"]) { const s = document.createElement("script"); s.src = src; s.async = false; document.body.appendChild(s); }
+  </script>
+</body>
+</html>

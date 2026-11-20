@@ -117,7 +117,12 @@
   function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
   // Рассылка «как background» всем фреймам вкладки: себе — через onMessage, встроенным окнам — postMessage { htTab };
   // от встроенного окна (у него своя заглушка, stub-frame.html) просьба приходит сюда как { htUp }.
-  function tabCast(msg) { sendCmd(msg); for (const f of document.querySelectorAll("iframe")) f.contentWindow.postMessage({ htTab: msg }, "*"); }
+  // __tabDelay — сколько мс «background» везёт рассылку (воркер просыпается, машина занята); порядок сохраняется.
+  window.__tabDelay = 0;
+  function tabCast(msg) {
+    const go = () => { sendCmd(msg); for (const f of document.querySelectorAll("iframe")) f.contentWindow.postMessage({ htTab: msg }, "*"); };
+    if (window.__tabDelay) setTimeout(go, window.__tabDelay); else go();
+  }
   addEventListener("message", (e) => { if (e.data && e.data.htUp) tabCast(e.data.htUp); });
   window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
   window.typeCalls = (t) => window.__calls.filter((c) => c.type === t);

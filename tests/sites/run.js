@@ -220,7 +220,9 @@ async function scenario(run, mode, site) {
     // Esc при открытом меню сайта, фокус не в поле (content.js: siteOpen → Esc только сайту): меню закрывает сайт,
     // перевод остаётся. trigger — что открывает меню (щелчок), isOpen — функция для страницы (dq/vis доступны):
     // меню открыто. Не закрылось по Esc — закрываем повторным щелчком; ok — закрылось по Esc и перевод не откатился.
-    escMenu: async (trigger, isOpen, arg) => {
+    // opts.siteKeepsOpen — сайт сам по Esc это меню не закрывает (проверено без расширения): тогда проверяем только,
+    // что Esc ушёл сайту и перевод остался.
+    escMenu: async (trigger, isOpen, arg, opts = {}) => {
       const c = await k.click(trigger);
       if (!c.ok) return c;
       if (!await k.until(isOpen, arg, 5000)) return { ok: false, note: "меню не открылось" + (c.note ? ": " + c.note : "") };
@@ -233,8 +235,8 @@ async function scenario(run, mode, site) {
       if (!closed) { await k.click(trigger); await sleep(500); }
       const lost = before && after && before.count > 0 && after.count < before.count;
       return {
-        ok: !!closed && !lost,
-        note: [closed ? "Esc закрыл меню" : "Esc меню НЕ закрыл (закрыто щелчком)",
+        ok: (!!closed || !!opts.siteKeepsOpen) && !lost,
+        note: [closed ? "Esc закрыл меню" : opts.siteKeepsOpen ? "сайт по Esc меню не закрывает (и без расширения) — закрыто щелчком" : "Esc меню НЕ закрыл (закрыто щелчком)",
           before ? `перевод ${before.page}/${before.count} → ${after ? after.page + "/" + after.count : "?"}${lost ? " — ОТКАТИЛСЯ" : ""}` : "",
           seen ? "открыто для content.js: " + (seen.length ? seen.join("; ").slice(0, 160) : "ничего") : ""].filter(Boolean).join("; "),
       };

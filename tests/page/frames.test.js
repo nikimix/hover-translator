@@ -7,7 +7,10 @@
 // (а не абзац, с которого курсор ушёл: страница ухода не видит), второй Shift возвращает оригинал; Shift зажали над
 // пустым местом окна и повели курсор на текст — ничего ни пока держат, ни по отпусканию (как щелчок); поддельные
 // клавиши и postMessage страницы ничего не переводят; фокус в поле ввода страницы — Shift для поля; обратный случай:
-// фокус во встроенном окне, курсор над текстом страницы — Shift переводит текст страницы.
+// фокус во встроенном окне, курсор над текстом страницы — Shift переводит текст страницы. Сообщение окна о курсоре
+// опаздывает (background везёт его не сразу): Shift сразу после захода курсора в окно — текст окна, а не абзац страницы,
+// с которого курсор ушёл; нажали до сообщения, отпустили после — тоже окно; отпустили над абзацем страницы у края окна и
+// сразу повели курсор в окно — перевод абзаца страницы.
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
@@ -113,6 +116,55 @@ const SHIFT = 8;
     assert.ok(/^\[RU\]/.test(await ev("document.querySelector('#p1').textContent")), "Shift переводит текст страницы под курсором");
     assert.ok(!(await frameTr()), "во встроенном окне ничего не переведено");
     ok("фокус во встроенном окне, курсор над текстом страницы: Shift переводит текст страницы");
+
+    // ---- 6–8. Сообщение окна о курсоре (hoverFrame) опаздывает: «background» везёт его 150 мс (воркер просыпается,
+    //           машина занята). Курсор идёт к окну, как рука ведёт мышь: последнее движение на странице — у его края,
+    //           над последней строкой #edge (между ними только поле ввода) ----
+    await move(900, 300); await sleep(30);
+    await t.mouse("mousePressed", 900, 300, { button: "left", clickCount: 1 });
+    await t.mouse("mouseReleased", 900, 300, { button: "left", clickCount: 1 });
+    await sleep(100);
+    assert.ok(await ev("document.hasFocus() && document.activeElement === document.body"), "фокус снова на странице");
+    const edge = await ev(`(({ left, bottom }) => ({ x: Math.round(left) + 40, y: Math.round(bottom) - 12 }))(document.querySelector("#edge").getBoundingClientRect())`);
+    assert.ok(fr.y - edge.y < 100, "последняя строка #edge у края встроенного окна: " + JSON.stringify({ edge, fr }));
+    const edgeTr = async () => /^\[RU\]/.test(await ev("document.querySelector('#edge').textContent"));
+    // к краю окна; прежнее сообщение о курсоре (он был в окне) доходит, пока курсор стоит, а последнее движение — перед
+    // самым уходом в окно: с места рука трогает мышь плавно, и у края страница видит свежее движение
+    const toEdge = async () => { await move(edge.x, edge.y); await sleep(400); await move(edge.x + 2, edge.y + 1); };
+    // в окно — каждый раз в новую точку: в ту же самую окно движением не сочтёт (см. pointerMoved)
+    let jumps = 0;
+    const toFrame = () => move(onFrameText.x + 8 * ++jumps, onFrameText.y);
+    await ev("__tabDelay = 150; true");
+    const tr0 = await ev("trCalls().length");
+
+    // 6: нажали и отпустили сразу после захода курсора в окно — сообщение окна ещё в пути
+    await toEdge();
+    await toFrame();
+    await key("rawKeyDown", SHIFT); await sleep(30); await key("keyUp", 0);
+    await sleep(800);
+    assert.ok(!(await edgeTr()) && (await ev("trCalls().length")) === tr0, "абзац страницы, с которого курсор только что ушёл, не переводится");
+    assert.ok(await frameTr(), "Shift переводит текст окна под курсором: " + JSON.stringify(await frame()));
+    assert.strictEqual(await frameCalls("translateBatch"), 3);
+    ok("Shift сразу после захода курсора во встроенное окно, раньше сообщения окна: переводит текст окна, а не абзац страницы, с которого курсор ушёл");
+
+    // 7: нажали до сообщения окна, отпустили после
+    await toEdge();
+    await toFrame();
+    await key("rawKeyDown", SHIFT); await sleep(300); await key("keyUp", 0);
+    await sleep(800);
+    assert.ok(!(await frameTr()), "Shift возвращает оригинал текста окна под курсором: " + JSON.stringify(await frame()));
+    assert.ok(!(await edgeTr()) && (await ev("trCalls().length")) === tr0, "абзац страницы не тронут");
+    ok("Shift нажали до сообщения окна, отпустили после — нажатие для окна под курсором (тут: оригинал), абзац страницы не тронут");
+
+    // 8: отпустили над абзацем страницы и сразу повели курсор в окно — перевод абзаца, как без окна рядом
+    await toEdge();
+    await key("rawKeyDown", SHIFT); await sleep(30); await key("keyUp", 0); await sleep(30);
+    await toFrame();
+    await sleep(800);
+    assert.ok(await edgeTr(), "отпустили над абзацем страницы — его перевод");
+    assert.ok(!(await frameTr()) && (await frameCalls("translateBatch")) === 3, "текст окна, куда курсор пришёл уже после, не тронут");
+    await ev("__tabDelay = 0; true");
+    ok("отпустили Shift над абзацем у края окна и сразу повели курсор в окно — переводится абзац страницы, текст окна не тронут");
 
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);

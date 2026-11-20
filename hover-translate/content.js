@@ -48,6 +48,7 @@
   const ownText = new WeakMap();     // Text -> что мы сами записали в него последним (перевод или откат)
   const mutStarts = new Set();       // где сайт что-то поменял с прошлой пачки (элементы)
   let mutObserver = null;
+  let mutRoots = new WeakSet();      // открытые shadow root сайта, за которыми следит mutObserver (см. watchRoot)
   let mutTimer = 0;
   let mutTries = new WeakMap();      // owner -> { n, at }: сколько раз подряд его переводили заново
   let mutTopUp = new WeakSet();      // owner с живым переводом, в котором сайт добавил или переписал текст
@@ -437,6 +438,8 @@
     // вложенных абзацев потом делили бы с ним одни и те же текстовые узлы.
     if (start === document.documentElement) return null;
     if (hasBlockChild(start)) return null;
+    // Внутри shadow root подъём кончается на его верхнем уровне (parentElement там — null): владелец — строчный
+    // контейнер в компоненте, а не весь компонент.
     let el = start;
     while (
       el.parentElement &&
@@ -466,13 +469,16 @@
   // Запрет на элементе или его предках. Запрет на <html>/<body> не учитываем: так SPA защищаются
   // от Google Переводчика, который перестраивает DOM и ломает каркас, — мы меняем только текст
   // узлов, а запрет на весь документ молча выключал бы расширение на таких сайтах целиком.
+  // Через границу открытого shadow root — к хосту: запрет на хосте или выше касается и содержимого компонента (так
+  // же перевод страницы не заходит в root хоста под запретом, см. siteRoot).
   function insideNoTranslate(el) {
     const root = document.documentElement, body = document.body;
-    for (let e = el; e && e !== body && e !== root; e = e.parentElement) {
+    for (let e = el; e && e !== body && e !== root; e = e.parentElement || hostOf(e)) {
       if (authorNoTranslate(e)) return true;
     }
     return false;
   }
+  function hostOf(el) { const r = el.getRootNode(); return r instanceof ShadowRoot ? r.host : null; }
 
   function isTextTarget(el) {
     if (!el || el.nodeType !== 1) return false;
@@ -518,7 +524,7 @@
   // нижнее (картинка, непрозрачный фон, наш интерфейс, текст без букв), — нет: под ним текста человек не видит.
   function textUnder(x, y) {
     let list;
-    try { list = document.elementsFromPoint(x, y); } catch (e) { return null; }
+    try { list = pointStack(x, y); } catch (e) { return null; }
     const range = document.createRange();
     for (const el of list.slice(0, 8)) {
       if (el === document.body || el === document.documentElement || isOurUi(el)) return null;
@@ -543,6 +549,40 @@
     if (parseFloat(cs.opacity) < 0.1) return false;
     const bg = parseColor(cs.backgroundColor);
     return !!(bg && bg[3] >= 0.5) || /url\(/.test(cs.backgroundImage);
+  }
+
+  // Элементы в точке сверху вниз — и внутри открытых shadow root сайта: document.elementsFromPoint вместо содержимого
+  // веб-компонента показывает только его хост. root.elementsFromPoint даёт и содержимое root, и всё снаружи (хост,
+  // страницу под ним) — снаружи уже есть во внешнем списке, поэтому из него берём только своё, перед хостом.
+  // Закрытые root (сайта и наши хосты [data-ht-ui]) не раскрываются: shadowRoot у их хоста — null.
+  function pointStack(x, y) {
+    const out = [];
+    const add = (list, root) => {
+      for (const el of list) {
+        if (out.length >= 8) return;
+        if (root && !root.contains(el)) continue;
+        const r = el.shadowRoot;
+        if (r && !isOurUi(el)) add(r.elementsFromPoint(x, y), r);
+        out.push(el);
+      }
+    };
+    add(document.elementsFromPoint(x, y), null);
+    return out;
+  }
+
+  // Элемент события мыши — и внутри открытого shadow root сайта (веб-компоненты: Lit на MDN, Polymer на YouTube).
+  // Слушателю на document e.target перенацелен на хост компонента, и строчный контейнер искался бы вокруг хоста —
+  // перевёлся бы компонент целиком или ничего. composedPath()[0] — настоящая цель. Внутренности закрытых root
+  // (сайта и наши) путь снаружи не раскрывает — там остаётся хост, как и прежде.
+  function evTarget(e) {
+    const t = e.composedPath()[0];
+    return t && t.nodeType === 1 ? t : e.target;
+  }
+
+  // el лежит в shadow root хоста host (или во вложенном в него): снаружи событие видит вместо el этот хост.
+  function hostHolds(host, el) {
+    for (let h = el.getRootNode().host; h; h = h.getRootNode().host) if (h === host) return true;
+    return false;
   }
 
   // Что переводить под курсором: строчный контейнер вокруг элемента события, а если текста в нём нет (накладка) —
@@ -689,22 +729,58 @@
   // (Chrome 157: ни mouseout, ни mouseover), и hoverEl остаётся на абзаце, с которого курсор ушёл. Поэтому фрейм,
   // куда курсор пришёл, говорит об этом остальным через background (hoverFrame), а «чистое» нажатие во фрейме без
   // курсора пересылается так же (frameKey) — переводит фрейм, где курсор над текстом. FRAME_TAG — чтобы своё же
-  // сообщение не принять за чужое.
+  // сообщение не принять за чужое. Окно того же сайта страница видит сама (mouseover на <iframe>, см. frameEl): от
+  // окна без нашего скрипта (about:blank, srcdoc) сообщения не будет никогда.
   const FRAME_TAG = Math.random().toString(36).slice(2);
   let cursorIn = TOP;                 // курсор в этом фрейме, а не в другом фрейме вкладки или вне окна
   function otherFrames() { return !TOP || !!document.querySelector("iframe, frame"); }
-  // Настоящее движение мыши здесь, а курсор считался в другом фрейме (или вне окна).
+  function frameEl(el) { return !!el && (el.tagName === "IFRAME" || el.tagName === "FRAME"); }
+  // Настоящее движение мыши здесь, а курсор считался в другом фрейме (или вне окна). at — когда курсор пришёл (см. upHere).
   function cursorBack() {
     if (!active() || settings.trigger === "dwell" || dead) return;
     cursorIn = true;
-    if (otherFrames()) send({ type: "hoverFrame", from: FRAME_TAG }).catch(() => {});
+    if (otherFrames()) send({ type: "hoverFrame", from: FRAME_TAG, at: Date.now() }).catch(() => {});
   }
   // Курсор пришёл в другой фрейм вкладки: элемента под курсором здесь нет до следующего движения мыши здесь.
-  function cursorAway(from) {
+  function cursorAway(from, at) {
     if (from === FRAME_TAG) return;
     cursorIn = false;
     hoverEl = null; lastOverTarget = null; clearTimeout(dwellTimer); dwellFor = null;
     hoverLost = true;
+    for (const d of upWait) if (!(at > d.up)) d.away = true;   // пришёл туда раньше отпускания здесь
+  }
+  // Сообщение hoverFrame идёт через background и может опоздать (воркер просыпается, машина занята): курсор уже во
+  // встроенном окне, а здесь отпустили клавишу и считаем его над абзацем, с которого он ушёл. Сам этот фрейм ухода в
+  // окно с другого сайта не видит (ни mouseout, ни :hover), но уйти туда курсор может только через край окна, и
+  // последнее движение, которое фрейм видел, — у края: между двумя событиями мыши курсор проходит самое большее
+  // десятки пикселей, а с места мышь трогается плавно. Поэтому отпускание над текстом здесь, если мышь только что
+  // двигалась у окна (FRAME_NEAR), ждёт FRAME_LAG от последнего движения — с запасом на доставку. Пришло hoverFrame,
+  // и курсор ушёл в окно раньше отпускания — клавиша для того фрейма (frameKey, там решат, «чистое» ли нажатие);
+  // иначе переводим здесь. Остальные нажатия — сразу, без ожидания.
+  const FRAME_LAG = 300;
+  const FRAME_NEAR = 150;
+  let moveAt = 0;                     // когда мышь в последний раз двигалась в этом фрейме
+  const upWait = [];                  // отпускания, ждущие hoverFrame: { el, at, up, away }
+  function frameNear() {
+    if (!lastXY) return false;
+    for (const f of document.querySelectorAll("iframe, frame")) {
+      const r = f.getBoundingClientRect();
+      if (r.width && r.height && lastXY.x > r.left - FRAME_NEAR && lastXY.x < r.right + FRAME_NEAR
+        && lastXY.y > r.top - FRAME_NEAR && lastXY.y < r.bottom + FRAME_NEAR) return true;
+    }
+    return false;
+  }
+  function upHere(p) {
+    const wait = moveAt + FRAME_LAG - Date.now();
+    if (wait <= 0 || !frameNear()) { toggle(p.el); return; }
+    upWait.push({ el: p.el, at: p.at, up: Date.now(), away: false });
+    // по порядку: срок у следующего отпускания не раньше, чем у прежнего (moveAt только растёт)
+    setTimeout(() => {
+      const d = upWait.shift();
+      if (!d || dead || !active() || settings.trigger === "dwell") return;
+      if (d.away) send({ type: "frameKey", at: d.at }).catch(() => {});
+      else toggle(d.el);
+    }, wait);
   }
   // Клавишу-триггер отпустили в другом фрейме вкладки, а курсор над текстом здесь. at — когда её нажали: курсор с тех
   // пор сменил элемент (нажали над одним, отпустили над другим) или модификатор крутил колесо — нажатие не «чистое»,
@@ -715,22 +791,27 @@
     toggle(hoverEl);
   }
 
-  // Запустить/снять перевод owner-а под курсором (по клавише-триггеру).
+  // Запустить/снять перевод owner-а под курсором (по клавише-триггеру). Чистое нажатие-отпускание настоящей клавиши —
+  // действие пользователя, как щелчок: страница его не подделает и не повторит сама, поэтому и бюджет расхода — «по
+  // действию пользователя», а не строгий лимит наведения (60 запросов в минуту на вкладку останавливали того, кто
+  // быстро читает, нажимая Shift на каждом куске).
   function toggle(owner) {
     if (!owner) return;
     if (settings.displayMode === "popover") {
-      if (popovers.has(owner)) removePopover(owner); else if (!blocked(false)) translatePopover(owner);
+      if (popovers.has(owner)) removePopover(owner); else if (!blocked(false)) translatePopover(owner, HT_BY_USER);
     } else {
       const line = lineOf(owner);
       if (line) { restoreLine(line); if (pageActive) keepOrig.add(owner); }
-      else { keepOrig.delete(owner); if (!blocked(false)) translateLine(owner, false); }
+      else { keepOrig.delete(owner); if (!blocked(false)) translateLine(owner, false, HT_BY_USER); }
     }
   }
 
-  function startHover(owner) {
+  // by — кто начал: наведение с задержкой — по инициативе страницы (она может подвинуть текст под неподвижный курсор),
+  // щелчок — пользователь.
+  function startHover(owner, by) {
     if (blocked(false)) return;
-    if (settings.displayMode === "popover") translatePopover(owner);
-    else translateLine(owner, false);
+    if (settings.displayMode === "popover") translatePopover(owner, by);
+    else translateLine(owner, false, by);
   }
 
   // Запись о переводе элемента — если перевод ещё на экране или в пути. Сайт мог перерисовать элемент после
@@ -1446,8 +1527,8 @@
   // специфичности. Внутри shadow root правила страницы недоступны; наследуемые свойства (шрифт, цвет,
   // выравнивание, межбуквенный интервал) задаём явно на корневом элементе (.ui), а позицию и слой
   // хоста — инлайново с !important.
-  // Побочная польза: document.body.querySelectorAll("*") в shadow root не заглядывает, так что
-  // наша разметка вообще не попадает в кандидаты на перевод.
+  // Побочная польза: обход страницы заходит только в открытые shadow root сайта (siteRoot), а наш
+  // закрыт и помечен data-ht-ui, так что наша разметка вообще не попадает в кандидаты на перевод.
   // Цвета — свои, по фону сайта, а не по теме системы: на светлом сайте белое с рамкой
   // #c9ced5, на тёмном (.dk) — #2a2d33 с рамкой rgba(255,255,255,.4). Шрифт — системный: @font-face
   // внутри shadow root Chrome не применяет, а грузить шрифт с чужого сайта незачем.
@@ -1947,6 +2028,9 @@
       if (settings.trigger !== "dwell") return;          // в режиме клавиши держим до повторного нажатия
       const to = ev.relatedTarget;
       if (to && (owner === to || owner.contains(to))) return;  // вернулись на сам элемент — карточку держим
+      // Элемент в открытом shadow root сайта: relatedTarget здесь — хост компонента, на сам ли элемент вернулся
+      // курсор, снаружи не видно. Закрываем с задержкой — mouseover на элементе (он доходит до document) отменит.
+      if (to && hostHolds(to, owner)) { popCloseSoon(owner); return; }
       removePopover(owner, host);
     });
     mountUi(host);
@@ -2001,7 +2085,7 @@
   function popCloseCancel() { clearTimeout(popCloseTimer); popCloseOwner = null; }
 
   // ---- перевод наведением: карточка (элемент целиком) ----
-  async function translatePopover(owner) {
+  async function translatePopover(owner, by) {
     if (!owner || !owner.isConnected || isBusy(owner)) return;
     const gen = liveGen;   // токен отмены — ДО первого await, см. пояснение в translateLine
     inFlight.add(owner);
@@ -2016,7 +2100,7 @@
       popovers.set(owner, st);          // маркер «занят»: mouseout, Esc и щелчок мимо снимают и ожидание
       loadingOn(owner);
       placeToast(owner);
-      const out = await translateItems([text], HT_BY_PAGE);
+      const out = await translateItems([text], by === HT_BY_USER ? HT_BY_USER : HT_BY_PAGE);
       loadingOff(owner);
       if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== st) return;
       const res = out.results && out.results[0];
@@ -2038,7 +2122,7 @@
     }
   }
   // ---- перевод наведением/страницы: замена текстовых узлов ----
-  async function translateLine(owner, persistent) {
+  async function translateLine(owner, persistent, by) {
     if (!owner || !owner.isConnected || lineByOwner.has(owner) || inFlight.has(owner)) return;
     // Токен отмены снимаем ДО первого await. Раньше он брался после await isAlreadyTarget (а тот
     // ждёт создания on-device LanguageDetector — секунды при первом вызове): сброс или выключение
@@ -2063,7 +2147,7 @@
       loadingOn(owner, line.bg.dark);
       placeToast(owner);                     // уведомление не должно закрывать то, что переводится
 
-      const out = await translateItems(recs.map((r) => r.core), HT_BY_PAGE, recs.map((r) => r.line));
+      const out = await translateItems(recs.map((r) => r.core), by === HT_BY_USER ? HT_BY_USER : HT_BY_PAGE, recs.map((r) => r.line));
 
       // отменён (сброс/выключение) или сброшен мышью/заменён за время ожидания
       if (gen !== liveGen || !owner.isConnected || lineByOwner.get(owner) !== line) return;
@@ -2166,6 +2250,106 @@
     return false;
   }
 
+  // ---- открытые shadow root сайта ----
+  // Веб-компоненты (MDN на Lit, Reddit, YouTube на Polymer) держат текст в shadow root: обход документа и
+  // наблюдатель <html> туда не заходят, а правила content.css подключены к документу и внутри root не действуют.
+  // Открытые root переводим как часть страницы (collectIn, watchRoot). Закрытые сайт закрыл намеренно — их не
+  // трогаем; наши хосты (data-ht-ui) — тоже, их root к тому же закрытые.
+  //
+  // Правила content.css для root: листом в adoptedStyleSheets — в DOM сайта <style> не добавляем, а скрипт сайта,
+  // перебирающий детей root, ничего чужого не увидит. Текст — тот же, что в content.css (сверяет
+  // tests/unit/content-css.test.js): меняя одно, меняйте и другое.
+  const PAGE_CSS = `
+    .ht-loading {
+      --ht-ld: rgba(37, 99, 235, 0.14);
+      --ht-ld-half: rgba(37, 99, 235, 0.07);
+      cursor: progress !important;
+      animation: ht-pulse 1.2s ease-in-out 0.15s infinite !important;
+    }
+    .ht-loading.ht-loading-dark {
+      --ht-ld: rgba(120, 160, 255, 0.28);
+      --ht-ld-half: rgba(120, 160, 255, 0.14);
+    }
+    @keyframes ht-pulse {
+      0%, 100% { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
+      50% { background-color: var(--ht-ld-half); box-shadow: 0 0 0 3px var(--ht-ld-half); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ht-loading { animation: ht-pulse-still 0.01s linear 0.15s both !important; }
+    }
+    @keyframes ht-pulse-still {
+      to { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
+    }
+    .ht-error {
+      background-color: rgba(215, 40, 40, 0.1) !important;
+      box-shadow: 0 0 0 3px rgba(215, 40, 40, 0.1) !important;
+      border-radius: 2px !important;
+    }
+    .ht-error::after {
+      content: "!" !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-sizing: border-box !important;
+      width: 20px !important;
+      height: 20px !important;
+      margin: 0 0 0 4px !important;
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 50% !important;
+      vertical-align: -3px !important;
+      background: #b42318 !important;
+      color: #ffffff !important;
+      font: 700 13px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+      font-style: normal !important;
+      text-decoration: none !important;
+      text-indent: 0 !important;
+      letter-spacing: 0 !important;
+      position: static !important;
+      float: none !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+    .ht-error.ht-error-dark::after {
+      background: #ff6b5f !important;
+      color: #1a0b0a !important;
+    }
+  `;
+  let pageSheet = null;
+  const pageRoots = new Set();   // открытые root сайта, где мы ставили свои классы: их обходят поиски (pageAll)
+
+  // Открытый shadow root сайта у элемента или null: у закрытого shadowRoot и так null, свой не берём, а в root
+  // хоста под translate="no" (notranslate) не заходим — запрет автора касается и содержимого компонента.
+  function siteRoot(el) {
+    const root = el.shadowRoot;
+    return root && !isOurUi(el) && !insideNoTranslate(el) ? root : null;
+  }
+
+  // Наши классы (подложка «идёт перевод», «не перевелось») на элементе внутри root действуют, только если лист с
+  // правилами подключён к самому root: подключаем один раз на root и запоминаем root для поисков. Сайт может
+  // переписать adoptedStyleSheets целиком — тогда при следующем вызове подключим снова. Вызывают loadingOn,
+  // failOwner и перевод наведением.
+  function styleRootOf(el) {
+    const root = el.getRootNode();
+    if (!(root instanceof ShadowRoot)) return;
+    pageRoots.add(root);
+    try {
+      if (!pageSheet) { pageSheet = new CSSStyleSheet(); pageSheet.replaceSync(PAGE_CSS); }
+      if (!root.adoptedStyleSheets.includes(pageSheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, pageSheet];
+    } catch (e) { /* лист не подключился — без подложки, сам перевод от этого не зависит */ }
+  }
+
+  // Элементы страницы по селектору — в документе и в открытых root, где мы ставили свои классы. Root компонента,
+  // которого уже нет на странице, забываем: не держим его в памяти.
+  function pageAll(sel) {
+    const out = Array.from(document.querySelectorAll(sel));
+    for (const root of pageRoots) {
+      if (!root.isConnected) pageRoots.delete(root);
+      else out.push(...root.querySelectorAll(sel));
+    }
+    return out;
+  }
+
   // Ошибка движка при наведении: красная подложка .10 и «!» 20 после текста (псевдоэлементом —
   // content.css, в DOM страницы ничего не добавляем), снимается по таймеру. Текст ошибки на элемент
   // страницы не пишем — в title его прочитал бы скрипт сайта; он только в нашем уведомлении.
@@ -2173,6 +2357,7 @@
   function failOwner(owner) {
     clearTimeout(errors.get(owner));
     loadingOff(owner);
+    styleRootOf(owner);
     owner.classList.add("ht-error");
     owner.classList.toggle("ht-error-dark", bgOf(owner).dark);
     errors.set(owner, setTimeout(() => clearError(owner), ERROR_MS));
@@ -2182,6 +2367,7 @@
   // prefers-reduced-motion — ровная). Появляется с задержкой 0,15 с: перевод из сохранённых приходит
   // мгновенно и мигать не должен. dark — тёмный ли фон (если уже известен).
   function loadingOn(owner, dark) {
+    styleRootOf(owner);
     owner.classList.add("ht-loading");
     if (dark === undefined ? bgOf(owner).dark : dark) owner.classList.add("ht-loading-dark");
   }
@@ -2189,7 +2375,7 @@
   // «Стоп» и возврат оригинала: у отменённых переводов пульс снимаем сразу, а не когда придёт (и будет
   // отброшен) ответ — на медленной сети это до тайм-аута сервиса. pageOnly — только перевод страницы.
   function loadingOffCancelled(pageOnly) {
-    for (const el of document.querySelectorAll(".ht-loading")) {
+    for (const el of pageAll(".ht-loading")) {
       const line = lineByOwner.get(el);
       if (!pageOnly || (line && line.page)) loadingOff(el);
     }
@@ -2212,6 +2398,7 @@
     liveGen++; // отменяем переводы «в полёте»
     loadingOffCancelled(false);
     for (const line of Array.from(lines)) restoreLine(line);
+    restoreAttrs();
     for (const owner of Array.from(popovers.keys())) removePopover(owner);
     drift = null;
     // «Страница переведена · Показать оригинал» после возврата оригинала уже ни к чему.
@@ -2230,9 +2417,9 @@
     pushState();
   }
 
-  // Есть ли что возвращать: переводы, карточки, перевод страницы по прокрутке, перевод в полёте.
+  // Есть ли что возвращать: переводы (и в атрибутах), карточки, перевод страницы по прокрутке, перевод в полёте.
   function anythingShown() {
-    return lines.size > 0 || popovers.size > 0 || !!pageObserver || !!mutObserver || !!document.querySelector(".ht-loading");
+    return lines.size > 0 || attrRecs.size > 0 || popovers.size > 0 || !!pageObserver || !!mutObserver || pageAll(".ht-loading").length > 0;
   }
 
   // Перерисовать подсветку всех переведённых строк под текущую тему.
@@ -2275,6 +2462,7 @@
     // Вкладку могли скрыть за время задержки — тогда тоже ждём её показа.
     if (document.visibilityState !== "visible") { retranslateOnShow = true; return; }
     if (pageActive) return retranslatePage();
+    retranslateAttrs(false);
     const list = [];
     for (const line of lines) {
       if (!line.owner.isConnected || inFlight.has(line.owner)) continue;
@@ -2305,6 +2493,7 @@
     }
     const fresh = collectCandidates();
     watchPage();                                   // что сайт добавит дальше — уже на новом языке
+    retranslateAttrs(true);
     const freshVis = fresh.filter(inView), freshRest = fresh.filter((el) => !freshVis.includes(el));
     const jobs = [];
     const size = firstBatch(vis.length + freshVis.length);
@@ -2350,7 +2539,9 @@
   // который уже ничем не снять.
   const sweepTimer = setInterval(() => {
     for (const line of Array.from(lines)) if (!line.owner.isConnected) restoreLine(line);
+    restoreAttrs(true);
     for (const owner of Array.from(popovers.keys())) if (!owner.isConnected) removePopover(owner);
+    for (const root of pageRoots) if (!root.isConnected) pageRoots.delete(root);   // root ушедших компонентов
   }, 30000);
 
   // ---- перевод всей страницы (батчами, с учётом кэша на стороне background) ----
@@ -2371,12 +2562,25 @@
   // внешний — его строка переводит и узлы внутреннего. Раньше брали оба: две строки на одних узлах, и после
   // «Показать оригинал» часть текста оставалась переведённой. Обход идёт в порядке документа, поэтому потомки
   // взятого (или уже переведённого) владельца идут сразу за ним.
+  //
+  // Открытые shadow root сайта обходим так же, на месте их хоста (компонент в компоненте — рекурсией), с общим
+  // PAGE_MAX. Текст light DOM, показанный через <slot>, принадлежит хосту, а не root: он попадёт один раз — при
+  // обходе light DOM.
   function collectCandidates() {
-    const all = document.body ? document.body.querySelectorAll("*") : [];
     const out = [];
-    const memo = new Map();   // живёт только этот обход: структура DOM за него не меняется
+    // memo живёт только этот обход: структура DOM за него не меняется
+    if (document.body) collectIn(document.body, out, new Map());
+    return out;
+  }
+  function collectIn(scope, out, memo) {
     let taken = null;         // последний взятый или уже переведённый владелец
-    for (const el of all) {
+    for (const el of scope.querySelectorAll("*")) {
+      // Root — и у хоста внутри взятого владельца: строка владельца в root не заходит.
+      const root = siteRoot(el);
+      if (root) {
+        collectIn(root, out, memo);
+        if (out.length >= PAGE_MAX) return;
+      }
       if (taken && taken.contains(el)) continue;     // вложенный: его узлы переводит строка внешнего
       if (!isTopInlineContainer(el, memo)) continue; // дешёвая структурная проверка раньше textContent
       const line = lineByOwner.get(el);
@@ -2387,9 +2591,8 @@
       if (!isTextTarget(el)) continue;
       out.push(el);
       taken = el;
-      if (out.length >= PAGE_MAX) break;
+      if (out.length >= PAGE_MAX) return;
     }
-    return out;
   }
 
   // Виден ли элемент в окне сейчас (хотя бы частично).
@@ -2404,6 +2607,7 @@
     pendingObserved.clear();
     pageWait.clear();
     clearTimeout(flushTimer);
+    stopAttrs();
     unwatchPage();
   }
 
@@ -2470,6 +2674,10 @@
   const MUT_SKIP = new Set(["SCRIPT", "STYLE", "LINK", "META", "TITLE", "NOSCRIPT", "TEMPLATE", "HEAD", "IFRAME"]);
   const hasLetter = (s) => /\p{L}/u.test(s || "");
 
+  // Что наблюдатель нового содержимого смотрит у страницы — одни опции для всех мест, за которыми он следит.
+  // Атрибуты — те, что переводятся вместе со страницей (см. attrNamesOf).
+  const MUT_OPTS = { childList: true, characterData: true, subtree: true,
+    attributes: true, attributeFilter: ["title", "aria-label", "placeholder", "alt", "value"] };
   function watchPage() {
     if (mutObserver || dead || !pageActive) return;
     mutTries = new WeakMap();
@@ -2477,7 +2685,31 @@
     mutNew = new WeakSet();
     keepOrig = new WeakSet();
     mutObserver = new MutationObserver(onMutations);
-    mutObserver.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+    mutObserver.observe(document.documentElement, MUT_OPTS);
+    mutRoots = new WeakSet();
+    watchRootsIn(document.documentElement);
+  }
+
+  // Наблюдатель <html> в shadow root не заходит: каждый открытый root сайта наблюдаем сам по себе, теми же опциями.
+  // Root, которых ещё нет (компонент добавят позже), находит ownersOf в добавленном. watchRoot — true, если root
+  // новый для наблюдателя.
+  function watchRoot(root) {
+    if (!mutObserver || mutRoots.has(root)) return false;
+    mutRoots.add(root);
+    mutObserver.observe(root, MUT_OPTS);
+    return true;
+  }
+  function watchRootsIn(scope) {
+    eachSiteRoot(scope, (root) => { if (watchRoot(root)) watchRootsIn(root); });
+  }
+  // Открытые root сайта у scope и его потомков (без root внутри root — их ищет сам вызывающий).
+  function eachSiteRoot(scope, fn) {
+    const own = scope.nodeType === 1 && siteRoot(scope);
+    if (own) fn(own);
+    for (const el of scope.querySelectorAll("*")) {
+      const root = siteRoot(el);
+      if (root) fn(root);
+    }
   }
   function unwatchPage() {
     if (mutObserver) { mutObserver.disconnect(); mutObserver = null; }
@@ -2490,6 +2722,7 @@
   // затишья»: на сайте, который меняет что-то постоянно, затишья может не быть вовсе.
   function onMutations(records) {
     for (const m of records) {
+      if (m.type === "attributes") { attrMutated(m); continue; }
       if (m.type === "characterData") {
         const n = m.target;
         if (n.nodeType !== 3 || n.nodeValue === ownText.get(n) || !hasLetter(n.nodeValue)) continue;
@@ -2508,12 +2741,15 @@
 
   // Владельцы для изменившегося места: верхний строчный контейнер вокруг него (как pickTarget), а в
   // добавленном блоке — верхние строчные контейнеры внутри (как collectCandidates).
+  // В открытом root подъём кончается на его границе (у верхних элементов root нет parentElement), а не уходит в
+  // хост. Новые root в изменившемся месте (добавили компонент) — под наблюдение, их текст — как добавленный блок.
   function ownersOf(start, out, memo) {
-    const body = document.body;
-    if (!body || !body.contains(start) || isOurUi(start)) return;
-    if (start !== body && !hasBlockChild(start, memo)) {
+    const top = treeTop(start);
+    if (!top || isOurUi(start)) return;
+    eachSiteRoot(start, (root) => { if (watchRoot(root)) ownersOf(root, out, memo); });
+    if (start !== top && !hasBlockChild(start, memo)) {
       let el = start;
-      while (el.parentElement && el.parentElement !== body && !hasBlockChild(el.parentElement, memo)) el = el.parentElement;
+      while (el.parentElement && el.parentElement !== top && !hasBlockChild(el.parentElement, memo)) el = el.parentElement;
       out.add(el);
       return;
     }
@@ -2525,6 +2761,18 @@
       out.add(el);
       taken = el;
     }
+  }
+
+  // Граница для владельцев: <body> у узла документа, сам root — у узла в открытом root сайта (и у root). null —
+  // узла нет на странице, он вне <body> (в <head>) или в закрытом root.
+  function treeTop(node) {
+    if (!node.isConnected) return null;
+    const root = node.getRootNode();
+    if (root === document) {
+      const body = document.body;
+      return body && body.contains(node) ? body : null;
+    }
+    return root instanceof ShadowRoot && root.mode === "open" && !isOurUi(root.host) ? root : null;
   }
 
   // Текстовые узлы владельца с живым переводом, которых в этом переводе нет: сайт их добавил или переписал.
@@ -2551,6 +2799,7 @@
     const memo = new Map(), found = new Set();
     const starts = Array.from(mutStarts);
     mutStarts.clear();
+    attrsAdded(starts);
     for (const s of starts) if (s.isConnected) ownersOf(s, found, memo);
     // Вложенные владельцы сводим к внешнему — к тому, что уже переведён или тоже в этой пачке (как collectCandidates).
     const body = document.body, owners = new Set();
@@ -2707,6 +2956,7 @@
         for (const l of lines) l.persistent = true;
         pageActive = true; pageWas = false;
         watchPage();
+        pageAttrs();
         pushState();
         if (!was) showPageDone();
         return;
@@ -2724,6 +2974,7 @@
     pageActive = true;
     pageWas = false;
     watchPage();                 // что сайт добавит с этой минуты, переводится само
+    pageAttrs();                 // текст в атрибутах — по видимости, своим наблюдателем
     pageBusy = { done: 0, total: visible.length };
     if (pageToast) { pageToast.close(); pageToast = null; }
     pushState();
@@ -2893,6 +3144,238 @@
     return r;
   }
 
+  // ---- текст в атрибутах при переводе страницы ----
+  // Переводится любой текст, который человек видит или слышит: подсказка (title), подпись для экранного диктора
+  // (aria-label), текст в пустом поле (placeholder), замена картинки (alt) и надпись кнопки-<input> (value у
+  // button/submit/reset). Только перевод страницы и новое содержимое переведённой страницы: наведение и Shift
+  // переводят то, что под курсором, — а это текст, не атрибут. Как и текст — по видимости, но своим наблюдателем:
+  // у картинки, поля или кнопки-значка текста нет, владельцем строки такой элемент не бывает, а у текста пачки
+  // считает окно («Перевожу… N из M»), атрибуты в этот счёт не входят. value обычных полей не трогаем: это ввод
+  // человека; кнопку отправки с name — тоже: её value уходит на сервер с формой, и сайт сверяет его с ожидаемым.
+  // Своё значение отличаем от сайтового по attrRecs (как текст по ownText и nodeRecs): откат и перевод на другой
+  // язык меняют атрибут, только если в нём всё ещё наш перевод; новое значение от сайта переводится заново.
+  // Какие атрибуты наблюдатель нового содержимого смотрит — MUT_OPTS.attributeFilter.
+  const ATTR_SEL = "[title], [aria-label], input[placeholder], textarea[placeholder], img[alt], area[alt], input[alt], input[value]";
+  const ATTR_BUTTONS = new Set(["button", "submit", "reset"]);
+  // Адрес, путь, почта: «https://…», «www.…», «mailto:…», «/docs/install». Имя файла — FILE_NAME_RE («report.pdf»).
+  const ATTR_ADDR_RE = /^(?:[a-z][a-z\d+.-]*:\/\/|www\.|(?:mailto|tel):|\.{0,2}\/)\S*$/i;
+  const attrRecs = new Map();          // элемент -> Map(имя -> { orig, translated }): что перевели и что вернуть
+  const attrTries = new WeakMap();     // элемент -> { n, at }: сколько раз подряд его переводили заново (как mutTries)
+  const attrNew = new WeakSet();       // новое содержимое: модели для него не качаем (как mutNew)
+  const attrSeen = new Set();          // вошли в зону видимости, ждут перевода
+  const attrMut = new Set();           // сайт поменял у них атрибут: разбор раз в MUT_MS
+  let attrObserver = null, attrSeenTimer = 0, attrMutTimer = 0;
+
+  // Какие атрибуты элемента — текст для человека (по виду элемента).
+  function attrNamesOf(el) {
+    const tag = el.tagName, out = [];
+    if (el.hasAttribute("title")) out.push("title");
+    if (el.hasAttribute("aria-label")) out.push("aria-label");
+    if ((tag === "INPUT" || tag === "TEXTAREA") && el.hasAttribute("placeholder")) out.push("placeholder");
+    if ((tag === "IMG" || tag === "AREA" || (tag === "INPUT" && el.type === "image")) && el.hasAttribute("alt")) out.push("alt");
+    if (tag === "INPUT" && ATTR_BUTTONS.has(el.type) && el.hasAttribute("value") && !(el.type === "submit" && el.name)) out.push("value");
+    return out;
+  }
+  // Атрибуты элемента можно трогать — те же запреты, что у текста: наш интерфейс, редактор, translate="no".
+  function attrHostOk(el) {
+    return el.namespaceURI === XHTML_NS && !MUT_SKIP.has(el.tagName) && !isOurUi(el) && !el.isContentEditable && !insideNoTranslate(el);
+  }
+  // Пределы — как у владельца текста (isTextTarget); адрес или имя файла — не слова (см. looksLikeName).
+  function attrTextOk(v) {
+    const t = (v || "").trim();
+    return t.length >= 2 && t.length <= 2000 && hasLetter(t) && !FILE_NAME_RE.test(t) && !ATTR_ADDR_RE.test(t);
+  }
+
+  // У <area> своего места на странице нет (видимость не узнать): её alt переводится с картинкой карты.
+  function attrSpot(el) {
+    if (el.tagName !== "AREA") return el;
+    const map = el.closest("map");
+    return map && map.name ? el.getRootNode().querySelector('img[usemap="#' + CSS.escape(map.name) + '"]') : null;
+  }
+  function attrPeers(el) {
+    const name = el.tagName === "IMG" ? (el.getAttribute("usemap") || "").replace(/^#/, "") : "";
+    const map = name ? el.getRootNode().querySelector('map[name="' + CSS.escape(name) + '"]') : null;
+    return map ? [el, ...map.querySelectorAll("area[alt]")] : [el];
+  }
+
+  // Что перевести у элемента: { el, name, orig, expect, lead, core, trail }. Наш перевод, который сайт не трогал,
+  // не берём; again (смена языка) — берём и переводим из оригинала. Изменённый сайтом — берём с новым значением:
+  // оно и вернётся при откате.
+  function attrItems(el, again, out) {
+    if (!el.isConnected || !attrHostOk(el)) return out;
+    const recs = attrRecs.get(el);
+    for (const name of attrNamesOf(el)) {
+      const v = el.getAttribute(name), rec = recs && recs.get(name);
+      const ours = !!rec && v === rec.translated;
+      if (ours && !again) continue;
+      const orig = ours ? rec.orig : v;
+      if (attrTextOk(orig)) out.push(Object.assign({ el, name, orig, expect: v }, splitWs(orig)));
+    }
+    return out;
+  }
+  function attrItemsAt(spot, out) {
+    for (const el of attrPeers(spot)) attrItems(el, false, out);
+    return out;
+  }
+
+  // Элементы области scope (body, добавленный сайтом элемент, shadow root), у которых есть что перевести в атрибутах;
+  // не больше PAGE_MAX за раз, как владельцев текста.
+  function collectAttrEls(scope) {
+    const out = new Set();
+    const take = (el) => {
+      const s = attrSpot(el);
+      if (s && !out.has(s) && attrItemsAt(s, []).length) out.add(s);
+    };
+    if (scope.nodeType === 1 && scope.matches(ATTR_SEL)) take(scope);
+    for (const el of scope.querySelectorAll(ATTR_SEL)) {
+      if (out.size >= PAGE_MAX) break;
+      take(el);
+    }
+    return Array.from(out);
+  }
+
+  // Элементы с атрибутами в области и в открытых shadow root сайта под ней (компонент в компоненте — рекурсией),
+  // с общим потолком PAGE_MAX.
+  function attrElsDeep(scope) {
+    const out = collectAttrEls(scope);
+    const dive = (s) => eachSiteRoot(s, (root) => {
+      if (out.length >= PAGE_MAX) return;
+      out.push(...collectAttrEls(root));
+      dive(root);
+    });
+    dive(scope);
+    return out.slice(0, PAGE_MAX);
+  }
+
+  // Перевести страницу: атрибуты — по мере появления в зоне видимости (видимое — сразу).
+  function pageAttrs() {
+    if (document.body) observeAttrs(attrElsDeep(document.body), false);
+  }
+  function observeAttrs(els, quiet) {
+    if (!els.length) return;
+    if (!attrObserver) attrObserver = new IntersectionObserver(onAttrIO, { rootMargin: "300px" });
+    for (const el of els) {
+      if (quiet) attrNew.add(el); else attrNew.delete(el);
+      attrObserver.observe(el);
+    }
+  }
+  function onAttrIO(entries, observer) {
+    for (const e of entries) if (e.isIntersecting) { observer.unobserve(e.target); attrSeen.add(e.target); }
+    if (attrSeen.size && !attrSeenTimer) attrSeenTimer = setTimeout(flushAttrSeen, 150);
+  }
+  function flushAttrSeen() {
+    attrSeenTimer = 0;
+    const els = Array.from(attrSeen);
+    attrSeen.clear();
+    if (!pageActive) return;
+    const gen = pageGen, lgen = liveGen;
+    const still = () => gen === pageGen && lgen === liveGen;
+    const loud = [], quiet = [];
+    for (const el of els) attrItemsAt(el, attrNew.has(el) ? quiet : loud);
+    sendAttrs(loud, { still });
+    sendAttrs(quiet, { still, quiet: true });
+  }
+
+  // Перевести и вписать. again — смена языка: «уже на языке перевода» не проверяем (в атрибуте прежний перевод).
+  // Сбой — молча: о нём скажет перевод текста страницы, а непереведённое подберёт повторное «Перевести страницу».
+  async function sendAttrs(items, opts) {
+    if (!items.length) return;
+    try {
+      if (!opts.again) {
+        const skip = await Promise.all(items.map((x) => isAlreadyTarget(x.core)));
+        if (!opts.still()) return;
+        items = items.filter((x, i) => !skip[i]);
+        if (!items.length) return;
+      }
+      const out = await translateItems(items.map((x) => x.core), HT_BY_USER, null, { quiet: !!opts.quiet });
+      if (!opts.still() || !out.results) return;
+      items.forEach((x, i) => writeAttr(x, out.results[i]));
+    } catch (e) { /* как сбой сервиса: атрибуты остаются как были */ }
+  }
+
+  // Единственная точка записи перевода в атрибут: только если в нём всё ещё то, что переводили (expect).
+  // Запись в attrRecs — до setAttribute: по ней наблюдатель узнаёт свою запись.
+  function writeAttr(x, res) {
+    if (!res || !res.ok || !res.value || !res.value.trim()) return false;
+    if (!x.el.isConnected || x.el.getAttribute(x.name) !== x.expect) return false;
+    const full = x.lead + res.value + x.trail;
+    let recs = attrRecs.get(x.el);
+    if (!recs) attrRecs.set(x.el, recs = new Map());
+    recs.set(x.name, { orig: x.orig, translated: full });
+    if (full !== x.expect) x.el.setAttribute(x.name, full);
+    return true;
+  }
+
+  // Вернуть оригинал (gone — только отсоединённым: сайт может вернуть элемент, см. sweepTimer). Если сайт
+  // вписал своё значение после нашего перевода — оно и остаётся.
+  function restoreAttrs(gone) {
+    for (const [el, recs] of Array.from(attrRecs)) {
+      if (gone && el.isConnected) continue;
+      for (const [name, rec] of recs) if (el.getAttribute(name) === rec.translated) el.setAttribute(name, rec.orig);
+      attrRecs.delete(el);
+    }
+  }
+
+  // Конец прогона перевода страницы (stopPageObserver): что ждёт перевода, не переводим.
+  function stopAttrs() {
+    if (attrObserver) { attrObserver.disconnect(); attrObserver = null; }
+    attrSeen.clear();
+    attrMut.clear();
+    clearTimeout(attrSeenTimer);
+    clearTimeout(attrMutTimer);
+    attrSeenTimer = attrMutTimer = 0;
+  }
+
+  // Сменились язык, переводчик или тон: переведённое — заново из оригинала (пишем поверх своего перевода), прочее —
+  // по видимости, если страница переведена целиком (page).
+  function retranslateAttrs(page) {
+    const gen = pageGen, lgen = liveGen;
+    const items = [];
+    for (const el of attrRecs.keys()) attrItems(el, true, items);
+    sendAttrs(items, { again: true, still: () => lgen === liveGen && (!page || gen === pageGen) });
+    if (page) pageAttrs();
+  }
+
+  // Новое содержимое (наблюдатель watchPage). Сайт поменял атрибут: своя запись (в атрибуте наш перевод) — не повод.
+  function attrMutated(m) {
+    const el = m.target, recs = attrRecs.get(el), rec = recs && recs.get(m.attributeName);
+    const v = el.getAttribute(m.attributeName);
+    if ((rec && v === rec.translated) || !hasLetter(v)) return;
+    attrMut.add(el);
+    if (!attrMutTimer) attrMutTimer = setTimeout(flushAttrMut, MUT_MS);
+  }
+  // Элемент, который меняется снова и снова, переводим заново не больше MUT_TRIES раз подряд (как flushMut).
+  function attrTry(el, now) {
+    const t = attrTries.get(el) || { n: 0, at: 0 };
+    if (now - t.at > MUT_CALM) t.n = 0;
+    t.at = now;
+    attrTries.set(el, t);
+    if (t.n >= MUT_TRIES) return false;
+    t.n++;
+    return true;
+  }
+  function flushAttrMut() {
+    attrMutTimer = 0;
+    const els = Array.from(attrMut);
+    attrMut.clear();
+    if (!mutObserver || !pageActive) return;
+    const now = Date.now(), out = new Set();
+    for (const el of els) {
+      const s = el.isConnected ? attrSpot(el) : null;
+      if (s && !out.has(s) && attrItemsAt(s, []).length && attrTry(s, now)) out.add(s);
+    }
+    observeAttrs(Array.from(out), true);
+  }
+  // Сайт добавил или переписал элементы (места из flushMut): их атрибуты — как новое содержимое.
+  function attrsAdded(starts) {
+    const now = Date.now(), out = [];
+    for (const s of starts) {
+      if (s.nodeType !== 1 || !s.isConnected) continue;
+      for (const el of attrElsDeep(s)) if (attrTry(el, now)) out.push(el);
+    }
+    observeAttrs(out, true);
+  }
+
   // ---- события ----
   // Везде проверяем e.isTrusted: страница может сама разослать mouseover/keydown/wheel через
   // dispatchEvent и так запускать платные переводы за счёт ключа пользователя.
@@ -2905,18 +3388,44 @@
   // 157). Такие события обновляют «элемент под курсором», но перевод не запускают.
   function pointerMoved(e) { return !lastXY || e.clientX !== lastXY.x || e.clientY !== lastXY.y; }
 
-  on(document, "mouseover", (e) => {
-    if (!e.isTrusted) return;
-    lastOverTarget = e.target;            // и при выключенном переводе: см. keydown
+  // Открытые shadow root сайта, на которых слушаем mouseover и mouseout. Переход курсора между элементами одного root
+  // до document не доходит: событие, у которого и цель, и relatedTarget внутри root, останавливается на его хосте
+  // (снаружи курсор так и стоит на хосте). Без этого Shift переводил бы элемент компонента, с которого курсор уже
+  // ушёл, а режим задержки не замечал бы ни прихода на соседний элемент, ни ухода с переведённого. Root узнаём из
+  // пути событий, которые до нас дошли (вход в компонент снаружи доходит до document, во вложенный — до root
+  // внешнего); WeakSet не держит root, которые сайт выбросил. После выключения расширения обработчики молчат (dead).
+  // Событие, дошедшее до document, приходит потом и в root — mouseEv, чтобы не разбирать его дважды.
+  const mouseRoots = new WeakSet();
+  let mouseEv = null;
+  const rootOver = (e) => { if (!dead) onOver(e); };
+  const rootOut = (e) => { if (!dead) onOut(e); };
+  function watchRoots(e) {
+    if (dead) return;
+    for (const n of e.composedPath()) {
+      if (n.nodeType !== 11 || !n.host || mouseRoots.has(n)) continue;
+      mouseRoots.add(n);
+      n.addEventListener("mouseover", rootOver, true);
+      n.addEventListener("mouseout", rootOut, true);
+    }
+  }
+
+  on(document, "mouseover", onOver, true);
+  function onOver(e) {
+    if (!e.isTrusted || e === mouseEv) return;
+    mouseEv = e;
+    const target = evTarget(e);
+    watchRoots(e);
+    lastOverTarget = target;              // и при выключенном переводе: см. keydown
     hoverLost = false;
     if (!active() || !alive()) return;
-    setHover(hoverTarget(e.target, e.clientX, e.clientY));
+    if (frameEl(target)) cursorIn = false;   // курсор ушёл во встроенное окно (того же сайта — это видно): см. FRAME_TAG
+    setHover(hoverTarget(target, e.clientX, e.clientY));
     if (popCloseOwner && popCloseOwner === hoverEl) popCloseCancel();   // вернулись на абзац с карточкой
     if (!pointerMoved(e)) return;
     if (hoverEl !== edgeOwner) edgeOwner = null;   // курсор действительно ушёл на другой элемент
     // Зажатая клавиша-триггер здесь ничего не переводит: её держат и для своих жестов (Shift+колесо листает
     // список вбок, а рука по пути сдвигает мышь). Перевод — только по отпусканию, как щелчок (keyup ниже).
-  }, true);
+  }
 
   // Режим задержки: таймер взводит только настоящее движение мыши. Новый элемент под курсором — это
   // всегда mouseover и сразу за ним mousemove; после прокрутки mousemove нет, и элемент, приехавший
@@ -2927,14 +3436,16 @@
   on(document, "mousemove", (e) => {
     if (!e.isTrusted || !pointerMoved(e)) return;
     lastXY = { x: e.clientX, y: e.clientY };
-    if (!cursorIn) cursorBack();
+    moveAt = Date.now(); if (!cursorIn && !frameEl(evTarget(e))) cursorBack();
     // Окно теряло фокус (открыли окно расширения, Alt+Tab): «элемент под курсором» тогда сброшен, а
     // mouseover после возврата не приходит, если курсор остался на том же элементе. Без этого клавиша
     // и щелчок по абзацу (повтор для загрузки переводчика) после закрытия окна расширения не работали.
     if (hoverLost) {
       hoverLost = false;
-      lastOverTarget = e.target;
-      if (active() && !dead) setHover(hoverTarget(e.target, e.clientX, e.clientY));
+      const target = evTarget(e);
+      watchRoots(e);
+      lastOverTarget = target;
+      if (active() && !dead) setHover(hoverTarget(target, e.clientX, e.clientY));
     }
     if (settings.trigger !== "dwell" || !active() || dead) return;
     if (drift && !settleDrift(e)) return;
@@ -2942,8 +3453,8 @@
     if (!el || dwellFor === el || el === edgeOwner || isBusy(el)) return;
     dwellFor = el;
     clearTimeout(dwellTimer);
-    if (dwellSkip(el, e.target)) return;
-    dwellTimer = setTimeout(() => { if (hoverEl === el && dwellFor === el) startHover(el); }, HT_clampDwell(settings.dwellMs));
+    if (dwellSkip(el, evTarget(e))) return;
+    dwellTimer = setTimeout(() => { if (hoverEl === el && dwellFor === el) startHover(el, HT_BY_PAGE); }, HT_clampDwell(settings.dwellMs));
   }, { capture: true, passive: true });
 
   // Курсор оказался вне переведённого абзаца без движения мыши: страница прокрутилась или абзац сам
@@ -2955,7 +3466,7 @@
   function settleDrift(e) {
     const { line, x, y } = drift;
     if (lineByOwner.get(line.owner) !== line) { drift = null; return true; }   // уже снят
-    if (line.owner.contains(e.target)) { drift = null; return true; }          // курсор снова на абзаце
+    if (line.owner.contains(evTarget(e))) { drift = null; return true; }       // курсор снова на абзаце
     if (Math.abs(e.clientX - x) < DRIFT_PX && Math.abs(e.clientY - y) < DRIFT_PX) return false; // дрожание руки
     drift = null;
     restoreLine(line);
@@ -2973,24 +3484,29 @@
     }
   }, { capture: true, passive: true });
 
-  on(document, "mouseout", (e) => {
-    if (!e.isTrusted) return;
-    const under = e.target === overlayFrom ? hoverEl : null;   // текст под накладкой, с которой уходим
+  on(document, "mouseout", onOut, true);
+  function onOut(e) {
+    if (!e.isTrusted || e === mouseEv) return;
+    mouseEv = e;
+    const from = evTarget(e);                                  // и внутри открытого shadow root (см. watchRoots)
+    const under = from === overlayFrom ? hoverEl : null;       // текст под накладкой, с которой уходим
     clearTimeout(dwellTimer);
     dwellFor = null;
     // Курсор ушёл из окна (или из этого фрейма): элемента под курсором больше нет. Иначе нажатие
     // клавиши-триггера потом переводило бы абзац, с которого курсор давно ушёл.
     if (!e.relatedTarget) { hoverEl = null; lastOverTarget = null; cursorIn = false; }
     if (settings.trigger !== "dwell") return; // в режиме клавиши перевод остаётся
-    const owner = under || pickTarget(e.target);
+    const owner = under || pickTarget(from);
     if (!owner) return;
     // Переход курсора на собственного потомка owner-а — это НЕ уход с элемента. mouseout
     // всплывает и с внутренних inline-узлов (<b>, <a>, <span>), а pickTarget сводит их к тому же
     // owner-у, поэтому без этой проверки перевод откатывался и запрашивался заново на КАЖДОМ
     // пересечении внутренней границы — то есть почти в любом реальном абзаце, по одному
-    // оплаченному запросу на пересечение.
+    // оплаченному запросу на пересечение. relatedTarget перенацелен для того, кто событие разбирает первым, — самого
+    // внешнего слушателя на пути (document или root, см. watchRoots): хост компонента в нём — только если курсор
+    // ушёл за пределы этого хоста, а переход внутри компонента до внешнего слушателя не доходит.
     const to = e.relatedTarget;
-    if (to && (owner === to || owner.contains(to) || (under && e.target.contains(to)))) return;
+    if (to && (owner === to || owner.contains(to) || (under && from.contains(to)))) return;
     // Ушли на карточку этого абзаца: её можно навести и прокрутить, снимает её собственный
     // mouseleave. Событие ретаргетится на хост, поэтому проверки самого узла достаточно.
     const pop = popovers.get(owner);
@@ -3001,7 +3517,7 @@
     // Без движения мыши — см. settleDrift. Ждать может только один перевод: прежний откатываем.
     if (drift && drift.line !== line) restoreLine(drift.line);
     drift = { line, x: e.clientX, y: e.clientY };
-  }, true);
+  }
 
   // Клавиша-триггер срабатывает на «чистое» нажатие: модификатор нажали и отпустили, и за это время
   // не было ни другой клавиши (заглавная буква, Ctrl+C/V/F), ни кнопки мыши (Shift+клик —
@@ -3037,9 +3553,12 @@
     // hoverEl === p.el отсекает случай, когда за время нажатия курсор ушёл с элемента (в том числе
     // из окна) или под него при прокрутке приехал другой.
     if (!active() || settings.trigger === "dwell" || modBusy()) return;
-    if (!p.el) { if (!cursorIn) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
-    if (hoverEl !== p.el) return;
-    toggle(p.el);
+    // Курсор в другом фрейме вкладки — нажатие для него. И когда при нажатии курсор считался здесь, а hoverFrame пришло
+    // до отпускания: курсор ушёл в окно раньше, чем нажали (сообщение опоздало), или пока держали — тогда «чистым»
+    // нажатие не признает фрейм под курсором.
+    if (!cursorIn) { if (otherFrames()) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
+    if (!p.el || hoverEl !== p.el) return;
+    upHere(p);
   }, true);
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
@@ -3212,7 +3731,7 @@
     if (needClick) { needClick = false; syncFab(); }
     // Просили перевести страницу (кнопка, Alt+Shift+G) — после щелчка переводим страницу, а не только абзац.
     if (retryPage) { retryPage = false; translatePage("popup"); return; }
-    if (hoverEl && hoverEl.isConnected && !isBusy(hoverEl)) startHover(hoverEl);
+    if (hoverEl && hoverEl.isConnected && !isBusy(hoverEl)) startHover(hoverEl, HT_BY_USER);
   }, true);
 
   // Окно потеряло фокус (Alt+Tab, клик в адресную строку): отпускание клавиши придёт уже не нам,
@@ -3283,7 +3802,7 @@
       else if (msg.type === "toggleHud") { toggleHud(); sendResponse(tabState()); }
       else if (msg.type === "getHudState") { sendResponse(tabState()); }
       else if (msg.type === "say") { say(msg); sendResponse(true); }
-      else if (msg.type === "hoverFrame") { cursorAway(msg.from); sendResponse(true); }
+      else if (msg.type === "hoverFrame") { cursorAway(msg.from, msg.at); sendResponse(true); }
       else if (msg.type === "frameKey") { frameKey(msg.at); sendResponse(true); }
       else sendResponse(true); // подтверждаем получение
     });

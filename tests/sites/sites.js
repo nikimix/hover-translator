@@ -133,9 +133,10 @@ const SITES = [
         run: (H) => toggleMenu(H, "#vector-page-tools-dropdown-label", "#vector-page-tools-dropdown .vector-dropdown-content", "tools-menu"),
       },
       {
-        name: "Esc при открытом меню «Инструменты»: меню закрывается, перевод остаётся",
+        // Само меню Википедия по Esc больше не закрывает (ноябрь 2026, и без расширения) — проверяем, что Esc ушёл сайту.
+        name: "Esc при открытом меню «Инструменты»: Esc — сайту, перевод остаётся",
         phases: ["page"],
-        run: (H) => H.escMenu("#vector-page-tools-dropdown-label", (p) => vis(dq(p)), "#vector-page-tools-dropdown .vector-dropdown-content"),
+        run: (H) => H.escMenu("#vector-page-tools-dropdown-label", (p) => vis(dq(p)), "#vector-page-tools-dropdown .vector-dropdown-content", { siteKeepsOpen: true }),
       },
       {
         name: "навбокс show/hide раскрывается (сайт сам меняет надпись)",
@@ -175,7 +176,8 @@ const SITES = [
       {
         name: "выбор ветки: панель с полем, ввод «4.» фильтрует, Esc в поле закрывает",
         run: async (H) => {
-          const a = await clickWait(H, "button[data-testid=anchor-button][aria-label*=branch]",
+          // Кнопку ищем по значку ветки, а не по aria-label: перевод страницы переводит и aria-label.
+          const a = await clickWait(H, "button[data-testid=anchor-button]:has(svg.octicon-git-branch)",
             () => { const f = document.activeElement; return f && f.tagName === "INPUT" && vis(dq("[class*=AnchoredOverlay]")); });
           if (!a.ok) return { ok: false, note: "панель не открылась (или фокус не в поле): " + a.note };
           await H.press("Control+A");   // панель помнит прошлый фильтр
@@ -419,6 +421,17 @@ const SITES = [
     // "EN" — только язык оригинала (HT_SOURCE_ONLY в shared.js): как цель настройки его отвергают, остаётся RU.
     target: "EN-US",
     main: ".tm-articles-list",
+    // Окно согласия Google (Funding Choices) закрывает страницу целиком: без него ни один щелчок не доходит до сайта.
+    // Отказаться с первого экрана нельзя (только «Manage options»), поэтому — «Consent».
+    prepareName: "согласие на cookie (Funding Choices): «Consent»",
+    prepare: async (H) => {
+      const sel = ".fc-consent-root button.fc-cta-consent";
+      if (!(await H.until((s) => vis(dq(s)), sel, 8000))) return H.ok(true, "окна согласия нет");
+      const c = await H.click(sel);
+      const gone = await H.until(() => !dqa(".fc-consent-root .fc-dialog-overlay, .fc-consent-root .fc-dialog").some(vis), null, 8000);
+      await H.sleep(1000);
+      return H.ok(c.ok && gone, gone ? "" : "окно согласия не закрылось");
+    },
     key: "article .article-formatted-body",
     actions: [
       {
