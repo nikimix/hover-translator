@@ -48,6 +48,7 @@
   const ownText = new WeakMap();     // Text -> что мы сами записали в него последним (перевод или откат)
   const mutStarts = new Set();       // где сайт что-то поменял с прошлой пачки (элементы)
   let mutObserver = null;
+  let mutRoots = new WeakSet();      // открытые shadow root сайта, за которыми следит mutObserver (см. watchRoot)
   let mutTimer = 0;
   let mutTries = new WeakMap();      // owner -> { n, at }: сколько раз подряд его переводили заново
   let mutTopUp = new WeakSet();      // owner с живым переводом, в котором сайт добавил или переписал текст
@@ -1451,8 +1452,8 @@
   // специфичности. Внутри shadow root правила страницы недоступны; наследуемые свойства (шрифт, цвет,
   // выравнивание, межбуквенный интервал) задаём явно на корневом элементе (.ui), а позицию и слой
   // хоста — инлайново с !important.
-  // Побочная польза: document.body.querySelectorAll("*") в shadow root не заглядывает, так что
-  // наша разметка вообще не попадает в кандидаты на перевод.
+  // Побочная польза: обход страницы заходит только в открытые shadow root сайта (siteRoot), а наш
+  // закрыт и помечен data-ht-ui, так что наша разметка вообще не попадает в кандидаты на перевод.
   // Цвета — свои, по фону сайта, а не по теме системы: на светлом сайте белое с рамкой
   // #c9ced5, на тёмном (.dk) — #2a2d33 с рамкой rgba(255,255,255,.4). Шрифт — системный: @font-face
   // внутри shadow root Chrome не применяет, а грузить шрифт с чужого сайта незачем.
@@ -2171,6 +2172,106 @@
     return false;
   }
 
+  // ---- открытые shadow root сайта ----
+  // Веб-компоненты (MDN на Lit, Reddit, YouTube на Polymer) держат текст в shadow root: обход документа и
+  // наблюдатель <html> туда не заходят, а правила content.css подключены к документу и внутри root не действуют.
+  // Открытые root переводим как часть страницы (collectIn, watchRoot). Закрытые сайт закрыл намеренно — их не
+  // трогаем; наши хосты (data-ht-ui) — тоже, их root к тому же закрытые.
+  //
+  // Правила content.css для root: листом в adoptedStyleSheets — в DOM сайта <style> не добавляем, а скрипт сайта,
+  // перебирающий детей root, ничего чужого не увидит. Текст — тот же, что в content.css (сверяет
+  // tests/unit/content-css.test.js): меняя одно, меняйте и другое.
+  const PAGE_CSS = `
+    .ht-loading {
+      --ht-ld: rgba(37, 99, 235, 0.14);
+      --ht-ld-half: rgba(37, 99, 235, 0.07);
+      cursor: progress !important;
+      animation: ht-pulse 1.2s ease-in-out 0.15s infinite !important;
+    }
+    .ht-loading.ht-loading-dark {
+      --ht-ld: rgba(120, 160, 255, 0.28);
+      --ht-ld-half: rgba(120, 160, 255, 0.14);
+    }
+    @keyframes ht-pulse {
+      0%, 100% { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
+      50% { background-color: var(--ht-ld-half); box-shadow: 0 0 0 3px var(--ht-ld-half); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ht-loading { animation: ht-pulse-still 0.01s linear 0.15s both !important; }
+    }
+    @keyframes ht-pulse-still {
+      to { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
+    }
+    .ht-error {
+      background-color: rgba(215, 40, 40, 0.1) !important;
+      box-shadow: 0 0 0 3px rgba(215, 40, 40, 0.1) !important;
+      border-radius: 2px !important;
+    }
+    .ht-error::after {
+      content: "!" !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-sizing: border-box !important;
+      width: 20px !important;
+      height: 20px !important;
+      margin: 0 0 0 4px !important;
+      padding: 0 !important;
+      border: 0 !important;
+      border-radius: 50% !important;
+      vertical-align: -3px !important;
+      background: #b42318 !important;
+      color: #ffffff !important;
+      font: 700 13px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+      font-style: normal !important;
+      text-decoration: none !important;
+      text-indent: 0 !important;
+      letter-spacing: 0 !important;
+      position: static !important;
+      float: none !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+    .ht-error.ht-error-dark::after {
+      background: #ff6b5f !important;
+      color: #1a0b0a !important;
+    }
+  `;
+  let pageSheet = null;
+  const pageRoots = new Set();   // открытые root сайта, где мы ставили свои классы: их обходят поиски (pageAll)
+
+  // Открытый shadow root сайта у элемента или null: у закрытого shadowRoot и так null, свой не берём, а в root
+  // хоста под translate="no" (notranslate) не заходим — запрет автора касается и содержимого компонента.
+  function siteRoot(el) {
+    const root = el.shadowRoot;
+    return root && !isOurUi(el) && !insideNoTranslate(el) ? root : null;
+  }
+
+  // Наши классы (подложка «идёт перевод», «не перевелось») на элементе внутри root действуют, только если лист с
+  // правилами подключён к самому root: подключаем один раз на root и запоминаем root для поисков. Сайт может
+  // переписать adoptedStyleSheets целиком — тогда при следующем вызове подключим снова. Вызывают loadingOn,
+  // failOwner и перевод наведением.
+  function styleRootOf(el) {
+    const root = el.getRootNode();
+    if (!(root instanceof ShadowRoot)) return;
+    pageRoots.add(root);
+    try {
+      if (!pageSheet) { pageSheet = new CSSStyleSheet(); pageSheet.replaceSync(PAGE_CSS); }
+      if (!root.adoptedStyleSheets.includes(pageSheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, pageSheet];
+    } catch (e) { /* лист не подключился — без подложки, сам перевод от этого не зависит */ }
+  }
+
+  // Элементы страницы по селектору — в документе и в открытых root, где мы ставили свои классы. Root компонента,
+  // которого уже нет на странице, забываем: не держим его в памяти.
+  function pageAll(sel) {
+    const out = Array.from(document.querySelectorAll(sel));
+    for (const root of pageRoots) {
+      if (!root.isConnected) pageRoots.delete(root);
+      else out.push(...root.querySelectorAll(sel));
+    }
+    return out;
+  }
+
   // Ошибка движка при наведении: красная подложка .10 и «!» 20 после текста (псевдоэлементом —
   // content.css, в DOM страницы ничего не добавляем), снимается по таймеру. Текст ошибки на элемент
   // страницы не пишем — в title его прочитал бы скрипт сайта; он только в нашем уведомлении.
@@ -2178,6 +2279,7 @@
   function failOwner(owner) {
     clearTimeout(errors.get(owner));
     loadingOff(owner);
+    styleRootOf(owner);
     owner.classList.add("ht-error");
     owner.classList.toggle("ht-error-dark", bgOf(owner).dark);
     errors.set(owner, setTimeout(() => clearError(owner), ERROR_MS));
@@ -2187,6 +2289,7 @@
   // prefers-reduced-motion — ровная). Появляется с задержкой 0,15 с: перевод из сохранённых приходит
   // мгновенно и мигать не должен. dark — тёмный ли фон (если уже известен).
   function loadingOn(owner, dark) {
+    styleRootOf(owner);
     owner.classList.add("ht-loading");
     if (dark === undefined ? bgOf(owner).dark : dark) owner.classList.add("ht-loading-dark");
   }
@@ -2194,7 +2297,7 @@
   // «Стоп» и возврат оригинала: у отменённых переводов пульс снимаем сразу, а не когда придёт (и будет
   // отброшен) ответ — на медленной сети это до тайм-аута сервиса. pageOnly — только перевод страницы.
   function loadingOffCancelled(pageOnly) {
-    for (const el of document.querySelectorAll(".ht-loading")) {
+    for (const el of pageAll(".ht-loading")) {
       const line = lineByOwner.get(el);
       if (!pageOnly || (line && line.page)) loadingOff(el);
     }
@@ -2237,7 +2340,7 @@
 
   // Есть ли что возвращать: переводы, карточки, перевод страницы по прокрутке, перевод в полёте.
   function anythingShown() {
-    return lines.size > 0 || popovers.size > 0 || !!pageObserver || !!mutObserver || !!document.querySelector(".ht-loading");
+    return lines.size > 0 || popovers.size > 0 || !!pageObserver || !!mutObserver || pageAll(".ht-loading").length > 0;
   }
 
   // Перерисовать подсветку всех переведённых строк под текущую тему.
@@ -2356,6 +2459,7 @@
   const sweepTimer = setInterval(() => {
     for (const line of Array.from(lines)) if (!line.owner.isConnected) restoreLine(line);
     for (const owner of Array.from(popovers.keys())) if (!owner.isConnected) removePopover(owner);
+    for (const root of pageRoots) if (!root.isConnected) pageRoots.delete(root);   // root ушедших компонентов
   }, 30000);
 
   // ---- перевод всей страницы (батчами, с учётом кэша на стороне background) ----
@@ -2376,12 +2480,25 @@
   // внешний — его строка переводит и узлы внутреннего. Раньше брали оба: две строки на одних узлах, и после
   // «Показать оригинал» часть текста оставалась переведённой. Обход идёт в порядке документа, поэтому потомки
   // взятого (или уже переведённого) владельца идут сразу за ним.
+  //
+  // Открытые shadow root сайта обходим так же, на месте их хоста (компонент в компоненте — рекурсией), с общим
+  // PAGE_MAX. Текст light DOM, показанный через <slot>, принадлежит хосту, а не root: он попадёт один раз — при
+  // обходе light DOM.
   function collectCandidates() {
-    const all = document.body ? document.body.querySelectorAll("*") : [];
     const out = [];
-    const memo = new Map();   // живёт только этот обход: структура DOM за него не меняется
+    // memo живёт только этот обход: структура DOM за него не меняется
+    if (document.body) collectIn(document.body, out, new Map());
+    return out;
+  }
+  function collectIn(scope, out, memo) {
     let taken = null;         // последний взятый или уже переведённый владелец
-    for (const el of all) {
+    for (const el of scope.querySelectorAll("*")) {
+      // Root — и у хоста внутри взятого владельца: строка владельца в root не заходит.
+      const root = siteRoot(el);
+      if (root) {
+        collectIn(root, out, memo);
+        if (out.length >= PAGE_MAX) return;
+      }
       if (taken && taken.contains(el)) continue;     // вложенный: его узлы переводит строка внешнего
       if (!isTopInlineContainer(el, memo)) continue; // дешёвая структурная проверка раньше textContent
       const line = lineByOwner.get(el);
@@ -2392,9 +2509,8 @@
       if (!isTextTarget(el)) continue;
       out.push(el);
       taken = el;
-      if (out.length >= PAGE_MAX) break;
+      if (out.length >= PAGE_MAX) return;
     }
-    return out;
   }
 
   // Виден ли элемент в окне сейчас (хотя бы частично).
@@ -2485,6 +2601,30 @@
     keepOrig = new WeakSet();
     mutObserver = new MutationObserver(onMutations);
     mutObserver.observe(document.documentElement, MUT_OPTS);
+    mutRoots = new WeakSet();
+    watchRootsIn(document.documentElement);
+  }
+
+  // Наблюдатель <html> в shadow root не заходит: каждый открытый root сайта наблюдаем сам по себе, теми же опциями.
+  // Root, которых ещё нет (компонент добавят позже), находит ownersOf в добавленном. watchRoot — true, если root
+  // новый для наблюдателя.
+  function watchRoot(root) {
+    if (!mutObserver || mutRoots.has(root)) return false;
+    mutRoots.add(root);
+    mutObserver.observe(root, MUT_OPTS);
+    return true;
+  }
+  function watchRootsIn(scope) {
+    eachSiteRoot(scope, (root) => { if (watchRoot(root)) watchRootsIn(root); });
+  }
+  // Открытые root сайта у scope и его потомков (без root внутри root — их ищет сам вызывающий).
+  function eachSiteRoot(scope, fn) {
+    const own = scope.nodeType === 1 && siteRoot(scope);
+    if (own) fn(own);
+    for (const el of scope.querySelectorAll("*")) {
+      const root = siteRoot(el);
+      if (root) fn(root);
+    }
   }
   function unwatchPage() {
     if (mutObserver) { mutObserver.disconnect(); mutObserver = null; }
@@ -2515,12 +2655,15 @@
 
   // Владельцы для изменившегося места: верхний строчный контейнер вокруг него (как pickTarget), а в
   // добавленном блоке — верхние строчные контейнеры внутри (как collectCandidates).
+  // В открытом root подъём кончается на его границе (у верхних элементов root нет parentElement), а не уходит в
+  // хост. Новые root в изменившемся месте (добавили компонент) — под наблюдение, их текст — как добавленный блок.
   function ownersOf(start, out, memo) {
-    const body = document.body;
-    if (!body || !body.contains(start) || isOurUi(start)) return;
-    if (start !== body && !hasBlockChild(start, memo)) {
+    const top = treeTop(start);
+    if (!top || isOurUi(start)) return;
+    eachSiteRoot(start, (root) => { if (watchRoot(root)) ownersOf(root, out, memo); });
+    if (start !== top && !hasBlockChild(start, memo)) {
       let el = start;
-      while (el.parentElement && el.parentElement !== body && !hasBlockChild(el.parentElement, memo)) el = el.parentElement;
+      while (el.parentElement && el.parentElement !== top && !hasBlockChild(el.parentElement, memo)) el = el.parentElement;
       out.add(el);
       return;
     }
@@ -2532,6 +2675,18 @@
       out.add(el);
       taken = el;
     }
+  }
+
+  // Граница для владельцев: <body> у узла документа, сам root — у узла в открытом root сайта (и у root). null —
+  // узла нет на странице, он вне <body> (в <head>) или в закрытом root.
+  function treeTop(node) {
+    if (!node.isConnected) return null;
+    const root = node.getRootNode();
+    if (root === document) {
+      const body = document.body;
+      return body && body.contains(node) ? body : null;
+    }
+    return root instanceof ShadowRoot && root.mode === "open" && !isOurUi(root.host) ? root : null;
   }
 
   // Текстовые узлы владельца с живым переводом, которых в этом переводе нет: сайт их добавил или переписал.
