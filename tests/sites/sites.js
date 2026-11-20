@@ -176,7 +176,8 @@ const SITES = [
       {
         name: "выбор ветки: панель с полем, ввод «4.» фильтрует, Esc в поле закрывает",
         run: async (H) => {
-          const a = await clickWait(H, "button[data-testid=anchor-button][aria-label*=branch]",
+          // Кнопку ищем по значку ветки, а не по aria-label: перевод страницы переводит и aria-label.
+          const a = await clickWait(H, "button[data-testid=anchor-button]:has(svg.octicon-git-branch)",
             () => { const f = document.activeElement; return f && f.tagName === "INPUT" && vis(dq("[class*=AnchoredOverlay]")); });
           if (!a.ok) return { ok: false, note: "панель не открылась (или фокус не в поле): " + a.note };
           await H.press("Control+A");   // панель помнит прошлый фильтр
