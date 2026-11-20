@@ -133,9 +133,10 @@ const SITES = [
         run: (H) => toggleMenu(H, "#vector-page-tools-dropdown-label", "#vector-page-tools-dropdown .vector-dropdown-content", "tools-menu"),
       },
       {
-        name: "Esc при открытом меню «Инструменты»: меню закрывается, перевод остаётся",
+        // Само меню Википедия по Esc больше не закрывает (ноябрь 2026, и без расширения) — проверяем, что Esc ушёл сайту.
+        name: "Esc при открытом меню «Инструменты»: Esc — сайту, перевод остаётся",
         phases: ["page"],
-        run: (H) => H.escMenu("#vector-page-tools-dropdown-label", (p) => vis(dq(p)), "#vector-page-tools-dropdown .vector-dropdown-content"),
+        run: (H) => H.escMenu("#vector-page-tools-dropdown-label", (p) => vis(dq(p)), "#vector-page-tools-dropdown .vector-dropdown-content", { siteKeepsOpen: true }),
       },
       {
         name: "навбокс show/hide раскрывается (сайт сам меняет надпись)",
