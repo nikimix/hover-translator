@@ -2320,6 +2320,7 @@
     liveGen++; // отменяем переводы «в полёте»
     loadingOffCancelled(false);
     for (const line of Array.from(lines)) restoreLine(line);
+    restoreAttrs();
     for (const owner of Array.from(popovers.keys())) removePopover(owner);
     drift = null;
     // «Страница переведена · Показать оригинал» после возврата оригинала уже ни к чему.
@@ -2338,9 +2339,9 @@
     pushState();
   }
 
-  // Есть ли что возвращать: переводы, карточки, перевод страницы по прокрутке, перевод в полёте.
+  // Есть ли что возвращать: переводы (и в атрибутах), карточки, перевод страницы по прокрутке, перевод в полёте.
   function anythingShown() {
-    return lines.size > 0 || popovers.size > 0 || !!pageObserver || !!mutObserver || pageAll(".ht-loading").length > 0;
+    return lines.size > 0 || attrRecs.size > 0 || popovers.size > 0 || !!pageObserver || !!mutObserver || pageAll(".ht-loading").length > 0;
   }
 
   // Перерисовать подсветку всех переведённых строк под текущую тему.
@@ -2383,6 +2384,7 @@
     // Вкладку могли скрыть за время задержки — тогда тоже ждём её показа.
     if (document.visibilityState !== "visible") { retranslateOnShow = true; return; }
     if (pageActive) return retranslatePage();
+    retranslateAttrs(false);
     const list = [];
     for (const line of lines) {
       if (!line.owner.isConnected || inFlight.has(line.owner)) continue;
@@ -2413,6 +2415,7 @@
     }
     const fresh = collectCandidates();
     watchPage();                                   // что сайт добавит дальше — уже на новом языке
+    retranslateAttrs(true);
     const freshVis = fresh.filter(inView), freshRest = fresh.filter((el) => !freshVis.includes(el));
     const jobs = [];
     const size = firstBatch(vis.length + freshVis.length);
@@ -2458,6 +2461,7 @@
   // который уже ничем не снять.
   const sweepTimer = setInterval(() => {
     for (const line of Array.from(lines)) if (!line.owner.isConnected) restoreLine(line);
+    restoreAttrs(true);
     for (const owner of Array.from(popovers.keys())) if (!owner.isConnected) removePopover(owner);
     for (const root of pageRoots) if (!root.isConnected) pageRoots.delete(root);   // root ушедших компонентов
   }, 30000);
@@ -2525,6 +2529,7 @@
     pendingObserved.clear();
     pageWait.clear();
     clearTimeout(flushTimer);
+    stopAttrs();
     unwatchPage();
   }
 
@@ -2592,7 +2597,9 @@
   const hasLetter = (s) => /\p{L}/u.test(s || "");
 
   // Что наблюдатель нового содержимого смотрит у страницы — одни опции для всех мест, за которыми он следит.
-  const MUT_OPTS = { childList: true, characterData: true, subtree: true };
+  // Атрибуты — те, что переводятся вместе со страницей (см. attrNamesOf).
+  const MUT_OPTS = { childList: true, characterData: true, subtree: true,
+    attributes: true, attributeFilter: ["title", "aria-label", "placeholder", "alt", "value"] };
   function watchPage() {
     if (mutObserver || dead || !pageActive) return;
     mutTries = new WeakMap();
@@ -2637,6 +2644,7 @@
   // затишья»: на сайте, который меняет что-то постоянно, затишья может не быть вовсе.
   function onMutations(records) {
     for (const m of records) {
+      if (m.type === "attributes") { attrMutated(m); continue; }
       if (m.type === "characterData") {
         const n = m.target;
         if (n.nodeType !== 3 || n.nodeValue === ownText.get(n) || !hasLetter(n.nodeValue)) continue;
@@ -2713,6 +2721,7 @@
     const memo = new Map(), found = new Set();
     const starts = Array.from(mutStarts);
     mutStarts.clear();
+    attrsAdded(starts);
     for (const s of starts) if (s.isConnected) ownersOf(s, found, memo);
     // Вложенные владельцы сводим к внешнему — к тому, что уже переведён или тоже в этой пачке (как collectCandidates).
     const body = document.body, owners = new Set();
@@ -2869,6 +2878,7 @@
         for (const l of lines) l.persistent = true;
         pageActive = true; pageWas = false;
         watchPage();
+        pageAttrs();
         pushState();
         if (!was) showPageDone();
         return;
@@ -2886,6 +2896,7 @@
     pageActive = true;
     pageWas = false;
     watchPage();                 // что сайт добавит с этой минуты, переводится само
+    pageAttrs();                 // текст в атрибутах — по видимости, своим наблюдателем
     pageBusy = { done: 0, total: visible.length };
     if (pageToast) { pageToast.close(); pageToast = null; }
     pushState();
@@ -3053,6 +3064,238 @@
         return { wrote, failed: true, stop: pageWide(o) };
       });
     return r;
+  }
+
+  // ---- текст в атрибутах при переводе страницы ----
+  // Переводится любой текст, который человек видит или слышит: подсказка (title), подпись для экранного диктора
+  // (aria-label), текст в пустом поле (placeholder), замена картинки (alt) и надпись кнопки-<input> (value у
+  // button/submit/reset). Только перевод страницы и новое содержимое переведённой страницы: наведение и Shift
+  // переводят то, что под курсором, — а это текст, не атрибут. Как и текст — по видимости, но своим наблюдателем:
+  // у картинки, поля или кнопки-значка текста нет, владельцем строки такой элемент не бывает, а у текста пачки
+  // считает окно («Перевожу… N из M»), атрибуты в этот счёт не входят. value обычных полей не трогаем: это ввод
+  // человека; кнопку отправки с name — тоже: её value уходит на сервер с формой, и сайт сверяет его с ожидаемым.
+  // Своё значение отличаем от сайтового по attrRecs (как текст по ownText и nodeRecs): откат и перевод на другой
+  // язык меняют атрибут, только если в нём всё ещё наш перевод; новое значение от сайта переводится заново.
+  // Какие атрибуты наблюдатель нового содержимого смотрит — MUT_OPTS.attributeFilter.
+  const ATTR_SEL = "[title], [aria-label], input[placeholder], textarea[placeholder], img[alt], area[alt], input[alt], input[value]";
+  const ATTR_BUTTONS = new Set(["button", "submit", "reset"]);
+  // Адрес, путь, почта: «https://…», «www.…», «mailto:…», «/docs/install». Имя файла — FILE_NAME_RE («report.pdf»).
+  const ATTR_ADDR_RE = /^(?:[a-z][a-z\d+.-]*:\/\/|www\.|(?:mailto|tel):|\.{0,2}\/)\S*$/i;
+  const attrRecs = new Map();          // элемент -> Map(имя -> { orig, translated }): что перевели и что вернуть
+  const attrTries = new WeakMap();     // элемент -> { n, at }: сколько раз подряд его переводили заново (как mutTries)
+  const attrNew = new WeakSet();       // новое содержимое: модели для него не качаем (как mutNew)
+  const attrSeen = new Set();          // вошли в зону видимости, ждут перевода
+  const attrMut = new Set();           // сайт поменял у них атрибут: разбор раз в MUT_MS
+  let attrObserver = null, attrSeenTimer = 0, attrMutTimer = 0;
+
+  // Какие атрибуты элемента — текст для человека (по виду элемента).
+  function attrNamesOf(el) {
+    const tag = el.tagName, out = [];
+    if (el.hasAttribute("title")) out.push("title");
+    if (el.hasAttribute("aria-label")) out.push("aria-label");
+    if ((tag === "INPUT" || tag === "TEXTAREA") && el.hasAttribute("placeholder")) out.push("placeholder");
+    if ((tag === "IMG" || tag === "AREA" || (tag === "INPUT" && el.type === "image")) && el.hasAttribute("alt")) out.push("alt");
+    if (tag === "INPUT" && ATTR_BUTTONS.has(el.type) && el.hasAttribute("value") && !(el.type === "submit" && el.name)) out.push("value");
+    return out;
+  }
+  // Атрибуты элемента можно трогать — те же запреты, что у текста: наш интерфейс, редактор, translate="no".
+  function attrHostOk(el) {
+    return el.namespaceURI === XHTML_NS && !MUT_SKIP.has(el.tagName) && !isOurUi(el) && !el.isContentEditable && !insideNoTranslate(el);
+  }
+  // Пределы — как у владельца текста (isTextTarget); адрес или имя файла — не слова (см. looksLikeName).
+  function attrTextOk(v) {
+    const t = (v || "").trim();
+    return t.length >= 2 && t.length <= 2000 && hasLetter(t) && !FILE_NAME_RE.test(t) && !ATTR_ADDR_RE.test(t);
+  }
+
+  // У <area> своего места на странице нет (видимость не узнать): её alt переводится с картинкой карты.
+  function attrSpot(el) {
+    if (el.tagName !== "AREA") return el;
+    const map = el.closest("map");
+    return map && map.name ? el.getRootNode().querySelector('img[usemap="#' + CSS.escape(map.name) + '"]') : null;
+  }
+  function attrPeers(el) {
+    const name = el.tagName === "IMG" ? (el.getAttribute("usemap") || "").replace(/^#/, "") : "";
+    const map = name ? el.getRootNode().querySelector('map[name="' + CSS.escape(name) + '"]') : null;
+    return map ? [el, ...map.querySelectorAll("area[alt]")] : [el];
+  }
+
+  // Что перевести у элемента: { el, name, orig, expect, lead, core, trail }. Наш перевод, который сайт не трогал,
+  // не берём; again (смена языка) — берём и переводим из оригинала. Изменённый сайтом — берём с новым значением:
+  // оно и вернётся при откате.
+  function attrItems(el, again, out) {
+    if (!el.isConnected || !attrHostOk(el)) return out;
+    const recs = attrRecs.get(el);
+    for (const name of attrNamesOf(el)) {
+      const v = el.getAttribute(name), rec = recs && recs.get(name);
+      const ours = !!rec && v === rec.translated;
+      if (ours && !again) continue;
+      const orig = ours ? rec.orig : v;
+      if (attrTextOk(orig)) out.push(Object.assign({ el, name, orig, expect: v }, splitWs(orig)));
+    }
+    return out;
+  }
+  function attrItemsAt(spot, out) {
+    for (const el of attrPeers(spot)) attrItems(el, false, out);
+    return out;
+  }
+
+  // Элементы области scope (body, добавленный сайтом элемент, shadow root), у которых есть что перевести в атрибутах;
+  // не больше PAGE_MAX за раз, как владельцев текста.
+  function collectAttrEls(scope) {
+    const out = new Set();
+    const take = (el) => {
+      const s = attrSpot(el);
+      if (s && !out.has(s) && attrItemsAt(s, []).length) out.add(s);
+    };
+    if (scope.nodeType === 1 && scope.matches(ATTR_SEL)) take(scope);
+    for (const el of scope.querySelectorAll(ATTR_SEL)) {
+      if (out.size >= PAGE_MAX) break;
+      take(el);
+    }
+    return Array.from(out);
+  }
+
+  // Элементы с атрибутами в области и в открытых shadow root сайта под ней (компонент в компоненте — рекурсией),
+  // с общим потолком PAGE_MAX.
+  function attrElsDeep(scope) {
+    const out = collectAttrEls(scope);
+    const dive = (s) => eachSiteRoot(s, (root) => {
+      if (out.length >= PAGE_MAX) return;
+      out.push(...collectAttrEls(root));
+      dive(root);
+    });
+    dive(scope);
+    return out.slice(0, PAGE_MAX);
+  }
+
+  // Перевести страницу: атрибуты — по мере появления в зоне видимости (видимое — сразу).
+  function pageAttrs() {
+    if (document.body) observeAttrs(attrElsDeep(document.body), false);
+  }
+  function observeAttrs(els, quiet) {
+    if (!els.length) return;
+    if (!attrObserver) attrObserver = new IntersectionObserver(onAttrIO, { rootMargin: "300px" });
+    for (const el of els) {
+      if (quiet) attrNew.add(el); else attrNew.delete(el);
+      attrObserver.observe(el);
+    }
+  }
+  function onAttrIO(entries, observer) {
+    for (const e of entries) if (e.isIntersecting) { observer.unobserve(e.target); attrSeen.add(e.target); }
+    if (attrSeen.size && !attrSeenTimer) attrSeenTimer = setTimeout(flushAttrSeen, 150);
+  }
+  function flushAttrSeen() {
+    attrSeenTimer = 0;
+    const els = Array.from(attrSeen);
+    attrSeen.clear();
+    if (!pageActive) return;
+    const gen = pageGen, lgen = liveGen;
+    const still = () => gen === pageGen && lgen === liveGen;
+    const loud = [], quiet = [];
+    for (const el of els) attrItemsAt(el, attrNew.has(el) ? quiet : loud);
+    sendAttrs(loud, { still });
+    sendAttrs(quiet, { still, quiet: true });
+  }
+
+  // Перевести и вписать. again — смена языка: «уже на языке перевода» не проверяем (в атрибуте прежний перевод).
+  // Сбой — молча: о нём скажет перевод текста страницы, а непереведённое подберёт повторное «Перевести страницу».
+  async function sendAttrs(items, opts) {
+    if (!items.length) return;
+    try {
+      if (!opts.again) {
+        const skip = await Promise.all(items.map((x) => isAlreadyTarget(x.core)));
+        if (!opts.still()) return;
+        items = items.filter((x, i) => !skip[i]);
+        if (!items.length) return;
+      }
+      const out = await translateItems(items.map((x) => x.core), HT_BY_USER, null, { quiet: !!opts.quiet });
+      if (!opts.still() || !out.results) return;
+      items.forEach((x, i) => writeAttr(x, out.results[i]));
+    } catch (e) { /* как сбой сервиса: атрибуты остаются как были */ }
+  }
+
+  // Единственная точка записи перевода в атрибут: только если в нём всё ещё то, что переводили (expect).
+  // Запись в attrRecs — до setAttribute: по ней наблюдатель узнаёт свою запись.
+  function writeAttr(x, res) {
+    if (!res || !res.ok || !res.value || !res.value.trim()) return false;
+    if (!x.el.isConnected || x.el.getAttribute(x.name) !== x.expect) return false;
+    const full = x.lead + res.value + x.trail;
+    let recs = attrRecs.get(x.el);
+    if (!recs) attrRecs.set(x.el, recs = new Map());
+    recs.set(x.name, { orig: x.orig, translated: full });
+    if (full !== x.expect) x.el.setAttribute(x.name, full);
+    return true;
+  }
+
+  // Вернуть оригинал (gone — только отсоединённым: сайт может вернуть элемент, см. sweepTimer). Если сайт
+  // вписал своё значение после нашего перевода — оно и остаётся.
+  function restoreAttrs(gone) {
+    for (const [el, recs] of Array.from(attrRecs)) {
+      if (gone && el.isConnected) continue;
+      for (const [name, rec] of recs) if (el.getAttribute(name) === rec.translated) el.setAttribute(name, rec.orig);
+      attrRecs.delete(el);
+    }
+  }
+
+  // Конец прогона перевода страницы (stopPageObserver): что ждёт перевода, не переводим.
+  function stopAttrs() {
+    if (attrObserver) { attrObserver.disconnect(); attrObserver = null; }
+    attrSeen.clear();
+    attrMut.clear();
+    clearTimeout(attrSeenTimer);
+    clearTimeout(attrMutTimer);
+    attrSeenTimer = attrMutTimer = 0;
+  }
+
+  // Сменились язык, переводчик или тон: переведённое — заново из оригинала (пишем поверх своего перевода), прочее —
+  // по видимости, если страница переведена целиком (page).
+  function retranslateAttrs(page) {
+    const gen = pageGen, lgen = liveGen;
+    const items = [];
+    for (const el of attrRecs.keys()) attrItems(el, true, items);
+    sendAttrs(items, { again: true, still: () => lgen === liveGen && (!page || gen === pageGen) });
+    if (page) pageAttrs();
+  }
+
+  // Новое содержимое (наблюдатель watchPage). Сайт поменял атрибут: своя запись (в атрибуте наш перевод) — не повод.
+  function attrMutated(m) {
+    const el = m.target, recs = attrRecs.get(el), rec = recs && recs.get(m.attributeName);
+    const v = el.getAttribute(m.attributeName);
+    if ((rec && v === rec.translated) || !hasLetter(v)) return;
+    attrMut.add(el);
+    if (!attrMutTimer) attrMutTimer = setTimeout(flushAttrMut, MUT_MS);
+  }
+  // Элемент, который меняется снова и снова, переводим заново не больше MUT_TRIES раз подряд (как flushMut).
+  function attrTry(el, now) {
+    const t = attrTries.get(el) || { n: 0, at: 0 };
+    if (now - t.at > MUT_CALM) t.n = 0;
+    t.at = now;
+    attrTries.set(el, t);
+    if (t.n >= MUT_TRIES) return false;
+    t.n++;
+    return true;
+  }
+  function flushAttrMut() {
+    attrMutTimer = 0;
+    const els = Array.from(attrMut);
+    attrMut.clear();
+    if (!mutObserver || !pageActive) return;
+    const now = Date.now(), out = new Set();
+    for (const el of els) {
+      const s = el.isConnected ? attrSpot(el) : null;
+      if (s && !out.has(s) && attrItemsAt(s, []).length && attrTry(s, now)) out.add(s);
+    }
+    observeAttrs(Array.from(out), true);
+  }
+  // Сайт добавил или переписал элементы (места из flushMut): их атрибуты — как новое содержимое.
+  function attrsAdded(starts) {
+    const now = Date.now(), out = [];
+    for (const s of starts) {
+      if (s.nodeType !== 1 || !s.isConnected) continue;
+      for (const el of attrElsDeep(s)) if (attrTry(el, now)) out.push(el);
+    }
+    observeAttrs(out, true);
   }
 
   // ---- события ----

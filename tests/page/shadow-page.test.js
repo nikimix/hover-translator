@@ -38,6 +38,12 @@ const J = JSON.stringify;
       outer: ["#outer", "h3"], inner: ["#outer", "x-inner", "p"],
     };
     const LATE = { late: ["#later x-late", "p"], leaf: ["#later x-late", "x-leaf", "span"] };
+    // Атрибуты в root: [путь, имя атрибута].
+    const A = { sw: [["#switch", "button"], "aria-label"], q: [["#outer", "x-inner", "input"], "placeholder"] };
+    const A_LATE = { leaf: [["#later x-late", "x-leaf", "span"], "title"] };
+    const attr = ([sels, name]) => ev(`(() => { const e = deep(${sels.map((x) => J(x)).join(", ")}); return e ? e.getAttribute(${J(name)}) : null; })()`);
+    const attrs = async (map) => { const o = {}; for (const k in map) o[k] = await attr(map[k]); return o; };
+    const attrsAre = async (map, want) => { const now = await attrs(map); return Object.keys(map).every((k) => now[k] === want[k]) ? true : null; };
     const texts = async (map) => { const o = {}; for (const k in map) o[k] = await txt(...map[k]); return o; };
     const allAre = async (map, want) => {
       const now = await texts(map);
@@ -56,6 +62,8 @@ const J = JSON.stringify;
     const farOrig = await txt("#far", "p");
     const closedText = () => ev("__roots.find((r) => r.host.id === 'closed').textContent");
     const closedOrig = await closedText();
+    const attrOrig = await attrs(A);
+    assert.deepStrictEqual(attrOrig, { sw: "Switch the colour theme", q: "Search inside the nested component" });
 
     // ---- 1. Пока переводится: подложка в root — как в документе ----
     await ev("window.__bgDelay = 1200; sendCmd({ type: 'translatePage', via: 'popup' }); true");
@@ -93,7 +101,9 @@ const J = JSON.stringify;
     assert.strictEqual(await txt("#far", "p"), farOrig, "компонент далеко внизу ждёт прокрутки");
     assert.strictEqual(count("Far component"), 0);
     assert.strictEqual(await inRoots(".ht-loading"), 0, "подложка снята");
-    ok("«Перевести страницу» переводит текст в открытых root и во вложенном компоненте; <slot> — один раз; закрытый root, notranslate и наш хост — нет");
+    assert.ok(await until(() => attrsAre(A, prefixed(attrOrig, "RU")), 3000), "атрибуты в root: " + J(await attrs(A)));
+    assert.strictEqual((await ev("sent()")).filter((x) => x.includes("Closed tooltip")).length, 0, "атрибут в закрытом root не переводится");
+    ok("«Перевести страницу» переводит текст и атрибуты в открытых root и во вложенном компоненте; <slot> — один раз; закрытый root, notranslate и наш хост — нет");
 
     // ---- 3. Свой лист компонента остаётся, <style> в root не появляется; «не перевелось» в root тоже действует ----
     const sheets = await ev(`(() => {
@@ -126,7 +136,9 @@ const J = JSON.stringify;
     const NOW = { outer: S.outer, inner: S.inner, ...LATE };
     const nowOrig = { ...changed, ...lateOrig };
     assert.ok(await until(() => allAre(NOW, prefixed(nowOrig, "RU")), 5000), J(await texts(NOW)));
-    ok("добавленный после перевода компонент (и компонент в нём) и текст, изменённый внутри root, переводятся сами");
+    const lateAttr = await attrs(A_LATE);
+    assert.ok(await until(() => attrsAre(A_LATE, { leaf: "[RU] Tooltip of the late leaf component" }), 3000), "атрибут добавленного компонента: " + J(lateAttr));
+    ok("добавленный после перевода компонент (и компонент в нём, с атрибутами) и текст, изменённый внутри root, переводятся сами");
 
     // ---- 6. Esc — оригинал везде, и в root ----
     await esc();
@@ -134,12 +146,13 @@ const J = JSON.stringify;
     const ALL = { ...S, ...LATE };
     assert.ok(await until(() => allAre(ALL, back), 2000), J(await texts(ALL)));
     assert.strictEqual(await txt("#far", "p"), farOrig);
+    assert.ok(await until(() => attrsAre({ ...A, ...A_LATE }, { ...attrOrig, leaf: "Tooltip of the late leaf component" }), 2000), "атрибуты в root после Esc: " + J(await attrs({ ...A, ...A_LATE })));
     // наблюдение снято: новый текст в root больше не переводится
     await ev(`deep("#switch", ".lbl").textContent = "Theme switch"; true`); await sleep(700);
     assert.strictEqual(await txt("#switch", ".lbl"), "Theme switch");
     assert.strictEqual(await ev("sent().filter((x) => x.includes('Theme switch')).length"), 0);
     await ev(`deep("#switch", ".lbl").textContent = "Theme"; true`);
-    ok("Esc возвращает оригинал и внутри root (с текстом, который сайт поменял); после этого новое в root не переводится");
+    ok("Esc возвращает оригинал и внутри root (текст, который сайт поменял, и атрибуты); после этого новое в root не переводится");
 
     // ---- 7. Смена языка перепереводит и в root; «Показать оригинал» возвращает ----
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");

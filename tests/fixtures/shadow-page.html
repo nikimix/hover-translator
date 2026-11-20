@@ -85,18 +85,18 @@
   // Карточка: заголовок в root и текст light DOM через <slot>.
   define("x-card", `<div class="card"><h3 class="ttl">Card title inside the shadow root</h3><slot></slot></div>`, "open", cardSheet);
   // Компонент в компоненте.
-  define("x-inner", `<p class="in">Nested component text inside another one</p>`);
+  define("x-inner", `<p class="in">Nested component text inside another one</p><input class="q" placeholder="Search inside the nested component">`);
   define("x-outer", `<section><h3>Outer component heading text</h3><x-inner></x-inner></section>`);
   // Переключатель темы, как у MDN: одно слово в кнопке.
-  define("x-switch", `<button type="button"><span class="lbl">Theme</span></button>`);
+  define("x-switch", `<button type="button" aria-label="Switch the colour theme"><span class="lbl">Theme</span></button>`);
   // Закрытый root сайта: его текст не трогаем.
-  define("x-closed", `<p>Closed component text must stay as is</p>`, "closed");
+  define("x-closed", `<p title="Closed tooltip text must stay">Closed component text must stay as is</p>`, "closed");
   // Хост под notranslate: запрет автора касается и содержимого компонента.
   define("x-brand", `<p>Brand widget text that the author keeps</p>`);
   // Далеко внизу: переводится, когда его прокрутят.
   define("x-far", `<p class="far">Far component text below the fold</p>`);
   // Добавляются после перевода страницы.
-  define("x-leaf", `<span class="leaf">Leaf text inside a late component</span>`);
+  define("x-leaf", `<span class="leaf" title="Tooltip of the late leaf component">Leaf text inside a late component</span>`);
   define("x-late", `<div><p class="late">Component added after the page was translated</p><div><x-leaf></x-leaf></div></div>`);
 
   (function tick() { requestAnimationFrame(tick); })();
