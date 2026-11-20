@@ -6,7 +6,8 @@
   <!-- Скриншот магазина 1280×800: screens.html?n=1..5&lang=en|ru. Подписи — texts.js, снимки
        настоящего расширения — shots/<lang>/ (их делает capture.js), значок — из расширения.
        1 — до и после (абзац клавишей); 2 — карточка; 3 — страница настроек: способ перевода и показа;
-       4 — окно расширения у значка и переведённая страница с плавающей кнопкой; 5 — раздел «Переводчик». -->
+       4 — переведённая страница: слева внизу плавающая кнопка с открытой капсулой и подсказкой главной кнопки,
+       справа сверху окно расширения у значка; 5 — раздел «Переводчик». -->
   <link rel="stylesheet" href="store.css" />
   <script src="texts.js"></script>
 </head>
@@ -85,19 +86,29 @@ const S = {
     add(`<div class="side" style="width:${sideW}px"><h1>${keys(T.s3.h)}</h1><p>${keys(T.s3.sub)}</p></div>`);
     await sidePanel("s3-settings.png", 70 + sideW, LAYOUT.s3.bg);
   },
-  // 4. Перевести страницу: окно расширения выходит из значка на панели, рамка — вокруг «Перевести страницу»;
-  // за окном — переведённая страница с плавающей кнопкой (кружок, залит акцентом) справа внизу
+  // 4. Перевести страницу: за окном расширения (выходит из значка на панели, рамка — вокруг «Перевести страницу»)
+  // переведённая страница; слева внизу — кружок с открытой наведением капсулой, курсор и рамка — на главной кнопке,
+  // справа от капсулы — её подсказка. Капсула с подсказкой — отдельный снимок на прозрачном фоне поверх страницы,
+  // в том же масштабе (снята на непереведённой странице: «Перевести страницу» главная кнопка говорит только до перевода).
   async 4() {
     const cap = caption(T.s4);
-    const [vw, vh] = LAYOUT.s4.view, P = LAYOUT.s4.popup;
+    const [vw, vh] = LAYOUT.s4.view, P = LAYOUT.s4.popup, M = LAYOUT.s4.main;
     const b = fitWin(cap, { img: "s4-page.png", vw, vh, maxW: 1120, path: "/tomates", icon: "on" });
-    // окно не закрывает кружок (44 px, отступ 16 от низа): низ окна — выше него на 24, чтобы тень окна не гасила акцент
-    const top = b.y + 40, limit = b.py + (vh - 16 - 44 - 24) * b.s;
-    const ps = Math.min(1.2, (limit - top) / P.h);
+    document.querySelector(".win").appendChild(el(`<img src="${SH}s4-capsule.png" width="${b.w}" height="${b.h - 36}" alt="" style="position:absolute;left:0;top:36px">`));
+    // окно расширения — не ниже окна браузера (поле 12, как справа)
+    const top = b.y + 40, ps = Math.min(1.2, (b.y + b.h - 12 - top) / P.h);
     const pw = Math.round(P.w * ps), ph = Math.round(P.h * ps), px = b.x + b.w - pw - 12;
     add(`<div class="panel" style="left:${px}px;top:${top}px;width:${pw}px;height:${ph}px"><img src="${SH}s4-popup.png" width="${pw}" height="${ph}" alt=""></div>`);
+    const ring = (x, y, w, h, d, extra = "") => add(`<div class="ring" style="left:${x - d}px;top:${y - d}px;width:${w + 2 * d}px;height:${h + 2 * d}px;${extra}"></div>`);
     const r = P.btn;
-    if (r) add(`<div class="ring" style="left:${px + r.x * ps - 7}px;top:${top + r.y * ps - 7}px;width:${r.w * ps + 14}px;height:${r.h * ps + 14}px"></div>`);
+    if (r) ring(px + r.x * ps, top + r.y * ps, r.w * ps, r.h * ps, 7);
+    if (M) {
+      // главная кнопка капсулы — круглая, рамка тоже и плотнее (подсказка — в 12 px от кнопки); курсор — у правого
+      // нижнего края кнопки, иконка видна
+      const x = b.px + M.x * b.s, y = b.py + M.y * b.s, w = M.w * b.s, h = M.h * b.s;
+      ring(x, y, w, h, 5, "border-radius:50%");
+      cursorAt(x + w * 0.74, y + h * 0.72, "z-index:6");
+    }
   },
   // 5. Бесплатно и приватно: раздел «Переводчик» — встроенный готов, у DeepL сначала согласие
   async 5() {
