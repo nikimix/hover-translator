@@ -438,6 +438,8 @@
     // вложенных абзацев потом делили бы с ним одни и те же текстовые узлы.
     if (start === document.documentElement) return null;
     if (hasBlockChild(start)) return null;
+    // Внутри shadow root подъём кончается на его верхнем уровне (parentElement там — null): владелец — строчный
+    // контейнер в компоненте, а не весь компонент.
     let el = start;
     while (
       el.parentElement &&
@@ -467,13 +469,16 @@
   // Запрет на элементе или его предках. Запрет на <html>/<body> не учитываем: так SPA защищаются
   // от Google Переводчика, который перестраивает DOM и ломает каркас, — мы меняем только текст
   // узлов, а запрет на весь документ молча выключал бы расширение на таких сайтах целиком.
+  // Через границу открытого shadow root — к хосту: запрет на хосте или выше касается и содержимого компонента (так
+  // же перевод страницы не заходит в root хоста под запретом, см. siteRoot).
   function insideNoTranslate(el) {
     const root = document.documentElement, body = document.body;
-    for (let e = el; e && e !== body && e !== root; e = e.parentElement) {
+    for (let e = el; e && e !== body && e !== root; e = e.parentElement || hostOf(e)) {
       if (authorNoTranslate(e)) return true;
     }
     return false;
   }
+  function hostOf(el) { const r = el.getRootNode(); return r instanceof ShadowRoot ? r.host : null; }
 
   function isTextTarget(el) {
     if (!el || el.nodeType !== 1) return false;
@@ -519,7 +524,7 @@
   // нижнее (картинка, непрозрачный фон, наш интерфейс, текст без букв), — нет: под ним текста человек не видит.
   function textUnder(x, y) {
     let list;
-    try { list = document.elementsFromPoint(x, y); } catch (e) { return null; }
+    try { list = pointStack(x, y); } catch (e) { return null; }
     const range = document.createRange();
     for (const el of list.slice(0, 8)) {
       if (el === document.body || el === document.documentElement || isOurUi(el)) return null;
@@ -544,6 +549,40 @@
     if (parseFloat(cs.opacity) < 0.1) return false;
     const bg = parseColor(cs.backgroundColor);
     return !!(bg && bg[3] >= 0.5) || /url\(/.test(cs.backgroundImage);
+  }
+
+  // Элементы в точке сверху вниз — и внутри открытых shadow root сайта: document.elementsFromPoint вместо содержимого
+  // веб-компонента показывает только его хост. root.elementsFromPoint даёт и содержимое root, и всё снаружи (хост,
+  // страницу под ним) — снаружи уже есть во внешнем списке, поэтому из него берём только своё, перед хостом.
+  // Закрытые root (сайта и наши хосты [data-ht-ui]) не раскрываются: shadowRoot у их хоста — null.
+  function pointStack(x, y) {
+    const out = [];
+    const add = (list, root) => {
+      for (const el of list) {
+        if (out.length >= 8) return;
+        if (root && !root.contains(el)) continue;
+        const r = el.shadowRoot;
+        if (r && !isOurUi(el)) add(r.elementsFromPoint(x, y), r);
+        out.push(el);
+      }
+    };
+    add(document.elementsFromPoint(x, y), null);
+    return out;
+  }
+
+  // Элемент события мыши — и внутри открытого shadow root сайта (веб-компоненты: Lit на MDN, Polymer на YouTube).
+  // Слушателю на document e.target перенацелен на хост компонента, и строчный контейнер искался бы вокруг хоста —
+  // перевёлся бы компонент целиком или ничего. composedPath()[0] — настоящая цель. Внутренности закрытых root
+  // (сайта и наши) путь снаружи не раскрывает — там остаётся хост, как и прежде.
+  function evTarget(e) {
+    const t = e.composedPath()[0];
+    return t && t.nodeType === 1 ? t : e.target;
+  }
+
+  // el лежит в shadow root хоста host (или во вложенном в него): снаружи событие видит вместо el этот хост.
+  function hostHolds(host, el) {
+    for (let h = el.getRootNode().host; h; h = h.getRootNode().host) if (h === host) return true;
+    return false;
   }
 
   // Что переводить под курсором: строчный контейнер вокруг элемента события, а если текста в нём нет (накладка) —
@@ -1953,6 +1992,9 @@
       if (settings.trigger !== "dwell") return;          // в режиме клавиши держим до повторного нажатия
       const to = ev.relatedTarget;
       if (to && (owner === to || owner.contains(to))) return;  // вернулись на сам элемент — карточку держим
+      // Элемент в открытом shadow root сайта: relatedTarget здесь — хост компонента, на сам ли элемент вернулся
+      // курсор, снаружи не видно. Закрываем с задержкой — mouseover на элементе (он доходит до document) отменит.
+      if (to && hostHolds(to, owner)) { popCloseSoon(owner); return; }
       removePopover(owner, host);
     });
     mountUi(host);
@@ -3310,18 +3352,43 @@
   // 157). Такие события обновляют «элемент под курсором», но перевод не запускают.
   function pointerMoved(e) { return !lastXY || e.clientX !== lastXY.x || e.clientY !== lastXY.y; }
 
-  on(document, "mouseover", (e) => {
-    if (!e.isTrusted) return;
-    lastOverTarget = e.target;            // и при выключенном переводе: см. keydown
+  // Открытые shadow root сайта, на которых слушаем mouseover и mouseout. Переход курсора между элементами одного root
+  // до document не доходит: событие, у которого и цель, и relatedTarget внутри root, останавливается на его хосте
+  // (снаружи курсор так и стоит на хосте). Без этого Shift переводил бы элемент компонента, с которого курсор уже
+  // ушёл, а режим задержки не замечал бы ни прихода на соседний элемент, ни ухода с переведённого. Root узнаём из
+  // пути событий, которые до нас дошли (вход в компонент снаружи доходит до document, во вложенный — до root
+  // внешнего); WeakSet не держит root, которые сайт выбросил. После выключения расширения обработчики молчат (dead).
+  // Событие, дошедшее до document, приходит потом и в root — mouseEv, чтобы не разбирать его дважды.
+  const mouseRoots = new WeakSet();
+  let mouseEv = null;
+  const rootOver = (e) => { if (!dead) onOver(e); };
+  const rootOut = (e) => { if (!dead) onOut(e); };
+  function watchRoots(e) {
+    if (dead) return;
+    for (const n of e.composedPath()) {
+      if (n.nodeType !== 11 || !n.host || mouseRoots.has(n)) continue;
+      mouseRoots.add(n);
+      n.addEventListener("mouseover", rootOver, true);
+      n.addEventListener("mouseout", rootOut, true);
+    }
+  }
+
+  on(document, "mouseover", onOver, true);
+  function onOver(e) {
+    if (!e.isTrusted || e === mouseEv) return;
+    mouseEv = e;
+    const target = evTarget(e);
+    watchRoots(e);
+    lastOverTarget = target;              // и при выключенном переводе: см. keydown
     hoverLost = false;
     if (!active() || !alive()) return;
-    setHover(hoverTarget(e.target, e.clientX, e.clientY));
+    setHover(hoverTarget(target, e.clientX, e.clientY));
     if (popCloseOwner && popCloseOwner === hoverEl) popCloseCancel();   // вернулись на абзац с карточкой
     if (!pointerMoved(e)) return;
     if (hoverEl !== edgeOwner) edgeOwner = null;   // курсор действительно ушёл на другой элемент
     // Зажатая клавиша-триггер здесь ничего не переводит: её держат и для своих жестов (Shift+колесо листает
     // список вбок, а рука по пути сдвигает мышь). Перевод — только по отпусканию, как щелчок (keyup ниже).
-  }, true);
+  }
 
   // Режим задержки: таймер взводит только настоящее движение мыши. Новый элемент под курсором — это
   // всегда mouseover и сразу за ним mousemove; после прокрутки mousemove нет, и элемент, приехавший
@@ -3338,8 +3405,10 @@
     // и щелчок по абзацу (повтор для загрузки переводчика) после закрытия окна расширения не работали.
     if (hoverLost) {
       hoverLost = false;
-      lastOverTarget = e.target;
-      if (active() && !dead) setHover(hoverTarget(e.target, e.clientX, e.clientY));
+      const target = evTarget(e);
+      watchRoots(e);
+      lastOverTarget = target;
+      if (active() && !dead) setHover(hoverTarget(target, e.clientX, e.clientY));
     }
     if (settings.trigger !== "dwell" || !active() || dead) return;
     if (drift && !settleDrift(e)) return;
@@ -3347,7 +3416,7 @@
     if (!el || dwellFor === el || el === edgeOwner || isBusy(el)) return;
     dwellFor = el;
     clearTimeout(dwellTimer);
-    if (dwellSkip(el, e.target)) return;
+    if (dwellSkip(el, evTarget(e))) return;
     dwellTimer = setTimeout(() => { if (hoverEl === el && dwellFor === el) startHover(el, HT_BY_PAGE); }, HT_clampDwell(settings.dwellMs));
   }, { capture: true, passive: true });
 
@@ -3360,7 +3429,7 @@
   function settleDrift(e) {
     const { line, x, y } = drift;
     if (lineByOwner.get(line.owner) !== line) { drift = null; return true; }   // уже снят
-    if (line.owner.contains(e.target)) { drift = null; return true; }          // курсор снова на абзаце
+    if (line.owner.contains(evTarget(e))) { drift = null; return true; }       // курсор снова на абзаце
     if (Math.abs(e.clientX - x) < DRIFT_PX && Math.abs(e.clientY - y) < DRIFT_PX) return false; // дрожание руки
     drift = null;
     restoreLine(line);
@@ -3378,24 +3447,29 @@
     }
   }, { capture: true, passive: true });
 
-  on(document, "mouseout", (e) => {
-    if (!e.isTrusted) return;
-    const under = e.target === overlayFrom ? hoverEl : null;   // текст под накладкой, с которой уходим
+  on(document, "mouseout", onOut, true);
+  function onOut(e) {
+    if (!e.isTrusted || e === mouseEv) return;
+    mouseEv = e;
+    const from = evTarget(e);                                  // и внутри открытого shadow root (см. watchRoots)
+    const under = from === overlayFrom ? hoverEl : null;       // текст под накладкой, с которой уходим
     clearTimeout(dwellTimer);
     dwellFor = null;
     // Курсор ушёл из окна (или из этого фрейма): элемента под курсором больше нет. Иначе нажатие
     // клавиши-триггера потом переводило бы абзац, с которого курсор давно ушёл.
     if (!e.relatedTarget) { hoverEl = null; lastOverTarget = null; cursorIn = false; }
     if (settings.trigger !== "dwell") return; // в режиме клавиши перевод остаётся
-    const owner = under || pickTarget(e.target);
+    const owner = under || pickTarget(from);
     if (!owner) return;
     // Переход курсора на собственного потомка owner-а — это НЕ уход с элемента. mouseout
     // всплывает и с внутренних inline-узлов (<b>, <a>, <span>), а pickTarget сводит их к тому же
     // owner-у, поэтому без этой проверки перевод откатывался и запрашивался заново на КАЖДОМ
     // пересечении внутренней границы — то есть почти в любом реальном абзаце, по одному
-    // оплаченному запросу на пересечение.
+    // оплаченному запросу на пересечение. relatedTarget перенацелен для того, кто событие разбирает первым, — самого
+    // внешнего слушателя на пути (document или root, см. watchRoots): хост компонента в нём — только если курсор
+    // ушёл за пределы этого хоста, а переход внутри компонента до внешнего слушателя не доходит.
     const to = e.relatedTarget;
-    if (to && (owner === to || owner.contains(to) || (under && e.target.contains(to)))) return;
+    if (to && (owner === to || owner.contains(to) || (under && from.contains(to)))) return;
     // Ушли на карточку этого абзаца: её можно навести и прокрутить, снимает её собственный
     // mouseleave. Событие ретаргетится на хост, поэтому проверки самого узла достаточно.
     const pop = popovers.get(owner);
@@ -3406,7 +3480,7 @@
     // Без движения мыши — см. settleDrift. Ждать может только один перевод: прежний откатываем.
     if (drift && drift.line !== line) restoreLine(drift.line);
     drift = { line, x: e.clientX, y: e.clientY };
-  }, true);
+  }
 
   // Клавиша-триггер срабатывает на «чистое» нажатие: модификатор нажали и отпустили, и за это время
   // не было ни другой клавиши (заглавная буква, Ctrl+C/V/F), ни кнопки мыши (Shift+клик —

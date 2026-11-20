@@ -38,7 +38,7 @@ const OWNERS = ["#topNav", "#cartBtn", "#btnA", "#iconBtn", "#toggleBtn", "#link
   "#openDialog", "#rating", "#tipRow"];
 const HOVER = { "#topNav": "#navHome", "#iconBtn": "#iconSvg", "#linkP": "#hashLink", "#spaP": "#spaLink",
   "#emailRow": "#emailLabel", "#agreeRow": "#agree", "#sizeRow": "#sizeLabel", "#submitRow": "#submitBtn", "#tablist": "#tab1",
-  "#accH": "#accBtn", "#kaBar": "#kaA", "#rating": "#rating >>> #q", "#tipRow": "#tipTrigger" };
+  "#accH": "#accBtn", "#kaBar": "#kaA", "#rating": "#ratingSlot", "#tipRow": "#tipTrigger" };
 
 // Помощники внутри страницы (main world). «a >>> b» — элемент b в открытом shadow root элемента a.
 function pageHelpers() {
@@ -284,8 +284,6 @@ function pageHelpers() {
       ok(`DOM сайта не менялся: ни одного добавленного или удалённого узла, ни одного атрибута, кроме class/style (изменено текстов: ${dom.text}); те же текстовые узлы на тех же местах`);
       assert.deepStrictEqual(await ev("__fixed()"), BASE.fixed);
       assert.ok(await untranslated("#editor") && await untranslated("#noteRow"));
-      const sh = await ev("[__q('#rating >>> #q').textContent, __q('#rating >>> #rate').textContent]");
-      note("текст внутри shadow DOM веб-компонента клавишей: «" + sh.join("», «") + "» — " + (sh.every((s) => !s.includes("[RU]")) ? "не переводится (REVIEW.md «Позже»)" : "переведён"));
       ok("не переводятся по замыслу: плейсхолдеры, значение и текст по умолчанию textarea, пункты select, contenteditable, title/aria-label/href, заголовок вкладки");
       checkExercise(await exercise(), "после перевода клавишей");
       ok("после перевода клавишей сайт отвечает так же: все обработчики живы, ссылки ведут туда же, label фокусирует поле, форма уходит с теми же значениями, select, details, вкладки, аккордеон, меню, окна, shadow DOM, подсказка");
@@ -498,11 +496,14 @@ function pageHelpers() {
       ok("фокус в поле внутри shadow DOM сайта: Shift не переводит (это набор текста), ввод работает");
       await clickEmpty();
       await shiftOn("#rating >>> #q");
+      assert.ok(await until(() => allTr("#rating >>> #q"), 1500), "текст внутри shadow root веб-компонента переведён");
+      assert.ok(await untranslated("#rating"), "текст в слоте (не под курсором) не тронут");
+      await shiftOn("#ratingSlot");
       assert.ok(await until(() => allTr("#rating"), 1500), "текст веб-компонента в слоте переведён");
       await ev("__log.length = 0; true");
       await click("#rating >>> #rate");
       assert.deepStrictEqual(await ev("__log.slice()"), ["rate"]);
-      ok("веб-компонент: Shift над его текстом переводит текст в слоте (light DOM), кнопка внутри shadow root работает");
+      ok("веб-компонент: Shift над текстом в его shadow root переводит этот текст, над текстом в слоте (light DOM) — текст в слоте; кнопка внутри shadow root работает");
       // выделение: двойной щелчок по переведённому слову, Shift+стрелка расширяет — перевод от этого не снимается
       await shiftOn("#panel1P");
       assert.ok(await until(() => allTr("#panel1P"), 1500));
