@@ -1,7 +1,9 @@
 // Ошибки и горячие клавиши: background.js в node через vm (как background-install.test.js), плюс commands,
 // tabs.sendMessage, runtime.openOptionsPage и значок для вкладки. Проверяет: понятные ошибки с кодами, последний сбой
 // сервиса для окна (htNetErr), способ включения при установке/обновлении и миграцию настроек, горячие клавиши,
-// «Открыть настройки», Esc во всех фреймах, значок «off» для выключенного сайта, нижнюю границу токенов ИИ.
+// «Открыть настройки», Esc во всех фреймах, значок «off» для выключенного сайта, нижнюю границу токенов ИИ,
+// «!» на значке, когда DeepL не принял ключ (по htNetErr — переживает перезапуск воркера: новый vm-контекст с теми
+// же storage.local и storage.session).
 const vm = require("vm");
 const fs = require("fs");
 const path = require("path");
@@ -12,10 +14,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function makeEnv(initialLocal = {}, opts = {}) {
   // этап 3: согласие на отправку текста уже дано (проверки без него — в unit/background-consent.test.js)
-  const local = Object.assign({ consent: { deepl: true, openai: true, anthropic: true } }, initialLocal);
-  const session = {};
+  // opts.local/opts.session — хранилища прежнего воркера: перезапуск (новый контекст, те же данные)
+  const local = opts.local || Object.assign({ consent: { deepl: true, openai: true, anthropic: true } }, initialLocal);
+  const session = opts.session || {};
   const changedFns = [];
-  function area(store, isLocal) {
+  // onChanged — как в Chrome: для обеих областей и при удалении (только ключей, которые были)
+  function area(store, name) {
     return {
       get(keys) {
         let out = {};
@@ -28,10 +32,15 @@ function makeEnv(initialLocal = {}, opts = {}) {
       set(obj) {
         const changes = {};
         for (const k in obj) { changes[k] = { oldValue: store[k], newValue: obj[k] }; store[k] = JSON.parse(JSON.stringify(obj[k])); }
-        if (isLocal) for (const fn of changedFns) fn(changes, "local");
+        for (const fn of changedFns) fn(changes, name);
         return Promise.resolve();
       },
-      remove(keys) { for (const k of [].concat(keys)) delete store[k]; return Promise.resolve(); },
+      remove(keys) {
+        const changes = {};
+        for (const k of [].concat(keys)) if (k in store) { changes[k] = { oldValue: store[k] }; delete store[k]; }
+        if (Object.keys(changes).length) for (const fn of changedFns) fn(changes, name);
+        return Promise.resolve();
+      },
     };
   }
   let listener = null;
@@ -49,7 +58,7 @@ function makeEnv(initialLocal = {}, opts = {}) {
     console, URL, TextEncoder, AbortController, DOMException, AbortSignal: { timeout: (ms) => { const c = new AbortController(); setTimeout(() => c.abort(new DOMException("signal timed out", "TimeoutError")), (ms || 0) / 1000); return c.signal; } }, JSON, Promise, Map, Set, Date, Math, Object, Array, String, Number, RegExp, Error, Intl,
     setTimeout: (fn, ms) => setTimeout(fn, (ms || 0) / 1000), clearTimeout,
     chrome: {
-      storage: { local: area(local, true), session: area(session, false), onChanged: { addListener: (fn) => changedFns.push(fn) } },
+      storage: { local: area(local, "local"), session: area(session, "session"), onChanged: { addListener: (fn) => changedFns.push(fn) } },
       alarms: { get: (n, cb) => cb(null), create() {}, onAlarm: { addListener() {} } },
       runtime: {
         onMessage: { addListener: (fn) => { listener = fn; } },
@@ -202,6 +211,81 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     ok("checkLlm: страница настроек проверяет новый сервис и ключ до сохранения; от сайта (content) — только сохранённые");
     ok("getStats: для страницы настроек — сколько переводов сохранено и сколько они занимают");
     ok("последний сбой DeepL/ИИ для окна (htNetErr): ключ, лимит, деньги, связь — пишется; успешный ответ и смена ключа — снимают; прочие коды не трогают");
+  }
+
+  // ---- «!» на значке: DeepL не принял ключ (и в «авто», где переводит запасной встроенный) ----
+  {
+    const RED = "#d93025", GREY = "#6b7280";
+    const BAD = "Hover Translator — DeepL не принял ключ";
+    const msg = (engine, t) => ({ type: "translateBatch", engine, targetLang: "RU", sourceLang: "auto", formality: "default", noTranslate: "", by: "user-initiated", items: [t] });
+    const tr200 = () => jsonRes(200, { translations: [{ text: "x", detected_source_language: "EN" }] });
+    const badgeIs = (env, text, title, why) => assert.ok(env.badge.text === text && env.badge.title === title && (text !== "!" || env.badge.color === RED), why + ": " + JSON.stringify(env.badge));
+
+    // «авто»: DeepL ответил 403 — перевод пойдёт встроенным, а на значке «!» с причиной
+    const auto = makeEnv({ apiKey: "bad:fx", engine: "auto" });
+    await sleep(20);
+    badgeIs(auto, "", "Hover Translator", "до запроса значок чистый");
+    auto.setFetch(() => jsonRes(403, {}));
+    const ra = await auto.send(msg("auto", "a1"), sender(1));
+    assert.strictEqual(ra.code, "bad-key", JSON.stringify(ra));
+    await sleep(20);
+    badgeIs(auto, "!", BAD, "«авто»: DeepL не принял ключ");
+    // воркер заснул и проснулся: память пуста, отметка — в storage.session
+    const auto2 = makeEnv({}, { local: auto.local, session: auto.session });
+    await sleep(20);
+    badgeIs(auto2, "!", BAD, "после перезапуска воркера «!» остаётся");
+    await auto2.send({ type: "siteBadge", off: false }, sender(8, 0));
+    await sleep(10);
+    assert.ok(auto2.badge.tab[8].text === null && auto2.badge.tab[8].color === RED && auto2.badge.tab[8].title === BAD, JSON.stringify(auto2.badge.tab[8]));
+    await auto2.ctx.chrome.storage.local.set({ enabled: false });
+    await sleep(20);
+    assert.ok(auto2.badge.text === "off" && auto2.badge.color === GREY && auto2.badge.title === "Hover Translator — перевод выключен", "«off» важнее «!»: " + JSON.stringify(auto2.badge));
+    await auto2.ctx.chrome.storage.local.set({ enabled: true });
+    await sleep(20);
+    badgeIs(auto2, "!", BAD, "перевод снова включён — «!» на месте");
+    await auto2.ctx.chrome.storage.local.set({ apiKey: "new:fx" });
+    await sleep(20);
+    badgeIs(auto2, "", "Hover Translator", "новый ключ снимает «!»");
+
+    // чистый DeepL: 401 — «!»; после перезапуска успешный ответ DeepL снимает его
+    const dl = makeEnv({ apiKey: "bad:fx", engine: "deepl" });
+    dl.setFetch(() => jsonRes(401, {}));
+    await dl.send(msg("deepl", "d1"), sender(1));
+    await sleep(20);
+    badgeIs(dl, "!", BAD, "DeepL: не принял ключ");
+    const dl2 = makeEnv({}, { local: dl.local, session: dl.session });
+    await sleep(20);
+    badgeIs(dl2, "!", BAD, "DeepL: после перезапуска воркера «!» остаётся");
+    dl2.setFetch(tr200);
+    const rd = await dl2.send(msg("deepl", "d2"), sender(1));
+    assert.ok(rd.ok, JSON.stringify(rd));
+    await sleep(20);
+    badgeIs(dl2, "", "Hover Translator", "успешный ответ DeepL снимает «!»");
+    // проверка ключа в окне расширения тоже ставит и снимает «!»
+    dl2.setFetch(() => jsonRes(403, {}));
+    await dl2.send({ type: "checkUsage" });
+    await sleep(20);
+    badgeIs(dl2, "!", BAD, "проверка ключа: DeepL не принял");
+    dl2.setFetch(() => jsonRes(200, { character_count: 1, character_limit: 500000 }));
+    await dl2.send({ type: "checkUsage" });
+    await sleep(20);
+    badgeIs(dl2, "", "Hover Translator", "проверка ключа прошла — «!» снят");
+
+    // смена переводчика на не-DeepL снимает «!»; переводчик не ходит в DeepL — отклонённый ключ DeepL значка не трогает
+    dl2.setFetch(() => jsonRes(403, {}));
+    await dl2.send(msg("deepl", "d3"), sender(1));
+    await sleep(20);
+    badgeIs(dl2, "!", BAD, "DeepL снова не принял ключ");
+    await dl2.ctx.chrome.storage.local.set({ engine: "chrome" });
+    await sleep(20);
+    badgeIs(dl2, "", "Hover Translator", "встроенный переводчик — «!» снят");
+    const llm = makeEnv({ apiKey: "bad:fx", llmApiKey: "sk-proj-x", llmProvider: "openai", engine: "llm" });
+    llm.setFetch(() => jsonRes(403, {}));
+    await llm.send({ type: "checkUsage" });
+    await sleep(20);
+    assert.strictEqual(llm.session.htNetErr.code, "bad-key");
+    badgeIs(llm, "", "Hover Translator", "переводчик ИИ: отклонённый ключ DeepL на значке не показываем");
+    ok("«!» на значке, когда DeepL не принял ключ — в «авто» и в чистом DeepL; переживает перезапуск воркера; снимают новый ключ, успешный ответ DeepL, смена переводчика; «off» важнее; подсказка вкладки — та же");
   }
 
   // ---- ошибки ИИ ----

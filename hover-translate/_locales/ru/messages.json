@@ -59,6 +59,9 @@
   "probNoDeeplKey": {
     "message": "не задан ключ DeepL"
   },
+  "probDeeplBadKey": {
+    "message": "DeepL не принял ключ"
+  },
   "probNoLlmKey": {
     "message": "не задан ключ ИИ"
   },

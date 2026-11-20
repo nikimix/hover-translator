@@ -59,6 +59,9 @@
   "probNoDeeplKey": {
     "message": "no DeepL key"
   },
+  "probDeeplBadKey": {
+    "message": "DeepL didn’t accept the key"
+  },
   "probNoLlmKey": {
     "message": "no AI key"
   },
