@@ -53,6 +53,8 @@ const SHIFT = 8;
     assert.strictEqual(await calls(), 0, "без Shift наведение не переводит");
     await tapShift();
     assert.ok(await tr("#p1"), "Shift переводит");
+    assert.deepStrictEqual(await ev("trCalls().map((c) => c.by)"), ["user-initiated"],
+      "перевод по Shift — действие пользователя (широкий бюджет), а не строгий лимит наведения");
     ok("по умолчанию — Shift (неизвестный способ → Shift): наведение само не переводит, нажатие Shift — переводит");
 
     // ---- 2. Задержка 600 мс по умолчанию; прокрутка без движения мыши перевод не запускает ----
@@ -62,6 +64,8 @@ const SHIFT = 8;
     await sleep(400);
     assert.strictEqual(await calls(), 0, "через 400 мс ещё рано");
     assert.ok(await until(() => tr("#p2"), 1000), "к ~600 мс переведено");
+    assert.deepStrictEqual(await ev("[...new Set(trCalls().map((c) => c.by))]"), ["page-initiated"],
+      "наведение с задержкой — строгий лимит: страница может подвинуть текст под неподвижный курсор");
     await away(); await sleep(100);
     assert.strictEqual(await text("#p2"), "Another paragraph with plain English text for the sweep test.");
     // прокрутка: курсор стоит над наполнителем, страница едет — под курсор приезжают другие абзацы

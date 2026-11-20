@@ -715,22 +715,27 @@
     toggle(hoverEl);
   }
 
-  // Запустить/снять перевод owner-а под курсором (по клавише-триггеру).
+  // Запустить/снять перевод owner-а под курсором (по клавише-триггеру). Чистое нажатие-отпускание настоящей клавиши —
+  // действие пользователя, как щелчок: страница его не подделает и не повторит сама, поэтому и бюджет расхода — «по
+  // действию пользователя», а не строгий лимит наведения (60 запросов в минуту на вкладку останавливали того, кто
+  // быстро читает, нажимая Shift на каждом куске).
   function toggle(owner) {
     if (!owner) return;
     if (settings.displayMode === "popover") {
-      if (popovers.has(owner)) removePopover(owner); else if (!blocked(false)) translatePopover(owner);
+      if (popovers.has(owner)) removePopover(owner); else if (!blocked(false)) translatePopover(owner, HT_BY_USER);
     } else {
       const line = lineOf(owner);
       if (line) { restoreLine(line); if (pageActive) keepOrig.add(owner); }
-      else { keepOrig.delete(owner); if (!blocked(false)) translateLine(owner, false); }
+      else { keepOrig.delete(owner); if (!blocked(false)) translateLine(owner, false, HT_BY_USER); }
     }
   }
 
-  function startHover(owner) {
+  // by — кто начал: наведение с задержкой — по инициативе страницы (она может подвинуть текст под неподвижный курсор),
+  // щелчок — пользователь.
+  function startHover(owner, by) {
     if (blocked(false)) return;
-    if (settings.displayMode === "popover") translatePopover(owner);
-    else translateLine(owner, false);
+    if (settings.displayMode === "popover") translatePopover(owner, by);
+    else translateLine(owner, false, by);
   }
 
   // Запись о переводе элемента — если перевод ещё на экране или в пути. Сайт мог перерисовать элемент после
@@ -2001,7 +2006,7 @@
   function popCloseCancel() { clearTimeout(popCloseTimer); popCloseOwner = null; }
 
   // ---- перевод наведением: карточка (элемент целиком) ----
-  async function translatePopover(owner) {
+  async function translatePopover(owner, by) {
     if (!owner || !owner.isConnected || isBusy(owner)) return;
     const gen = liveGen;   // токен отмены — ДО первого await, см. пояснение в translateLine
     inFlight.add(owner);
@@ -2016,7 +2021,7 @@
       popovers.set(owner, st);          // маркер «занят»: mouseout, Esc и щелчок мимо снимают и ожидание
       loadingOn(owner);
       placeToast(owner);
-      const out = await translateItems([text], HT_BY_PAGE);
+      const out = await translateItems([text], by === HT_BY_USER ? HT_BY_USER : HT_BY_PAGE);
       loadingOff(owner);
       if (gen !== liveGen || !owner.isConnected || popovers.get(owner) !== st) return;
       const res = out.results && out.results[0];
@@ -2038,7 +2043,7 @@
     }
   }
   // ---- перевод наведением/страницы: замена текстовых узлов ----
-  async function translateLine(owner, persistent) {
+  async function translateLine(owner, persistent, by) {
     if (!owner || !owner.isConnected || lineByOwner.has(owner) || inFlight.has(owner)) return;
     // Токен отмены снимаем ДО первого await. Раньше он брался после await isAlreadyTarget (а тот
     // ждёт создания on-device LanguageDetector — секунды при первом вызове): сброс или выключение
@@ -2063,7 +2068,7 @@
       loadingOn(owner, line.bg.dark);
       placeToast(owner);                     // уведомление не должно закрывать то, что переводится
 
-      const out = await translateItems(recs.map((r) => r.core), HT_BY_PAGE, recs.map((r) => r.line));
+      const out = await translateItems(recs.map((r) => r.core), by === HT_BY_USER ? HT_BY_USER : HT_BY_PAGE, recs.map((r) => r.line));
 
       // отменён (сброс/выключение) или сброшен мышью/заменён за время ожидания
       if (gen !== liveGen || !owner.isConnected || lineByOwner.get(owner) !== line) return;
@@ -2943,7 +2948,7 @@
     dwellFor = el;
     clearTimeout(dwellTimer);
     if (dwellSkip(el, e.target)) return;
-    dwellTimer = setTimeout(() => { if (hoverEl === el && dwellFor === el) startHover(el); }, HT_clampDwell(settings.dwellMs));
+    dwellTimer = setTimeout(() => { if (hoverEl === el && dwellFor === el) startHover(el, HT_BY_PAGE); }, HT_clampDwell(settings.dwellMs));
   }, { capture: true, passive: true });
 
   // Курсор оказался вне переведённого абзаца без движения мыши: страница прокрутилась или абзац сам
@@ -3212,7 +3217,7 @@
     if (needClick) { needClick = false; syncFab(); }
     // Просили перевести страницу (кнопка, Alt+Shift+G) — после щелчка переводим страницу, а не только абзац.
     if (retryPage) { retryPage = false; translatePage("popup"); return; }
-    if (hoverEl && hoverEl.isConnected && !isBusy(hoverEl)) startHover(hoverEl);
+    if (hoverEl && hoverEl.isConnected && !isBusy(hoverEl)) startHover(hoverEl, HT_BY_USER);
   }, true);
 
   // Окно потеряло фокус (Alt+Tab, клик в адресную строку): отпускание клавиши придёт уже не нам,

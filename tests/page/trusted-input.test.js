@@ -56,7 +56,7 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
     assert.strictEqual(await text("#p1"), "[RU] " + P1);
     assert.strictEqual(await calls(), 1);
     const msg = await ev("window.__calls[0]");
-    assert.strictEqual(msg.by, "page-initiated");
+    assert.strictEqual(msg.by, "user-initiated", "чистое нажатие настоящей клавиши — действие пользователя");
     await tapShift();
     assert.strictEqual(await text("#p1"), P1);
     ok("настоящее нажатие-отпускание Shift над абзацем переводит, повторное — возвращает оригинал");
