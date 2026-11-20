@@ -862,7 +862,8 @@ async function translateMany(items, o, origin, budgetKey) {
   return { ok: true, texts: results, srcLangs: srcOut };
 }
 
-// Последний сбой DeepL или ИИ — для окна расширения (состояния «ключ отклонён», «лимит исчерпан», «нет связи»).
+// Последний сбой DeepL или ИИ — для окна расширения (состояния «ключ отклонён», «лимит исчерпан», «нет связи»)
+// и для «!» на значке, когда DeepL не принял ключ (problemNow).
 // storage.session.htNetErr = { code, via: "deepl" | "llm", provider, at } — только коды, по которым окну есть что
 // показать; успешный ответ того же сервиса запись снимает. Смена ключа, переводчика или сервиса — тоже (см. ниже).
 const NET_ERR_CODES = new Set(["bad-key", "quota", "money", "network", "timeout", "server", "denied"]);
@@ -1008,54 +1009,73 @@ function originOf(sender) {
 // ---- значок расширения ----
 // «!» — выбранный переводчик не может работать (нет ключа или согласия на отправку текста, нет
 // встроенного в браузере): content на страницах тогда ничего не делает, а объяснение — в подсказке
-// значка и в окне расширения. «off» — перевод выключен. Состояние значка браузер не сохраняет между
-// запусками, поэтому пересчитываем при каждом старте воркера, а дальше — по изменениям в хранилище.
+// значка и в окне расширения. «!» и тогда, когда переводчик ходит в DeepL, а DeepL не принял ключ
+// (htNetErr): с запасным встроенным перевод идёт, но человек должен узнать, что ключ не работает.
+// «off» — перевод выключен, он важнее «!». Состояние значка браузер не сохраняет между запусками,
+// поэтому пересчитываем при каждом старте воркера, а дальше — по изменениям в хранилище.
 const BADGE_KEYS = ["enabled", "engine", "apiKey", "llmApiKey", "llmProvider", "consent", "htBuiltinApi", "targetLang", "sourceLang"];
 const BADGE_OFF_COLOR = "#6b7280";
 const BADGE_PROBLEM_COLOR = "#d93025";
 
+// { off, problem, badKey, st }: problem — причина из HT_engineProblem; badKey — DeepL не принял ключ, а
+// выбранный переводчик (DeepL или DeepL с запасным встроенным) ходит в DeepL. В HT_PROBLEMS badKey не
+// входит: по причинам оттуда content решает, что переводить нельзя, а с запасным встроенным можно.
+// Отметку берём из storage.session (htNetErr), а не из памяти: воркер засыпает, а значок после
+// пробуждения должен остаться тем же. Новый ключ или переводчик снимают htNetErr (см. выше), успешный
+// ответ DeepL — тоже.
+function deeplKeyRejected(x) { return !!x && x.code === "bad-key" && x.via === "deepl"; }
 function problemNow() {
-  return chrome.storage.local.get({
-    enabled: HT_DEFAULTS.enabled, engine: HT_DEFAULTS.engine, apiKey: "", llmApiKey: "",
-    llmProvider: HT_DEFAULTS.llmProvider, consent: {}, htBuiltinApi: null,
-    targetLang: HT_DEFAULTS.targetLang, sourceLang: HT_DEFAULTS.sourceLang,
-  }).then((s) => {
+  return Promise.all([
+    chrome.storage.local.get({
+      enabled: HT_DEFAULTS.enabled, engine: HT_DEFAULTS.engine, apiKey: "", llmApiKey: "",
+      llmProvider: HT_DEFAULTS.llmProvider, consent: {}, htBuiltinApi: null,
+      targetLang: HT_DEFAULTS.targetLang, sourceLang: HT_DEFAULTS.sourceLang,
+    }),
+    sessionArea ? sessionArea.get("htNetErr").catch(() => ({})) : {},
+  ]).then(([s, g]) => {
     // Встроенный переводчик есть в service worker не во всех версиях Chrome, поэтому «нет» берём
     // только из записи окна (htBuiltinApi пишут popup, страница приветствия и content), а «есть» —
     // и отсюда. Пока никто не проверял — считаем, что есть: иначе «!» горел бы ни за что.
     const builtin = "Translator" in self || s.htBuiltinApi !== false;
     const st = { apiKey: !!s.apiKey, llmApiKey: !!s.llmApiKey, llmProvider: s.llmProvider, consent: s.consent,
       targetLang: HT_valid("targetLang", s.targetLang), sourceLang: HT_valid("sourceLang", s.sourceLang) };
-    const problem = HT_engineProblem(HT_valid("engine", s.engine), st, builtin);
-    return { off: s.enabled === false, problem, st };
+    const engine = HT_valid("engine", s.engine);
+    const problem = HT_engineProblem(engine, st, builtin);
+    const badKey = !!s.apiKey && HT_engine(engine).via === "deepl" && deeplKeyRejected(g && g.htNetErr);
+    return { off: s.enabled === false, problem, badKey, st };
   });
 }
 
 // Подсказка значка: короткое название и что не так. Название — из сообщений (extShortName): полное
-// (manifest name) для подсказки слишком длинное.
-function badgeTitle(off, problem, st) {
+// (manifest name) для подсказки слишком длинное. b — от problemNow.
+function badgeTitle(b) {
   const name = HT_t("extShortName");
-  return off ? HT_t("badgeOff", name) : problem ? HT_t("badgeProblem", [name, HT_problemText(problem, "short", st)]) : name;
+  const why = b.problem ? HT_problemText(b.problem, "short", b.st) : b.badKey ? HT_t("probDeeplBadKey") : "";
+  return b.off ? HT_t("badgeOff", name) : why ? HT_t("badgeProblem", [name, why]) : name;
 }
 
 async function updateBadge() {
   const a = chrome.action;
   if (!a || !a.setBadgeText) return;
   try {
-    const { off, problem, st } = await problemNow();
-    const text = off ? "off" : problem ? "!" : "";
-    if (text) await a.setBadgeBackgroundColor({ color: off ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
+    const b = await problemNow();
+    const text = b.off ? "off" : b.problem || b.badKey ? "!" : "";
+    if (text) await a.setBadgeBackgroundColor({ color: b.off ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
     await a.setBadgeText({ text });
-    await a.setTitle({ title: badgeTitle(off, problem, st) });
+    await a.setTitle({ title: badgeTitle(b) });
     // Проблему решили — следующая (если появится) снова заслуживает уведомления на странице.
-    if (!problem && sessionArea) sessionArea.remove(Object.keys(HT_PROBLEMS).map(noticeKey)).catch(() => {});
+    if (!b.problem && sessionArea) sessionArea.remove(Object.keys(HT_PROBLEMS).map(noticeKey)).catch(() => {});
   } catch (e) { /* значок — не повод ронять воркер */ }
 }
 
 updateBadge();
 chrome.runtime.onStartup?.addListener?.(updateBadge);
+// htNetErr переписывается при каждом сбое (с отклонённым ключом — на каждый перевод), а значку важно
+// только «DeepL не принял ключ» — да или нет.
 chrome.storage.onChanged?.addListener?.((changes, area) => {
-  if (area === "local" && BADGE_KEYS.some((k) => k in changes)) updateBadge();
+  const net = area === "session" && changes.htNetErr;
+  if (area === "local" ? BADGE_KEYS.some((k) => k in changes)
+    : net && deeplKeyRejected(net.oldValue) !== deeplKeyRejected(net.newValue)) updateBadge();
 });
 
 // Сайт выключен в окне расширения или в «⋯» у кружка — «off» на значке только этой вкладки. Сообщает
@@ -1072,10 +1092,10 @@ async function siteBadge(tabId, off) {
       await a.setTitle({ tabId, title: HT_t("badgeSiteOff", HT_t("extShortName")) });
       return;
     }
-    const { off: allOff, problem, st } = await problemNow();
+    const b = await problemNow();
     await a.setBadgeText({ tabId, text: null });
-    await a.setBadgeBackgroundColor({ tabId, color: allOff ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
-    await a.setTitle({ tabId, title: badgeTitle(allOff, problem, st) });
+    await a.setBadgeBackgroundColor({ tabId, color: b.off ? BADGE_OFF_COLOR : BADGE_PROBLEM_COLOR });
+    await a.setTitle({ tabId, title: badgeTitle(b) });
   } catch (e) { /* вкладку закрыли — значок не нужен */ }
 }
 
@@ -1189,6 +1209,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Esc на странице: вернуть оригинал и во встроенных окнах той же вкладки (у каждого свой скрипт).
   if (msg.type === "restoreTab") {
     if (sender && sender.tab) toTab(sender.tab.id, { type: "restoreAll" });
+    return;
+  }
+  // Встроенные окна: курсор пришёл в этот фрейм (hoverFrame, from — кто сообщил) и клавиша-триггер, отпущенная во
+  // фрейме без курсора (frameKey, at — когда нажата), — всем фреймам вкладки; разбирается каждый сам (см. content.js).
+  // Какой фрейм под курсором, здесь не запоминаем: воркер засыпает через полминуты без дела, и память пропала бы.
+  if (msg.type === "hoverFrame" || msg.type === "frameKey") {
+    if (sender && sender.tab) toTab(sender.tab.id, msg.type === "frameKey" ? { type: "frameKey", at: Number(msg.at) || 0 }
+      : { type: "hoverFrame", from: String(msg.from || "").slice(0, 20) });
     return;
   }
   if (msg.type === "siteBadge") {
