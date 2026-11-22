@@ -182,6 +182,20 @@ const KEEP = [
     assert.strictEqual(await ev("trCalls().length"), 0, "переводчику ничего не ушло");
     ok("Shift над текстом с title переводит текст, над картинкой и кнопкой-значком не переводит ничего: title, alt, aria-label не меняются");
 
+    // ---- 7. Текст страницы — вперёд: пока его перевод в пути, атрибуты переводчику не уходят ----
+    // Встроенный переводчик переводит по очереди: пачка атрибутов, ушедшая вместе с текстом, задерживала бы текст.
+    await load();
+    await ev("window.__hold = true; sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(() => ev("trCalls().length > 0"), 2000), "текст ушёл переводчику");
+    await sleep(1200);
+    const attrVals = TR.map((x) => x[2]);
+    const early = await sentItems();
+    assert.ok(early.length > 0 && !early.some((s) => attrVals.includes(s)),
+      "пока текст в пути, атрибуты не отправлены: " + JSON.stringify(early.filter((s) => attrVals.includes(s))));
+    assert.ok((await ev("release()")) > 0, "придержанные ответы на текст");
+    assert.ok(await until(() => allTr(), 4000), "после текста атрибуты переведены: " + JSON.stringify(await attrsOf(TR)));
+    ok("текст страницы — вперёд: пока его перевод в пути, атрибуты не уходят переводчику; текст перевёлся — переводятся и они");
+
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);
   } finally {

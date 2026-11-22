@@ -3021,7 +3021,8 @@
 
   // Довести живые переводы: перевести только узлы, которые сайт добавил или переписал, — остальной перевод
   // не мигает оригиналом и не оплачивается заново. Возвращает { stop } — сбой, общий для всех (pageWide).
-  async function topUpOwners(owners, gen) {
+  function topUpOwners(owners, gen) { return textJob(() => topUpNow(owners, gen)); }
+  async function topUpNow(owners, gen) {
     const lgen = liveGen, jobs = [], gone = [];
     for (const o of owners) {
       mutTopUp.delete(o);
@@ -3251,7 +3252,8 @@
   }
 
   // Возвращает то же и later — обещание итога строк, ждущих загрузку модели (или ничего, если таких нет).
-  async function translatePageChunk(chunk, gen, quiet) {
+  function translatePageChunk(chunk, gen, quiet) { return textJob(() => pageChunkNow(chunk, gen, quiet)); }
+  async function pageChunkNow(chunk, gen, quiet) {
     const none = { wrote: 0, failed: false };
     const lgen = liveGen;   // токен отмены живых показов — ДО первого await
     // только свободные owner-ы, параллельная проверка «уже на целевом языке»
@@ -3472,21 +3474,43 @@
     sendAttrs(quiet, { still, quiet: true });
   }
 
+  // Текст страницы — вперёд. Встроенный переводчик переводит куски по очереди, и пачка атрибутов, ушедшая вместе с
+  // текстом, задерживала видимый текст: на YouTube у каждого комментария по несколько aria-label у кнопок, и новые
+  // комментарии после прокрутки переводились за 6–8 с вместо 2. Поэтому атрибуты уходят пачками по ATTR_BATCH и перед
+  // каждой ждут, пока переведётся текст страницы, который уже в пути (pageTextJobs), — не дольше ATTR_WAIT_MAX: на
+  // ленте, где текст идёт без конца, атрибуты не ждут вечно. Подсказку поля по клавише (attrShiftSend) это не держит.
+  const ATTR_BATCH = 20, ATTR_WAIT_STEP = 150, ATTR_WAIT_MAX = 4000;
+  let pageTextJobs = 0;                // переводов текста страницы в пути (translatePageChunk, topUpOwners)
+  async function textJob(fn) {
+    pageTextJobs++;
+    try { return await fn(); } finally { pageTextJobs--; }
+  }
+  async function textFirst() {
+    for (const t0 = Date.now(); pageTextJobs > 0 && Date.now() - t0 < ATTR_WAIT_MAX;) await new Promise((r) => setTimeout(r, ATTR_WAIT_STEP));
+  }
+
   // Перевести и вписать. again — смена языка: «уже на языке перевода» не проверяем (в атрибуте прежний перевод).
   // Сбой — молча: о нём скажет перевод текста страницы, а непереведённое подберёт повторное «Перевести страницу».
   async function sendAttrs(items, opts) {
-    if (!items.length) return;
+    for (let i = 0; i < items.length; i += ATTR_BATCH) {
+      await textFirst();
+      if (!opts.still() || !(await sendAttrPart(items.slice(i, i + ATTR_BATCH), opts))) return;
+    }
+  }
+  // Одна пачка; false — отмена или сбой: остальное не переводим.
+  async function sendAttrPart(items, opts) {
     try {
       if (!opts.again) {
         const skip = await Promise.all(items.map((x) => isAlreadyTarget(x.core)));
-        if (!opts.still()) return;
+        if (!opts.still()) return false;
         items = items.filter((x, i) => !skip[i]);
-        if (!items.length) return;
+        if (!items.length) return true;
       }
       const out = await translateItems(items.map((x) => x.core), HT_BY_USER, null, { quiet: !!opts.quiet });
-      if (!opts.still() || !out.results) return;
+      if (!opts.still() || !out.results) return false;
       items.forEach((x, i) => writeAttr(x, out.results[i]));
-    } catch (e) { /* как сбой сервиса: атрибуты остаются как были */ }
+      return true;
+    } catch (e) { return false; }   // как сбой сервиса: атрибуты остаются как были
   }
 
   // Единственная точка записи перевода в атрибут: только если в нём всё ещё то, что переводили (expect).

@@ -41,7 +41,10 @@
         if (msg.type === "noticeOnce") return Promise.resolve({ ok: true, show: true });
         if (msg.type === "shortcut") return Promise.resolve("");
         if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
-        return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+        const answer = () => ({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+        // __hold — придержать ответы переводчика (перевод в пути), release() — отдать придержанные
+        if (window.__hold) return new Promise((r) => window.__held.push(() => r(answer())));
+        return Promise.resolve(answer());
       },
       onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
     },
@@ -53,6 +56,9 @@
   }
   function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
   window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+  window.__hold = false;
+  window.__held = [];
+  window.release = () => { window.__hold = false; const h = window.__held.splice(0); h.forEach((f) => f()); return h.length; };
   window.Translator = { async availability() { return "available"; }, async create() { return { translate: async (t) => "[ru] " + t }; } };
   window.LanguageDetector = { async availability() { return "available"; }, async create() { return { detect: async (t) => [{ detectedLanguage: /[а-я]/i.test(t) ? "ru" : "en", confidence: 0.99 }] }; } };
   // Все атрибуты всех элементов страницы, кроме class/style (наша подсветка) и нашего интерфейса.
