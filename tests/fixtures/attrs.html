@@ -11,7 +11,8 @@
   #spacer { height: 2400px; }
 </style>
 <script>
-  // Заглушка chrome.* для content.js — как в stub.html, только нужное проверкам атрибутов (page/attrs.test.js).
+  // Заглушка chrome.* для content.js — как в stub.html, только нужное проверкам атрибутов (page/attrs.test.js,
+  // page/attrs-shift.test.js).
   // background отвечает «[RU] текст» (язык — targetLang запроса); детектор: кириллица — русский, иначе английский.
   const q = new URLSearchParams(location.search);
   window.__calls = [];
@@ -40,7 +41,10 @@
         if (msg.type === "noticeOnce") return Promise.resolve({ ok: true, show: true });
         if (msg.type === "shortcut") return Promise.resolve("");
         if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
-        return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+        const answer = () => ({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+        // __hold — придержать ответы переводчика (перевод в пути), release() — отдать придержанные
+        if (window.__hold) return new Promise((r) => window.__held.push(() => r(answer())));
+        return Promise.resolve(answer());
       },
       onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
     },
@@ -52,11 +56,19 @@
   }
   function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
   window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+  window.__hold = false;
+  window.__held = [];
+  window.release = () => { window.__hold = false; const h = window.__held.splice(0); h.forEach((f) => f()); return h.length; };
   window.Translator = { async availability() { return "available"; }, async create() { return { translate: async (t) => "[ru] " + t }; } };
   window.LanguageDetector = { async availability() { return "available"; }, async create() { return { detect: async (t) => [{ detectedLanguage: /[а-я]/i.test(t) ? "ru" : "en", confidence: 0.99 }] }; } };
   // Все атрибуты всех элементов страницы, кроме class/style (наша подсветка) и нашего интерфейса.
   window.__attrs = () => [...document.body.querySelectorAll("*")].filter((e) => e.tagName !== "SCRIPT" && !e.closest("[data-ht-ui]"))
     .map((e) => e.tagName + "#" + e.id + " " + [...e.attributes].filter((a) => a.name !== "class" && a.name !== "style").map((a) => a.name + "=" + a.value).join(" "));
+  // Карточки перевода живут в закрытых shadow root — запоминаем root при создании.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
   (function tick() { requestAnimationFrame(tick); })();
 </script>
 </head>
@@ -67,7 +79,9 @@
     <input id="imgbtn" type="image" alt="Submit your order now" width="120" height="30">
     <button id="icon" type="button" aria-label="Close the dialog window"><svg width="12" height="12"><path d="M0 0L12 12M12 0L0 12" stroke="#000"/></svg></button></p>
   <p class="blk"><input id="q" type="search" placeholder="Search the whole catalog" value="running shoes">
-    <textarea id="ta" placeholder="Write a short review here"></textarea></p>
+    <textarea id="ta" placeholder="Write a short review here"></textarea>
+    <input id="qe" type="email" placeholder="Enter your email address"></p>
+  <p id="pf">Your city <input id="city" type="text" placeholder="Start typing a city name"> is used for the delivery.</p>
   <form class="blk" onsubmit="return false">
     <input id="go" type="submit" value="Send the form">
     <input id="rs" type="reset" value="Clear all fields">

@@ -11,7 +11,8 @@
 </style>
 <script>
   // Заглушка chrome.* для content.js (как в stub-basic.html). Перевод — "[RU] " + текст, запросы перевода —
-  // в window.__calls. ?store={...} — настройки поверх обычных (клавиша, способ показа).
+  // в window.__calls. ?store={...} — настройки поверх обычных (клавиша, способ показа). window.__hold = true — ответ
+  // ждёт window.__release(): видно, что идёт перевод.
   const q = new URLSearchParams(location.search);
   window.__calls = [];
   window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", dwellMs: 250,
@@ -38,7 +39,9 @@
       sendMessage(msg) {
         if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
         window.__calls.push(JSON.parse(JSON.stringify(msg)));
-        return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+        const res = { ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") };
+        if (window.__hold) return new Promise((done) => { window.__release = () => { window.__hold = false; done(res); }; });
+        return Promise.resolve(res);
       },
       onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
     },
@@ -71,6 +74,21 @@
         </div>`;
     }
   });
+  // Текст прямо в открытом root, без элемента-обёртки (Lit: html`Hello ${name}`). x-text — строчный хост (как у Lit по
+  // умолчанию) внутри <div>, со <style> в root. x-mixed — строчные элементы вперемешку с текстом и <slot>, через
+  // который показан light DOM хоста.
+  customElements.define("x-text", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>:host { color: #222; }</style>Loose text right inside the shadow root of a component.`;
+    }
+  });
+  customElements.define("x-mixed", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>:host { display: block; width: 600px; margin: 0 0 24px; } b { font-weight: 700; }</style>Hello from the mixed component, <b id="mb">bold words inside</b> and <slot></slot> at the end of it.`;
+    }
+  });
   customElements.define("x-closed", class extends HTMLElement {
     constructor() {
       super();
@@ -85,6 +103,8 @@
   <x-card id="c1"></x-card>
   <x-closed id="c3"></x-closed>
   <div class="notranslate"><x-inner id="c4"></x-inner></div>
+  <div id="w1" style="margin: 0 0 24px; width: 600px;"><x-text id="t1"></x-text></div>
+  <x-mixed id="m1"><span id="ml">light words shown through the slot</span></x-mixed>
   <script src="/i18n-ru.js"></script><script src="/src/shared.js"></script>
   <script src="/src/content.js"></script>
 </body>

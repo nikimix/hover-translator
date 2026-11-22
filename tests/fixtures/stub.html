@@ -18,6 +18,7 @@
   // Заглушка chrome.* для content.js (как в stub-builtin.html) + то, что нужно этапу 2б:
   // storage.get без колбэка возвращает Promise, сообщения не только translateBatch.
   // ?store={...}  ?builtin=fake|none|real  ?old=1 (код до исправления петли, см. lib/server.js)  ?frame=URL (встроенное окно)  ?dark=1  ?mqdark=1
+  // ?frameShadow=1 — встроенное окно не в документе, а в открытом shadow root компонента (#frameBox)
   const q = new URLSearchParams(location.search);
   // ?dark=1 — тёмный сайт (фон у <html>, у body своего фона нет)
   if (q.get("dark")) document.documentElement.style.cssText = "background: #121316; color: #d7dade;";
@@ -119,8 +120,11 @@
   // от встроенного окна (у него своя заглушка, stub-frame.html) просьба приходит сюда как { htUp }.
   // __tabDelay — сколько мс «background» везёт рассылку (воркер просыпается, машина занята); порядок сохраняется.
   window.__tabDelay = 0;
+  // встроенные окна страницы — и в shadow root компонента (?frameShadow=1); #fr — то, что открыто по ?frame
+  window.frameEls = () => { const box = document.getElementById("frameBox"); return [...document.querySelectorAll("iframe"), ...(box && box.shadowRoot ? box.shadowRoot.querySelectorAll("iframe") : [])]; };
+  window.frEl = () => window.frameEls().find((f) => f.id === "fr") || null;
   function tabCast(msg) {
-    const go = () => { sendCmd(msg); for (const f of document.querySelectorAll("iframe")) f.contentWindow.postMessage({ htTab: msg }, "*"); };
+    const go = () => { sendCmd(msg); for (const f of window.frameEls()) f.contentWindow.postMessage({ htTab: msg }, "*"); };
     if (window.__tabDelay) setTimeout(go, window.__tabDelay); else go();
   }
   addEventListener("message", (e) => { if (e.data && e.data.htUp) tabCast(e.data.htUp); });
@@ -159,7 +163,17 @@
   <script>
     const f = document.getElementById("fillers");
     for (let i = 0; i < 30; i++) { const p = document.createElement("p"); p.className = "filler"; p.id = "f" + i; p.textContent = "Filler paragraph number " + i + " with enough words to translate."; f.appendChild(p); }
-    if (q.get("frame")) { const fr = document.createElement("iframe"); fr.id = "fr"; fr.src = q.get("frame"); document.getElementById("frameSlot").appendChild(fr); }
+    if (q.get("frame")) {
+      const fr = document.createElement("iframe"); fr.id = "fr"; fr.src = q.get("frame");
+      let slot = document.getElementById("frameSlot");
+      // окно в компоненте: стиль iframe из <style> страницы в shadow root не действует — тот же, но внутри root
+      if (q.get("frameShadow")) {
+        const box = slot.appendChild(document.createElement("div")); box.id = "frameBox";
+        slot = box.attachShadow({ mode: "open" });
+        slot.appendChild(document.createElement("style")).textContent = "iframe { width: 620px; height: 120px; border: 1px solid #ccc; display: block; margin-bottom: 24px; }";
+      }
+      slot.appendChild(fr);
+    }
     const dir = q.get("old") ? "/old/" : "/src/";
     // этап 4а: chrome.i18n — заглушка с текстами _locales/ru (lib/i18n-stub.js, отдаёт lib/server.js)
     for (const src of ["/i18n-ru.js", dir + "shared.js", dir + "content.js"]) { const s = document.createElement("script"); s.src = src; s.async = false; document.body.appendChild(s); }
