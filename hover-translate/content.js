@@ -2162,13 +2162,13 @@
   function popCloseCancel() { clearTimeout(popCloseTimer); popCloseOwner = null; }
 
   // ---- перевод наведением: карточка (элемент целиком) ----
-  async function translatePopover(owner, by) {
+  async function translatePopover(owner, by, given) {
     if (!owner || !owner.isConnected || isBusy(owner)) return;
     const gen = liveGen;   // токен отмены — ДО первого await, см. пояснение в translateLine
     inFlight.add(owner);
     let st = null;
     try {
-      const text = ownerText(owner);
+      const text = given || ownerText(owner);   // given — подсказка поля или надпись кнопки (attrToggle)
       if (await isAlreadyTarget(text)) return;
       if (gen !== liveGen || !active() || !owner.isConnected || isShown(owner)) return;
       // Одна карточка за раз: новая закрывает прежние (и те, что ещё ждут перевода).
@@ -3338,10 +3338,10 @@
   // ---- текст в атрибутах при переводе страницы ----
   // Переводится любой текст, который человек видит или слышит: подсказка (title), подпись для экранного диктора
   // (aria-label), текст в пустом поле (placeholder), замена картинки (alt) и надпись кнопки-<input> (value у
-  // button/submit/reset). Только перевод страницы и новое содержимое переведённой страницы: наведение и Shift
-  // переводят то, что под курсором, — а это текст, не атрибут. Как и текст — по видимости, но своим наблюдателем:
-  // у картинки, поля или кнопки-значка текста нет, владельцем строки такой элемент не бывает, а у текста пачки
-  // считает окно («Перевожу… N из M»), атрибуты в этот счёт не входят. value обычных полей не трогаем: это ввод
+  // button/submit/reset) — при переводе страницы и в новом содержимом переведённой страницы. Клавиша-триггер над
+  // полем или кнопкой — только их подсказку и надпись (см. attrShiftEl). Как и текст — по видимости, но своим
+  // наблюдателем: у картинки, поля или кнопки-значка текста нет, владельцем строки такой элемент не бывает, а у
+  // текста пачки считает окно («Перевожу… N из M»), атрибуты в этот счёт не входят. value обычных полей не трогаем: это ввод
   // человека; кнопку отправки с name — тоже: её value уходит на сервер с формой, и сайт сверяет его с ожидаемым.
   // Своё значение отличаем от сайтового по attrRecs (как текст по ownText и nodeRecs): откат и перевод на другой
   // язык меняют атрибут, только если в нём всё ещё наш перевод; новое значение от сайта переводится заново.
@@ -3355,6 +3355,8 @@
   const attrNew = new WeakSet();       // новое содержимое: модели для него не качаем (как mutNew)
   const attrSeen = new Set();          // вошли в зону видимости, ждут перевода
   const attrMut = new Set();           // сайт поменял у них атрибут: разбор раз в MUT_MS
+  let attrKeep = new WeakSet();        // поле, которому человек вернул оригинал клавишей (как keepOrig у текста)
+  const attrFlight = new WeakSet();    // перевод клавишей в пути
   let attrObserver = null, attrSeenTimer = 0, attrMutTimer = 0;
 
   // Какие атрибуты элемента — текст для человека (по виду элемента).
@@ -3394,8 +3396,9 @@
   // оно и вернётся при откате.
   function attrItems(el, again, out) {
     if (!el.isConnected || !attrHostOk(el)) return out;
-    const recs = attrRecs.get(el);
+    const recs = attrRecs.get(el), kept = attrKeep.has(el) ? attrShiftName(el) : "";
     for (const name of attrNamesOf(el)) {
+      if (name === kept) continue;
       const v = el.getAttribute(name), rec = recs && recs.get(name);
       const ours = !!rec && v === rec.translated;
       if (ours && !again) continue;
@@ -3438,8 +3441,10 @@
     return out.slice(0, PAGE_MAX);
   }
 
-  // Перевести страницу: атрибуты — по мере появления в зоне видимости (видимое — сразу).
+  // Перевести страницу: атрибуты — по мере появления в зоне видимости (видимое — сразу). Поля, которым клавишей
+  // вернули оригинал (attrKeep), — тоже: страницу переводят заново.
   function pageAttrs() {
+    attrKeep = new WeakSet();
     if (document.body) observeAttrs(attrElsDeep(document.body), false);
   }
   function observeAttrs(els, quiet) {
@@ -3565,6 +3570,81 @@
       for (const el of attrElsDeep(s)) if (attrTry(el, now)) out.push(el);
     }
     observeAttrs(out, true);
+  }
+
+  // ---- подсказка поля и надпись кнопки по клавише-триггеру ----
+  // Чистое нажатие клавиши над полем ввода, где видна подсказка (пусто и не в фокусе: в фокусе клавиша — набор
+  // текста, см. typingFocus), или над кнопкой-<input> переводит их placeholder или value — как строку текста: второе
+  // нажатие возвращает оригинал. В режиме карточки — карточка у поля, атрибут не меняем (и value кнопки отправки с
+  // name можно показать: на сервер уходит атрибут, а он прежний). Остальные атрибуты (title, aria-label, alt) клавиша
+  // не трогает: их на экране не видно, а над ними человек ждёт перевода текста. Режим задержки атрибуты не переводит:
+  // поле и кнопка — интерактивные, курсор на них по пути к щелчку (ср. dwellSkip). Что перевели — в attrRecs, как
+  // при переводе страницы: Esc и «Показать оригинал» возвращают и это (restoreAttrs).
+  const ATTR_TYPING = /^(text|search|email|url|tel|password|number)$/;
+  // Какой атрибут элемента переводит клавиша: placeholder у текстового поля, value у кнопки-<input>; "" — никакой.
+  function attrShiftName(el) {
+    if (!el || el.nodeType !== 1) return "";
+    if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && ATTR_TYPING.test(el.type))) return "placeholder";
+    if (el.tagName === "INPUT" && ATTR_BUTTONS.has(el.type)) return "value";
+    return "";
+  }
+  // Наш перевод в атрибуте, который сайт с тех пор не трогал: запись attrRecs или null.
+  function attrOurs(el, name) {
+    const recs = attrRecs.get(el), rec = recs && recs.get(name);
+    return rec && el.getAttribute(name) === rec.translated ? rec : null;
+  }
+  // Элемент под курсором (el — цель события мыши), атрибут которого переведёт клавиша, или null.
+  function attrShiftEl(el) {
+    const name = attrShiftName(el);
+    if (!name || !el.isConnected || !attrHostOk(el)) return null;
+    if (name === "placeholder" && (!el.matches(":placeholder-shown") || el.matches(":focus"))) return null;   // подсказки не видно
+    if (name === "value" && el.type === "submit" && el.name && settings.displayMode !== "popover") return null;
+    const rec = attrOurs(el, name);
+    return attrTextOk(rec ? rec.orig : el.getAttribute(name)) ? el : null;
+  }
+  // Отпустили клавишу (keyup): поле, над которым её нажали, всё ещё под курсором и подсказка видна — как щелчок.
+  function attrShiftUp(el) {
+    if (attrShiftEl(lastOverTarget) === el) attrToggle(el);
+  }
+  // Перевести атрибут или вернуть оригинал (как toggle у текста). Переведённая страница: вернули оригинал — поле
+  // остаётся в оригинале, пока страница переведена (attrKeep, см. attrItems); следующее нажатие переводит снова.
+  // Карточка у поля, перевод которого уже в атрибуте (переведена страница), — ни к чему: как у текста (isShown).
+  function attrToggle(el) {
+    const name = attrShiftName(el), rec = attrOurs(el, name);
+    if (settings.displayMode === "popover") {
+      if (popovers.has(el)) removePopover(el);
+      else if (!rec && !blocked(false)) translatePopover(el, HT_BY_USER, el.getAttribute(name));
+      return;
+    }
+    if (rec) {
+      const recs = attrRecs.get(el);
+      recs.delete(name);
+      if (!recs.size) attrRecs.delete(el);
+      if (pageActive) attrKeep.add(el);
+      el.setAttribute(name, rec.orig);
+      return;
+    }
+    if (attrFlight.has(el) || blocked(false)) return;
+    attrKeep.delete(el);
+    const v = el.getAttribute(name);
+    attrShiftSend(Object.assign({ el, name, orig: v, expect: v }, splitWs(v)));
+  }
+  // Перевод клавишей — действие пользователя: пульс на поле, пока ждём, и ошибка — как у строки (showFail).
+  async function attrShiftSend(x) {
+    const gen = liveGen;
+    attrFlight.add(x.el);
+    loadingOn(x.el);
+    try {
+      if (await isAlreadyTarget(x.core)) return;
+      if (gen !== liveGen || !active()) return;
+      const out = await translateItems([x.core], HT_BY_USER);
+      if (gen !== liveGen) return;
+      const res = out.results && out.results[0];
+      if (res) writeAttr(x, res); else showFail(x.el, out);
+    } finally {
+      attrFlight.delete(x.el);
+      loadingOff(x.el);
+    }
   }
 
   // ---- события ----
@@ -3731,9 +3811,10 @@
     }
     if (modBusy() || typingFocus()) return;
     const away = !cursorIn && otherFrames();
-    if (!away && !hoverEl) return;
+    const field = away ? null : attrShiftEl(lastOverTarget);   // поле или кнопка-<input>: их подсказка или надпись
+    if (!away && !hoverEl && !field) return;
     // …а одиночный модификатор над текстом (здесь или в другом фрейме вкладки) начинает новое
-    modPress = { key: e.key, el: away ? null : hoverEl, at: Date.now() };
+    modPress = { key: e.key, el: away ? null : hoverEl, field, at: Date.now() };
   }, true);
 
   on(document, "keyup", (e) => {
@@ -3748,6 +3829,7 @@
     // до отпускания: курсор ушёл в окно раньше, чем нажали (сообщение опоздало), или пока держали — тогда «чистым»
     // нажатие не признает фрейм под курсором.
     if (!cursorIn) { if (otherFrames()) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
+    if (p.field) { attrShiftUp(p.field); return; }
     if (!p.el || hoverEl !== p.el) return;
     upHere(p);
   }, true);

@@ -1,7 +1,9 @@
 // Текст в атрибутах при переводе страницы: content.js в Chrome без интерфейса на тестовой странице с заглушкой
 // chrome.* (fixtures/attrs.html). «Перевести страницу» переводит title, aria-label, placeholder, alt и надпись
 // кнопки-<input> (value у button/submit/reset) — по видимости, как текст; откат возвращает исходные значения, а то,
-// что сайт вписал сам, не трогает; наведение и Shift атрибутов не меняют. Настоящие события — Input.dispatch*.
+// что сайт вписал сам, не трогает; Shift над текстом, картинкой, кнопкой-значком title, alt и aria-label не меняет
+// (подсказку поля и надпись кнопки под курсором Shift переводит — page/attrs-shift.test.js). Настоящие события —
+// Input.dispatch*.
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
@@ -22,6 +24,8 @@ const TR = [
   ["#icon", "aria-label", "Close the dialog window"],
   ["#q", "placeholder", "Search the whole catalog"],
   ["#ta", "placeholder", "Write a short review here"],
+  ["#qe", "placeholder", "Enter your email address"],
+  ["#city", "placeholder", "Start typing a city name"],
   ["#go", "value", "Send the form"],
   ["#rs", "value", "Clear all fields"],
   ["#bt", "value", "Show more items"],
@@ -159,15 +163,24 @@ const KEEP = [
     await ev("setStore({ targetLang: 'RU' }); true"); await sleep(500);
     ok("смена языка на переведённой странице переводит атрибуты заново из оригинала; Esc — оригинал");
 
-    // ---- 6. Shift по элементу с title атрибуты не трогает ----
+    // ---- 6. Shift над title, alt, aria-label атрибуты не трогает ----
     await load();
-    const r = await ev("(() => { const r = document.querySelector('#p1').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + r.height / 2) }; })()");
-    await t.mouse("mouseMoved", r.x, r.y); await sleep(30); await t.mouse("mouseMoved", r.x + 2, r.y); await sleep(60);
+    const hover = async (sel, dx) => {
+      const r = await ev(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect();
+        return { x: Math.round(r.left + ${dx || "r.width / 2"}), y: Math.round(r.top + r.height / 2) }; })()`);
+      await t.mouse("mouseMoved", r.x, r.y); await sleep(30); await t.mouse("mouseMoved", r.x + 2, r.y); await sleep(60);
+    };
+    await hover("#p1", 40);
     await tapShift();
     assert.ok(await until(() => ev("document.querySelector('#p1').textContent.startsWith('[RU]')"), 2000), "Shift переводит текст");
     await sleep(300);
     assert.deepStrictEqual(await ev("__attrs()"), before, "Shift не меняет ни одного атрибута");
-    ok("Shift по элементу с title переводит текст, атрибуты не меняются");
+    await ev("window.__calls.length = 0; true");
+    for (const sel of ["#img", "#imgbtn", "#icon"]) { await hover(sel); await tapShift(); }
+    await sleep(300);
+    assert.deepStrictEqual(await ev("__attrs()"), before, "alt картинки и кнопки-картинки, aria-label кнопки-значка — как были");
+    assert.strictEqual(await ev("trCalls().length"), 0, "переводчику ничего не ушло");
+    ok("Shift над текстом с title переводит текст, над картинкой и кнопкой-значком не переводит ничего: title, alt, aria-label не меняются");
 
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);

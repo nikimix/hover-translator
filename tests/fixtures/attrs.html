@@ -11,7 +11,8 @@
   #spacer { height: 2400px; }
 </style>
 <script>
-  // Заглушка chrome.* для content.js — как в stub.html, только нужное проверкам атрибутов (page/attrs.test.js).
+  // Заглушка chrome.* для content.js — как в stub.html, только нужное проверкам атрибутов (page/attrs.test.js,
+  // page/attrs-shift.test.js).
   // background отвечает «[RU] текст» (язык — targetLang запроса); детектор: кириллица — русский, иначе английский.
   const q = new URLSearchParams(location.search);
   window.__calls = [];
@@ -57,6 +58,11 @@
   // Все атрибуты всех элементов страницы, кроме class/style (наша подсветка) и нашего интерфейса.
   window.__attrs = () => [...document.body.querySelectorAll("*")].filter((e) => e.tagName !== "SCRIPT" && !e.closest("[data-ht-ui]"))
     .map((e) => e.tagName + "#" + e.id + " " + [...e.attributes].filter((a) => a.name !== "class" && a.name !== "style").map((a) => a.name + "=" + a.value).join(" "));
+  // Карточки перевода живут в закрытых shadow root — запоминаем root при создании.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
   (function tick() { requestAnimationFrame(tick); })();
 </script>
 </head>
@@ -67,7 +73,9 @@
     <input id="imgbtn" type="image" alt="Submit your order now" width="120" height="30">
     <button id="icon" type="button" aria-label="Close the dialog window"><svg width="12" height="12"><path d="M0 0L12 12M12 0L0 12" stroke="#000"/></svg></button></p>
   <p class="blk"><input id="q" type="search" placeholder="Search the whole catalog" value="running shoes">
-    <textarea id="ta" placeholder="Write a short review here"></textarea></p>
+    <textarea id="ta" placeholder="Write a short review here"></textarea>
+    <input id="qe" type="email" placeholder="Enter your email address"></p>
+  <p id="pf">Your city <input id="city" type="text" placeholder="Start typing a city name"> is used for the delivery.</p>
   <form class="blk" onsubmit="return false">
     <input id="go" type="submit" value="Send the form">
     <input id="rs" type="reset" value="Clear all fields">
