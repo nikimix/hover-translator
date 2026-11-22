@@ -398,7 +398,7 @@
   function dwellSkip(owner, target) {
     if (target && target.nodeType === 1 && target.closest(INTERACTIVE)) return true;
     if (owner.closest(INTERACTIVE + ", " + NAVIGATION)) return true;
-    return tooShort(owner.textContent || "");
+    return tooShort(ownerText(owner));
   }
 
   const SKIP_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT", "OPTION", "SCRIPT", "STYLE", "PRE", "CODE", "NOSCRIPT", "SVG", "CANVAS", "IMG", "VIDEO", "AUDIO"]);
@@ -441,19 +441,26 @@
     // короткой странице (до 2000 знаков) переводился бы весь документ вместе с <title>, а строки
     // вложенных абзацев потом делили бы с ним одни и те же текстовые узлы.
     if (start === document.documentElement) return null;
+    // Хост с текстом прямо в root (textRoot) — сам владелец: курсор над этим текстом даёт событие с целью-хостом.
+    if (textRoot(start)) return start;
     if (hasBlockChild(start)) return null;
     // Внутри shadow root подъём кончается на его верхнем уровне (parentElement там — null): владелец — строчный
-    // контейнер в компоненте, а не весь компонент.
+    // контейнер в компоненте, а не весь компонент. Подъём по light DOM кончается на хосте с текстом в root: его
+    // light DOM показан через <slot> внутри той же строки.
     let el = start;
     while (
       el.parentElement &&
       el.parentElement.tagName !== "BODY" &&
       el.parentElement.tagName !== "HTML" &&
-      !hasBlockChild(el.parentElement)
+      !hasBlockChild(el.parentElement) &&
+      !textRoot(el)
     ) {
       el = el.parentElement;
     }
-    return el;
+    if (el.parentElement || textRoot(el)) return el;
+    // Верхний уровень root, где лежит и текст без обёртки: строка — у хоста.
+    const r = el.getRootNode();
+    return r instanceof ShadowRoot && textRoot(r.host) === r ? r.host : el;
   }
 
   // Наш UI: хост помечен data-ht-ui, а всё его содержимое живёт в shadow root, поэтому детей-
@@ -484,6 +491,56 @@
   }
   function hostOf(el) { const r = el.getRootNode(); return r instanceof ShadowRoot ? r.host : null; }
 
+  // Текст прямо в открытом shadow root сайта, без элемента-обёртки (Lit: html`Hello ${name}`). Родитель такого узла —
+  // ShadowRoot, а владельцу строки нужен элемент (подложка, подсветка, рамка, lineByOwner), поэтому владелец — хост, а
+  // его текст — весь верхний уровень root: строчные элементы вперемешку с текстом («Hello <b>world</b>») — одна строка,
+  // а не отдельно <b>. Root хоста, если на его верхнем уровне есть текст с буквами и нет блочных детей; иначе null.
+  // Закрытые root (сайта и наш интерфейс) сюда не попадают: shadowRoot у их хоста — null.
+  function textRoot(el) {
+    const r = el.shadowRoot;
+    if (!r || isOurUi(el) || hasBlockChild(r)) return null;
+    for (const n of r.childNodes) if (n.nodeType === 3 && /\p{L}/u.test(n.nodeValue)) return r;
+    return null;
+  }
+
+  // Текстовые узлы владельца по порядку на экране, которые пропускает accept. Обычно — поддерево владельца. У хоста
+  // с текстом в root (textRoot) — содержимое root, а на месте <slot> — показанный через него light DOM хоста: так
+  // «Hello <slot></slot>!» с light DOM «World» — одна строка «Hello World!». Light DOM, который никуда не показан, на
+  // экране не виден и в строку не входит. Вложенные root здесь не раскрываются — у их хоста своя строка.
+  function ownerNodes(owner, accept) {
+    const out = [];
+    const root = textRoot(owner);
+    if (!root) {
+      const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => accept(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+      });
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) out.push(n);
+      return out;
+    }
+    const walk = (nodes) => {
+      for (const n of nodes) {
+        if (n.nodeType === 3) { if (accept(n)) out.push(n); continue; }
+        if (n.nodeType !== 1) continue;
+        const shown = n.tagName === "SLOT" ? n.assignedNodes({ flatten: true }) : null;
+        walk(shown && shown.length ? shown : n.childNodes);
+      }
+    };
+    walk(root.childNodes);
+    return out;
+  }
+
+  // el — внутри владельца: в его поддереве или в root хоста с текстом в root (contains через границу root не видит).
+  function ownerHas(owner, el) {
+    return owner.contains(el) || (!!el && el.getRootNode() === textRoot(owner));
+  }
+
+  // Текст владельца, как его видит человек: у хоста с текстом в root — без <style> и <script> root (его textContent —
+  // только light DOM).
+  function ownerText(owner) {
+    if (!textRoot(owner)) return owner.textContent || "";
+    return ownerNodes(owner, (n) => !n.parentElement || !SKIP_TAGS.has(n.parentElement.tagName)).map((n) => n.nodeValue).join("");
+  }
+
   function isTextTarget(el) {
     if (!el || el.nodeType !== 1) return false;
     // SVG/MathML и прочий foreign-content переводить не беремся (графика/формулы).
@@ -492,7 +549,7 @@
     if (SKIP_TAGS.has(el.tagName)) return false;
     if (isOurUi(el)) return false;
     if (insideNoTranslate(el)) return false;
-    const text = (el.textContent || "").trim();
+    const text = ownerText(el).trim();
     if (text.length < 2 || text.length > 2000) return false;
     if (!/\p{L}/u.test(text)) return false;
     if (echoesField(el, text)) return false;
@@ -532,7 +589,8 @@
     const range = document.createRange();
     for (const el of list.slice(0, 8)) {
       if (el === document.body || el === document.documentElement || isOurUi(el)) return null;
-      for (const n of el.childNodes) {
+      const root = textRoot(el);       // текст прямо в root лежит не в детях хоста (см. textRoot)
+      for (const n of root ? [...el.childNodes, ...root.childNodes] : el.childNodes) {
         if (n.nodeType !== 3 || !n.nodeValue.trim()) continue;
         range.selectNodeContents(n);
         for (const b of range.getClientRects()) {
@@ -606,7 +664,8 @@
     const v = node.nodeValue;
     if (!v || !v.trim() || !/\p{L}/u.test(v)) return false;
     const p = node.parentElement;
-    if (!p) return false;
+    // Текст прямо в root хоста-владельца (textRoot): предков-элементов нет, запреты хоста и выше проверил isTextTarget.
+    if (!p) return node.parentNode === textRoot(owner) && !looksLikeName(node, owner);
     if (p.isContentEditable) return false;           // contentEditable наследуется — покрывает предков
     if (isOurUi(p)) return false;                    // наша собственная разметка
     for (let el = p; el; el = el.parentElement) {     // вверх до owner: пропускаем code/pre/svg и т.п.
@@ -639,7 +698,7 @@
     const t = node.nodeValue.trim();
     if (FILE_NAME_RE.test(t)) return true;
     if (!NAME_WORD_RE.test(t)) return false;
-    const a = node.parentElement.closest("a[href]");
+    const a = node.parentElement && node.parentElement.closest("a[href]");
     if (!a) return false;
     let u, segs;
     try { u = new URL(a.href); segs = u.pathname.split("/").filter(Boolean).map(decodeURIComponent); } catch (e) { return false; }
@@ -650,17 +709,13 @@
     if (!login) return false;
     if (LOGIN_LIKE_RE.test(t)) return true;
     const before = document.createRange();             // текст владельца до ссылки
-    before.setStart(owner, 0);
+    before.setStart(a.getRootNode() === textRoot(owner) ? a.getRootNode() : owner, 0);
     before.setEndBefore(a);
     return !/[\p{L}\p{N}]\s*$/u.test(before.toString());
   }
   // Ссылка внутри фразы: у владельца есть текст с буквами вне ссылок.
   function inPhrase(owner) {
-    const w = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
-    for (let n = w.nextNode(); n; n = w.nextNode()) {
-      if (/\p{L}/u.test(n.nodeValue) && !n.parentElement.closest("a[href]")) return true;
-    }
-    return false;
+    return ownerNodes(owner, (n) => /\p{L}/u.test(n.nodeValue) && !(n.parentElement && n.parentElement.closest("a[href]"))).length > 0;
   }
 
   // Узел уже держит живая строка: вложенный владелец переведён наведением, а страница берёт внешний, или наоборот.
@@ -672,12 +727,7 @@
   // Текстовые узлы внутри owner, пригодные для перевода (в порядке обхода). Узлы чужой живой строки не берём:
   // newEntry перезаписал бы её запись, и откат той строки этот узел пропустил бы — перевод остался бы навсегда.
   function collectTextNodes(owner) {
-    const out = [];
-    const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => acceptTextNode(node, owner) && !heldByLine(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
-    });
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) out.push(n);
-    return out;
+    return ownerNodes(owner, (node) => acceptTextNode(node, owner) && !heldByLine(node));
   }
 
   function modHeld(e) {
@@ -2118,7 +2168,7 @@
     inFlight.add(owner);
     let st = null;
     try {
-      const text = owner.textContent;
+      const text = ownerText(owner);
       if (await isAlreadyTarget(text)) return;
       if (gen !== liveGen || !active() || !owner.isConnected || isShown(owner)) return;
       // Одна карточка за раз: новая закрывает прежние (и те, что ещё ждут перевода).
@@ -2161,7 +2211,7 @@
     try {
       clearError(owner);
 
-      if (await isAlreadyTarget(owner.textContent)) return;
+      if (await isAlreadyTarget(ownerText(owner))) return;
       if (gen !== liveGen || !active() || !owner.isConnected || lineByOwner.has(owner)) return;
 
       const nodes = collectTextNodes(owner);
@@ -2592,7 +2642,9 @@
   //
   // Открытые shadow root сайта обходим так же, на месте их хоста (компонент в компоненте — рекурсией), с общим
   // PAGE_MAX. Текст light DOM, показанный через <slot>, принадлежит хосту, а не root: он попадёт один раз — при
-  // обходе light DOM.
+  // обходе light DOM. Текст прямо в root (textRoot) — строка хоста: верхний уровень такого root здесь не берём,
+  // хост — владелец, даже когда он внутри взятого владельца light DOM (строка того в root не заходит). Его light DOM в
+  // <slot> входит в строку хоста; если он попал и во внешнего владельца, узел достаётся одной строке (heldByLine).
   function collectCandidates() {
     const out = [];
     // memo живёт только этот обход: структура DOM за него не меняется
@@ -2601,13 +2653,19 @@
   }
   function collectIn(scope, out, memo) {
     let taken = null;         // последний взятый или уже переведённый владелец
+    const hostLine = scope instanceof ShadowRoot && textRoot(scope.host) === scope;
     for (const el of scope.querySelectorAll("*")) {
       // Root — и у хоста внутри взятого владельца: строка владельца в root не заходит.
       const root = siteRoot(el);
       if (root) {
         collectIn(root, out, memo);
         if (out.length >= PAGE_MAX) return;
+        if (textRoot(el) === root) {
+          if (pageOwner(el)) { out.push(el); if (out.length >= PAGE_MAX) return; }
+          continue;
+        }
       }
+      if (hostLine) continue;                        // верхний уровень root — в строке хоста
       if (taken && taken.contains(el)) continue;     // вложенный: его узлы переводит строка внешнего
       if (!isTopInlineContainer(el, memo)) continue; // дешёвая структурная проверка раньше textContent
       const line = lineByOwner.get(el);
@@ -2620,6 +2678,16 @@
       taken = el;
       if (out.length >= PAGE_MAX) return;
     }
+  }
+  // Хост с текстом в root — владелец для перевода страницы: строки нет (мёртвую — каркас перетёр перевод — чистим и
+  // переводим заново, как в collectIn), а не в работе и не переведён.
+  function pageOwner(el) {
+    const line = lineByOwner.get(el);
+    if (line) {
+      if (inFlight.has(el) || lineAlive(line)) return false;
+      restoreLine(line);
+    }
+    return isTextTarget(el);
   }
 
   // Виден ли элемент в окне сейчас (хотя бы частично).
@@ -2894,10 +2962,7 @@
   // Узел, который не перевёлся (пустой ответ) и так и стоит в оригинале, не берём — иначе повторяли бы его.
   function siteNodes(owner, line) {
     const out = [];
-    const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => acceptTextNode(node, owner) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
-    });
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    for (const n of ownerNodes(owner, (node) => acceptTextNode(node, owner))) {
       const rec = nodeRecs.get(n);
       if (rec && rec.line === line) {
         if (n.nodeValue === (rec.translated != null ? rec.translated : rec.orig)) continue;
@@ -3182,7 +3247,7 @@
     // только свободные owner-ы, параллельная проверка «уже на целевом языке»
     const free = chunk.filter((el) => el.isConnected && !lineByOwner.has(el) && !inFlight.has(el));
     if (!free.length) return none;
-    const skip = await Promise.all(free.map((el) => isAlreadyTarget(el.textContent)));
+    const skip = await Promise.all(free.map((el) => isAlreadyTarget(ownerText(el))));
     if (gen !== pageGen || lgen !== liveGen) return none;
     const owners = free.filter((el, j) => !skip[j] && el.isConnected && !lineByOwner.has(el) && !inFlight.has(el));
     if (!owners.length) return none;
@@ -3582,7 +3647,7 @@
   function settleDrift(e) {
     const { line, x, y } = drift;
     if (lineByOwner.get(line.owner) !== line) { drift = null; return true; }   // уже снят
-    if (line.owner.contains(evTarget(e))) { drift = null; return true; }       // курсор снова на абзаце
+    if (ownerHas(line.owner, evTarget(e))) { drift = null; return true; }      // курсор снова на абзаце
     if (Math.abs(e.clientX - x) < DRIFT_PX && Math.abs(e.clientY - y) < DRIFT_PX) return false; // дрожание руки
     drift = null;
     restoreLine(line);
@@ -3622,7 +3687,7 @@
     // внешнего слушателя на пути (document или root, см. watchRoots): хост компонента в нём — только если курсор
     // ушёл за пределы этого хоста, а переход внутри компонента до внешнего слушателя не доходит.
     const to = e.relatedTarget;
-    if (to && (owner === to || owner.contains(to) || (under && from.contains(to)))) return;
+    if (to && (owner === to || ownerHas(owner, to) || (under && from.contains(to)))) return;
     // Ушли на карточку этого абзаца: её можно навести и прокрутить, снимает её собственный
     // mouseleave. Событие ретаргетится на хост, поэтому проверки самого узла достаточно.
     const pop = popovers.get(owner);
