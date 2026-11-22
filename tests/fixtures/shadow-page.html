@@ -98,6 +98,10 @@
   // Добавляются после перевода страницы.
   define("x-leaf", `<span class="leaf" title="Tooltip of the late leaf component">Leaf text inside a late component</span>`);
   define("x-late", `<div><p class="late">Component added after the page was translated</p><div><x-leaf></x-leaf></div></div>`);
+  // Определяются позже, по вызову проверки (ленивая загрузка библиотеки компонентов): элементы стоят в разметке
+  // заранее, root и текст появляются при апгрейде. x-lazy стоит и в документе, и в root компонента x-holder.
+  window.defineLate = (name) => define(name, `<p class="lz" title="Tooltip of the ${name} component">Text of the ${name} component drawn on upgrade</p>`);
+  define("x-holder", `<div class="hold"><x-lazy></x-lazy></div>`);
 
   (function tick() { requestAnimationFrame(tick); })();
 </script>
@@ -111,6 +115,10 @@
   <x-brand id="brand" class="notranslate"></x-brand>
   <div data-ht-ui id="ours"></div>
   <p id="p2">Another document paragraph after the components.</p>
+  <x-lazy id="lazy"></x-lazy>
+  <x-holder id="holder"></x-holder>
+  <x-lazy-esc id="lazyEsc"></x-lazy-esc>
+  <x-lazy-orig id="lazyOrig"></x-lazy-orig>
   <div id="later"></div>
   <div id="fillers"></div>
   <x-far id="far"></x-far>

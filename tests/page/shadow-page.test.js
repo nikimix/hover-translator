@@ -6,7 +6,10 @@
 //   • подложка «идёт перевод» внутри root действует так же, как в документе (лист в adoptedStyleSheets, свой лист
 //     компонента остаётся, <style> в root не добавляется), «не перевелось» — тоже;
 //   • компонент, добавленный после перевода (с компонентом внутри), и текст, изменённый внутри root, переводятся сами;
-//   • Esc и «Показать оригинал» возвращают оригинал и в root; смена языка перепереводит и в root.
+//   • компонент, который стоял в разметке и получил root позже (customElements.define после «Перевести страницу»,
+//     и в документе, и в root другого компонента), переводится сам, его root — под наблюдением;
+//   • Esc и «Показать оригинал» возвращают оригинал и в root; смена языка перепереводит и в root; после Esc и
+//     «Показать оригинал» компонент, определённый позже, не переводится.
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
@@ -140,6 +143,28 @@ const J = JSON.stringify;
     assert.ok(await until(() => attrsAre(A_LATE, { leaf: "[RU] Tooltip of the late leaf component" }), 3000), "атрибут добавленного компонента: " + J(lateAttr));
     ok("добавленный после перевода компонент (и компонент в нём, с атрибутами) и текст, изменённый внутри root, переводятся сами");
 
+    // ---- 5б. Компонент получил root после начала наблюдения: элемент стоял в разметке, определён позже ----
+    // Апгрейд записей наблюдателю не даёт: ни в документе, ни в root x-holder рядом ничего не меняется.
+    const LAZY = { lazy: ["#lazy", ".lz"], nested: ["#holder", "x-lazy", ".lz"] };
+    const A_LAZY = { lazy: [["#lazy", ".lz"], "title"], nested: [["#holder", "x-lazy", ".lz"], "title"] };
+    const hasRoot = (...sels) => ev(`!!deep(${sels.map((x) => J(x)).join(", ")}).shadowRoot`);
+    assert.deepStrictEqual([await hasRoot("#lazy"), await hasRoot("#holder", "x-lazy")], [false, false], "до определения root нет");
+    await ev("setTimeout(() => defineLate('x-lazy'), 1000); true");
+    assert.ok(await until(() => hasRoot("#lazy"), 3000), "страница определила x-lazy");
+    const lazyText = "Text of the x-lazy component drawn on upgrade";
+    const lazyOrig = { lazy: lazyText, nested: lazyText };
+    assert.deepStrictEqual(await texts(LAZY), lazyOrig);
+    assert.ok(await until(() => allAre(LAZY, prefixed(lazyOrig, "RU")), 8000), "текст в root компонента, определённого позже: " + J(await texts(LAZY)));
+    const lazyTip = "Tooltip of the x-lazy component";
+    assert.ok(await until(() => attrsAre(A_LAZY, { lazy: "[RU] " + lazyTip, nested: "[RU] " + lazyTip }), 3000), "атрибут в его root: " + J(await attrs(A_LAZY)));
+    // root под наблюдением: текст, который сайт в нём поменял, тоже переводится
+    const lazyNow = { lazy: "Lazy component text changed by the site", nested: "Nested lazy text changed by the site" };
+    await ev(`deep("#lazy", ".lz").firstChild.nodeValue = ${J(lazyNow.lazy)};
+      deep("#holder", "x-lazy", ".lz").textContent = ${J(lazyNow.nested)};
+      true`);
+    assert.ok(await until(() => allAre(LAZY, prefixed(lazyNow, "RU")), 5000), "изменённый текст в его root: " + J(await texts(LAZY)));
+    ok("компонент, определённый после «Перевести страницу» (в документе и в root другого компонента), переводится сам — текст и атрибуты; его root под наблюдением");
+
     // ---- 6. Esc — оригинал везде, и в root ----
     await esc();
     const back = { ...orig, ...nowOrig };
@@ -147,12 +172,15 @@ const J = JSON.stringify;
     assert.ok(await until(() => allAre(ALL, back), 2000), J(await texts(ALL)));
     assert.strictEqual(await txt("#far", "p"), farOrig);
     assert.ok(await until(() => attrsAre({ ...A, ...A_LATE }, { ...attrOrig, leaf: "Tooltip of the late leaf component" }), 2000), "атрибуты в root после Esc: " + J(await attrs({ ...A, ...A_LATE })));
-    // наблюдение снято: новый текст в root больше не переводится
-    await ev(`deep("#switch", ".lbl").textContent = "Theme switch"; true`); await sleep(700);
+    assert.ok(await until(() => allAre(LAZY, lazyNow), 2000), "компонент, определённый позже, после Esc: " + J(await texts(LAZY)));
+    // наблюдение снято: новый текст в root больше не переводится, компонент, определённый теперь, — тоже
+    await ev(`deep("#switch", ".lbl").textContent = "Theme switch"; defineLate("x-lazy-esc"); true`); await sleep(1500);
     assert.strictEqual(await txt("#switch", ".lbl"), "Theme switch");
     assert.strictEqual(await ev("sent().filter((x) => x.includes('Theme switch')).length"), 0);
+    assert.strictEqual(await txt("#lazyEsc", ".lz"), "Text of the x-lazy-esc component drawn on upgrade");
+    assert.strictEqual(await ev("sent().filter((x) => x.includes('x-lazy-esc')).length"), 0, "компонент, определённый после Esc, не переводится");
     await ev(`deep("#switch", ".lbl").textContent = "Theme"; true`);
-    ok("Esc возвращает оригинал и внутри root (текст, который сайт поменял, и атрибуты); после этого новое в root не переводится");
+    ok("Esc возвращает оригинал и внутри root (текст, который сайт поменял, и атрибуты); после этого новое в root и компонент, определённый позже, не переводятся");
 
     // ---- 7. Смена языка перепереводит и в root; «Показать оригинал» возвращает ----
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
@@ -161,8 +189,13 @@ const J = JSON.stringify;
     assert.ok(await until(() => allAre(ALL, prefixed(back, "DE")), 8000), J(await texts(ALL)));
     await ev("sendCmd('restoreAll'); true"); await sleep(150);
     assert.ok(await until(() => allAre(ALL, back), 2000), J(await texts(ALL)));
+    assert.ok(await until(() => allAre(LAZY, lazyNow), 2000), J(await texts(LAZY)));
     assert.strictEqual(await inRoots(".ht-loading"), 0);
-    ok("смена языка перепереводит текст в root; «Показать оригинал» возвращает его");
+    // x-lazy-orig ждал определения и при этом переводе: после «Показать оригинал» его определение ничего не переводит
+    await ev("defineLate('x-lazy-orig'); true"); await sleep(1500);
+    assert.strictEqual(await txt("#lazyOrig", ".lz"), "Text of the x-lazy-orig component drawn on upgrade");
+    assert.strictEqual(await ev("sent().filter((x) => x.includes('x-lazy-orig')).length"), 0, "компонент, определённый после «Показать оригинал», не переводится");
+    ok("смена языка перепереводит текст в root; «Показать оригинал» возвращает его; компонент, определённый после этого, не переводится");
 
     assert.deepStrictEqual(errors, [], "исключения на странице");
     console.log(`\nВсе проверки пройдены: ${pass}`);

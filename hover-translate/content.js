@@ -50,6 +50,10 @@
   let mutObserver = null;
   let mutRoots = new WeakSet();      // открытые shadow root сайта, за которыми следит mutObserver (см. watchRoot)
   let mutTimer = 0;
+  const lateHosts = new Map();       // имя -> неопределённые пользовательские элементы с этим именем (см. noteLate)
+  let lateTimer = 0;
+  let lateStep = 0;                  // через сколько следующая проверка lateHosts (растёт, пока ничего не меняется)
+  let lateAt = 0;                    // когда в lateHosts в последний раз что-то добавилось или определилось
   let mutTries = new WeakMap();      // owner -> { n, at }: сколько раз подряд его переводили заново
   let mutTopUp = new WeakSet();      // owner с живым переводом, в котором сайт добавил или переписал текст
   let mutNew = new WeakSet();        // owner без перевода, который сайт добавил или переписал: модели для него не качаем
@@ -2711,16 +2715,103 @@
     mutObserver.observe(document.documentElement, MUT_OPTS);
     mutRoots = new WeakSet();
     watchRootsIn(document.documentElement);
+    noteLate([document.documentElement]);
   }
 
   // Наблюдатель <html> в shadow root не заходит: каждый открытый root сайта наблюдаем сам по себе, теми же опциями.
-  // Root, которых ещё нет (компонент добавят позже), находит ownersOf в добавленном. watchRoot — true, если root
-  // новый для наблюдателя.
+  // Root, которых ещё нет (компонент добавят позже), находит ownersOf в добавленном, а root компонента, который
+  // определили позже, — checkLate. watchRoot — true, если root новый для наблюдателя.
   function watchRoot(root) {
     if (!mutObserver || mutRoots.has(root)) return false;
     mutRoots.add(root);
     mutObserver.observe(root, MUT_OPTS);
+    noteLate([root]);
     return true;
+  }
+
+  // Компонент, который получил root уже после начала наблюдения: <x-foo> стоит в разметке, а
+  // customElements.define("x-foo", …) выполняется позже (ленивая загрузка библиотеки компонентов) — при апгрейде
+  // конструктор делает attachShadow и рисует текст в root. Наблюдателю это записей не даёт (root ещё никто не
+  // наблюдает), а из изолированного мира content-скрипта апгрейд не увидеть: подмена attachShadow вызовов страницы
+  // не ловит, customElements здесь null. Поэтому помним неопределённые элементы (:not(:defined)) — в документе и в
+  // наблюдаемых root при старте наблюдения и в добавленном содержимом — и по таймеру смотрим только их.
+  // Имя определяется сразу для всех элементов с ним: на каждое имя селектор проверяем у одного элемента, а всех с
+  // этим именем разбираем, когда он определился, — у остальных на проверке только isConnected (ушедших со страницы
+  // забываем). У определившегося элемента открытый root сайта — элемент идёт в flushMut как добавленный компонент:
+  // ownersOf берёт root под наблюдение, текст и атрибуты (attrsAdded) в нём переводятся как новое содержимое.
+  // Определившийся без открытого root (без shadow DOM, root закрытый) забываем. Шаг таймера растёт от LATE_MIN до
+  // LATE_MAX, пока ничего не меняется, и сбрасывается, когда что-то определилось или добавилось. После затишья
+  // LATE_QUIET (ничего не добавилось и не определилось) перестаём ждать и забываем всё: таймер снова запустит
+  // неопределённый элемент в добавленном содержимом. Помним не больше LATE_CAP элементов. Снимает всё unwatchPage.
+  const LATE_MIN = 250;
+  const LATE_MAX = 4000;
+  const LATE_QUIET = 120000;
+  const LATE_CAP = 5000;
+  // Неопределённые элементы в scopes (элементы и root) — запомнить и проверить скоро.
+  function noteLate(scopes) {
+    if (!mutObserver) return;
+    let n = 0, added = false;
+    for (const set of lateHosts.values()) n += set.size;
+    for (const s of scopes) {
+      if (!s.isConnected) continue;
+      const els = Array.from(s.querySelectorAll(":not(:defined)"));
+      if (s.nodeType === 1 && s.matches(":not(:defined)")) els.push(s);
+      if (n + els.length > LATE_CAP) n = pruneLate();
+      for (const el of els) {
+        if (n >= LATE_CAP) break;
+        let set = lateHosts.get(el.localName);
+        if (!set) lateHosts.set(el.localName, set = new Set());
+        if (set.has(el)) continue;
+        set.add(el);
+        n++;
+        added = true;
+      }
+    }
+    if (!added) return;
+    lateAt = Date.now();
+    if (lateTimer && lateStep === LATE_MIN) return;
+    clearTimeout(lateTimer);
+    lateStep = LATE_MIN;
+    lateTimer = setTimeout(checkLate, lateStep);
+  }
+  // Забыть ушедшие со страницы; сколько осталось.
+  function pruneLate() {
+    let n = 0;
+    for (const [name, set] of lateHosts) {
+      for (const el of set) if (!el.isConnected) set.delete(el);
+      if (set.size) n += set.size; else lateHosts.delete(name);
+    }
+    return n;
+  }
+  function checkLate() {
+    lateTimer = 0;
+    if (!mutObserver || !pageActive) return;
+    let hit = false;
+    for (const [name, set] of lateHosts) {
+      let probe = null;
+      for (const el of set) if (!el.isConnected) set.delete(el); else if (!probe) probe = el;
+      if (probe && probe.matches(":defined")) {
+        for (const el of set) {
+          // Ещё не определён — значит, в другом реестре (scoped registry у root): ждёт своего определения.
+          if (!el.matches(":defined")) continue;
+          set.delete(el);
+          if (siteRoot(el)) { mutStarts.add(el); hit = true; }
+        }
+      }
+      if (!set.size) lateHosts.delete(name);
+    }
+    if (hit && !mutTimer) mutTimer = setTimeout(flushMut, MUT_MS);
+    if (!lateHosts.size) return;
+    const now = Date.now();
+    if (hit) lateAt = now;
+    if (now - lateAt > LATE_QUIET) { lateHosts.clear(); return; }
+    lateStep = hit ? LATE_MIN : Math.min(lateStep * 2, LATE_MAX);
+    lateTimer = setTimeout(checkLate, lateStep);
+  }
+  function stopLate() {
+    clearTimeout(lateTimer);
+    lateTimer = 0;
+    lateHosts.clear();
   }
   function watchRootsIn(scope) {
     eachSiteRoot(scope, (root) => { if (watchRoot(root)) watchRootsIn(root); });
@@ -2739,6 +2830,7 @@
     mutStarts.clear();
     clearTimeout(mutTimer);
     mutTimer = 0;
+    stopLate();
   }
 
   // Записи наблюдателя — только запомнить место: разбор раз в MUT_MS (flushMut). Пачка, а не «после
@@ -2823,6 +2915,7 @@
     const starts = Array.from(mutStarts);
     mutStarts.clear();
     attrsAdded(starts);
+    noteLate(starts);
     for (const s of starts) if (s.isConnected) ownersOf(s, found, memo);
     // Вложенные владельцы сводим к внешнему — к тому, что уже переведён или тоже в этой пачке (как collectCandidates).
     const body = document.body, owners = new Set();
