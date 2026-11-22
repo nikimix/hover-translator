@@ -731,9 +731,13 @@
   // курсора пересылается так же (frameKey) — переводит фрейм, где курсор над текстом. FRAME_TAG — чтобы своё же
   // сообщение не принять за чужое. Окно того же сайта страница видит сама (mouseover на <iframe>, см. frameEl): от
   // окна без нашего скрипта (about:blank, srcdoc) сообщения не будет никогда.
+  // Окно бывает и внутри открытого shadow root компонента сайта: его не видят ни document.querySelector, ни
+  // window.length (Chrome 157 окна в shadow root не считает). Зато оно выдаёт себя, как только курсор в него зайдёт:
+  // сообщением своего фрейма (hoverFrame) или mouseover на <iframe> (окно того же сайта) — framesSeen.
   const FRAME_TAG = Math.random().toString(36).slice(2);
   let cursorIn = TOP;                 // курсор в этом фрейме, а не в другом фрейме вкладки или вне окна
-  function otherFrames() { return !TOP || !!document.querySelector("iframe, frame"); }
+  let framesSeen = false;             // в этом фрейме есть встроенное окно, куда заходил курсор (и в shadow root)
+  function otherFrames() { return !TOP || framesSeen || !!document.querySelector("iframe, frame"); }
   function frameEl(el) { return !!el && (el.tagName === "IFRAME" || el.tagName === "FRAME"); }
   // Настоящее движение мыши здесь, а курсор считался в другом фрейме (или вне окна). at — когда курсор пришёл (см. upHere).
   function cursorBack() {
@@ -744,7 +748,7 @@
   // Курсор пришёл в другой фрейм вкладки: элемента под курсором здесь нет до следующего движения мыши здесь.
   function cursorAway(from, at) {
     if (from === FRAME_TAG) return;
-    cursorIn = false;
+    cursorIn = false; framesSeen = true;
     hoverEl = null; lastOverTarget = null; clearTimeout(dwellTimer); dwellFor = null;
     hoverLost = true;
     for (const d of upWait) if (!(at > d.up)) d.away = true;   // пришёл туда раньше отпускания здесь
@@ -761,9 +765,28 @@
   const FRAME_NEAR = 150;
   let moveAt = 0;                     // когда мышь в последний раз двигалась в этом фрейме
   const upWait = [];                  // отпускания, ждущие hoverFrame: { el, at, up, away }
+  // Окна сайта, и внутри открытых shadow root компонентов. Root находит только обход страницы (на 50 тыс. элементов —
+  // миллисекунды), поэтому список root живёт FRAME_ROOTS_MS, а окна в них берём каждый раз заново: root.querySelectorAll
+  // дёшев. Нужен лишь frameNear — отпусканию клавиши, когда мышь только что двигалась. Закрытые root сайта не
+  // раскрываем; наши хосты [data-ht-ui] — не окна сайта.
+  const FRAME_ROOTS_MS = 3000;
+  let frameRoots = null, frameRootsAt = 0;
+  function openRootsIn(scope, out) {
+    for (const el of scope.querySelectorAll("*")) {
+      const root = el.shadowRoot;
+      if (root && !isOurUi(el)) { out.push(root); openRootsIn(root, out); }
+    }
+    return out;
+  }
+  function siteFrames() {
+    const out = [...document.querySelectorAll("iframe, frame")];
+    if (!frameRoots || Date.now() - frameRootsAt > FRAME_ROOTS_MS) { frameRoots = openRootsIn(document, []); frameRootsAt = Date.now(); }
+    for (const root of frameRoots) if (root.host.isConnected) out.push(...root.querySelectorAll("iframe, frame"));
+    return out;
+  }
   function frameNear() {
     if (!lastXY) return false;
-    for (const f of document.querySelectorAll("iframe, frame")) {
+    for (const f of siteFrames()) {
       const r = f.getBoundingClientRect();
       if (r.width && r.height && lastXY.x > r.left - FRAME_NEAR && lastXY.x < r.right + FRAME_NEAR
         && lastXY.y > r.top - FRAME_NEAR && lastXY.y < r.bottom + FRAME_NEAR) return true;
@@ -3418,7 +3441,7 @@
     lastOverTarget = target;              // и при выключенном переводе: см. keydown
     hoverLost = false;
     if (!active() || !alive()) return;
-    if (frameEl(target)) cursorIn = false;   // курсор ушёл во встроенное окно (того же сайта — это видно): см. FRAME_TAG
+    if (frameEl(target)) { cursorIn = false; framesSeen = true; }   // курсор ушёл во встроенное окно (того же сайта — это видно): см. FRAME_TAG
     setHover(hoverTarget(target, e.clientX, e.clientY));
     if (popCloseOwner && popCloseOwner === hoverEl) popCloseCancel();   // вернулись на абзац с карточкой
     if (!pointerMoved(e)) return;
