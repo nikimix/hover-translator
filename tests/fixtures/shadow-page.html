@@ -102,6 +102,8 @@
   // заранее, root и текст появляются при апгрейде. x-lazy стоит и в документе, и в root компонента x-holder.
   window.defineLate = (name) => define(name, `<p class="lz" title="Tooltip of the ${name} component">Text of the ${name} component drawn on upgrade</p>`);
   define("x-holder", `<div class="hold"><x-lazy></x-lazy></div>`);
+  // Тоже позже, но текст — прямо в root, без элемента-обёртки (Lit: html`…`): строка у хоста.
+  window.defineLateBare = (name) => define(name, `Bare text of the ${name} component, <b>with a bold part</b> and a plain tail`);
 
   (function tick() { requestAnimationFrame(tick); })();
 </script>
@@ -119,6 +121,7 @@
   <x-holder id="holder"></x-holder>
   <x-lazy-esc id="lazyEsc"></x-lazy-esc>
   <x-lazy-orig id="lazyOrig"></x-lazy-orig>
+  <div class="bare-box"><x-bare id="bare"></x-bare></div>
   <div id="later"></div>
   <div id="fillers"></div>
   <x-far id="far"></x-far>

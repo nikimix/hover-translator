@@ -165,6 +165,25 @@ const J = JSON.stringify;
     assert.ok(await until(() => allAre(LAZY, prefixed(lazyNow, "RU")), 5000), "изменённый текст в его root: " + J(await texts(LAZY)));
     ok("компонент, определённый после «Перевести страницу» (в документе и в root другого компонента), переводится сам — текст и атрибуты; его root под наблюдением");
 
+    // ---- 5в. То же, когда текст лежит прямо в root, без обёртки: строка — у хоста, и новое содержимое в ней тоже ----
+    // Куски текста с буквами в root #bare (без <style>): [текст, …].
+    const bare = () => ev(`(() => { const r = document.querySelector("#bare").shadowRoot; if (!r) return null;
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT), out = [];
+      for (let n = w.nextNode(); n; n = w.nextNode()) if (/\\p{L}/u.test(n.nodeValue)) out.push(n.nodeValue.trim());
+      return out; })()`);
+    const bareAll = async (re) => { const b = await bare(); return b && b.length && b.every((x) => re.test(x)) ? b : null; };
+    await ev("setTimeout(() => defineLateBare('x-bare'), 1000); true");
+    assert.ok(await until(() => bare(), 3000), "страница определила x-bare");
+    assert.deepStrictEqual(await bare(), ["Bare text of the x-bare component,", "with a bold part", "and a plain tail"]);
+    assert.ok(await until(() => bareAll(/^\[RU\] /), 8000), "текст прямо в root компонента, определённого позже: " + J(await bare()));
+    // сайт переписал текст прямо в root и дописал туда новый узел — переводятся (доводится строка хоста)
+    await ev(`(() => { const r = document.querySelector("#bare").shadowRoot;
+      r.firstChild.nodeValue = "Bare text rewritten by the site, "; r.append(" and words appended right into the root"); return true; })()`);
+    assert.ok(await until(async () => { const b = await bareAll(/^\[RU\] /); return b && b.length === 4 && /rewritten/.test(b[0]) ? b : null; }, 5000),
+      "изменённый и дописанный текст прямо в root: " + J(await bare()));
+    assert.strictEqual(await ev("sent().filter((x) => x === 'with a bold part').length"), 1, "непоменявшийся кусок не переводится заново");
+    ok("компонент с текстом прямо в root, определённый позже, переводится одной строкой хоста; изменённый и дописанный в root текст — тоже");
+
     // ---- 6. Esc — оригинал везде, и в root ----
     await esc();
     const back = { ...orig, ...nowOrig };
@@ -173,6 +192,7 @@ const J = JSON.stringify;
     assert.strictEqual(await txt("#far", "p"), farOrig);
     assert.ok(await until(() => attrsAre({ ...A, ...A_LATE }, { ...attrOrig, leaf: "Tooltip of the late leaf component" }), 2000), "атрибуты в root после Esc: " + J(await attrs({ ...A, ...A_LATE })));
     assert.ok(await until(() => allAre(LAZY, lazyNow), 2000), "компонент, определённый позже, после Esc: " + J(await texts(LAZY)));
+    assert.ok(await until(() => bareAll(/^(?!\[RU\] )/), 2000), "текст прямо в root после Esc: " + J(await bare()));
     // наблюдение снято: новый текст в root больше не переводится, компонент, определённый теперь, — тоже
     await ev(`deep("#switch", ".lbl").textContent = "Theme switch"; defineLate("x-lazy-esc"); true`); await sleep(1500);
     assert.strictEqual(await txt("#switch", ".lbl"), "Theme switch");

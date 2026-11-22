@@ -2909,18 +2909,22 @@
       if (m.type === "characterData") {
         const n = m.target;
         if (n.nodeType !== 3 || n.nodeValue === ownText.get(n) || !hasLetter(n.nodeValue)) continue;
-        const p = n.parentElement;
+        const p = n.parentElement || rootHost(n.parentNode);
         if (p && !MUT_SKIP.has(p.tagName)) mutStarts.add(p);
         continue;
       }
+      const at = rootHost(m.target) || m.target;
       for (const n of m.addedNodes) {
         if (n.nodeType === 3) {
-          if (hasLetter(n.nodeValue) && m.target.nodeType === 1 && !MUT_SKIP.has(m.target.tagName)) mutStarts.add(m.target);
+          if (hasLetter(n.nodeValue) && at.nodeType === 1 && !MUT_SKIP.has(at.tagName)) mutStarts.add(at);
         } else if (n.nodeType === 1 && !MUT_SKIP.has(n.tagName) && !isOurUi(n)) mutStarts.add(n);
       }
     }
     if (mutStarts.size && !mutTimer) mutTimer = setTimeout(flushMut, MUT_MS);
   }
+  // Текст прямо в root (у такого узла нет parentElement, у записи о нём target — сам root) — место его хоста:
+  // строку держит хост (см. textRoot).
+  function rootHost(node) { return node instanceof ShadowRoot ? node.host : null; }
 
   // Владельцы для изменившегося места: верхний строчный контейнер вокруг него (как pickTarget), а в
   // добавленном блоке — верхние строчные контейнеры внутри (как collectCandidates).
@@ -2930,6 +2934,11 @@
     const top = treeTop(start);
     if (!top || isOurUi(start)) return;
     eachSiteRoot(start, (root) => { if (watchRoot(root)) ownersOf(root, out, memo); });
+    // Root с текстом без обёртки (textRoot) — одна строка хоста, как в collectIn: что бы в нём ни поменялось, владелец —
+    // хост. Сам такой хост (сайт поменял текст прямо в root или добавил компонент) — тоже владелец; его light DOM — как обычно.
+    const r = start instanceof ShadowRoot ? start : start.getRootNode();
+    if (r instanceof ShadowRoot && textRoot(r.host) === r) { out.add(r.host); return; }
+    if (start.nodeType === 1 && textRoot(start)) out.add(start);
     if (start !== top && !hasBlockChild(start, memo)) {
       let el = start;
       while (el.parentElement && el.parentElement !== top && !hasBlockChild(el.parentElement, memo)) el = el.parentElement;
@@ -2986,7 +2995,8 @@
     const body = document.body, owners = new Set();
     for (const el of found) {
       let o = el;
-      for (let a = el.parentElement; a && a !== body; a = a.parentElement) if (found.has(a) || lineByOwner.has(a)) o = a;
+      // хост с текстом в root — своя строка: строка внешнего владельца в root не заходит (см. collectIn)
+      if (!textRoot(el)) for (let a = el.parentElement; a && a !== body; a = a.parentElement) if (found.has(a) || lineByOwner.has(a)) o = a;
       owners.add(o);
     }
     const now = Date.now();
