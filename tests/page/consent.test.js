@@ -2,7 +2,7 @@
 // (fixtures/stub.html). Проверяет: без согласия на отправку текста — ни одного translateBatch (наведение,
 // клавиша, «Перевести страницу», перепревод после смены языка); «авто» без согласия или без ключа
 // переводит встроенным и при сбое называет настоящую причину; согласие на другой сервис не считается;
-// иконки мини-панели. Страницы отдаёт свой сервер (lib/server.js).
+// значки и подписи плавающей кнопки. Страницы отдаёт свой сервер (lib/server.js).
 const assert = require("assert");
 const { launch, sleep } = require("../lib/chrome");
 const { serve } = require("../lib/server");
@@ -52,15 +52,18 @@ const NONE = {};
     assert.strictEqual(await calls(), 0, "ни одного translateBatch");
     assert.strictEqual(await text("#p1"), p1, "абзац не тронут");
     let ts = await toastsNow();
-    assert.ok(ts.length === 1 && /нужно ваше согласие на отправку текста/.test(ts[0]) && /Переключиться на встроенный/.test(ts[0]) && /Открыть настройки/.test(ts[0]), JSON.stringify(ts));
+    assert.ok(ts.length === 1 && /^err:Перевод не работает/.test(ts[0]) && /нужно ваше согласие на отправку текста/i.test(ts[0]) && /Переводить встроенным/.test(ts[0]) && /Открыть настройки/.test(ts[0]), JSON.stringify(ts));
     assert.deepStrictEqual(await ev("typeCalls('noticeOnce').map((c) => c.problem)"), ["no-consent"]);
     await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true"); await sleep(300);
     assert.strictEqual(await calls(), 0, "«Перевести страницу» тоже ничего не отправила");
-    assert.ok(/нужно ваше согласие/.test((await toastsNow()).join()), "и объяснила почему");
+    assert.ok(/нужно ваше согласие/i.test((await toastsNow()).join()), "и объяснила почему");
     // смена языка при уже показанном… здесь показанного нет; смена языка не должна ничего отправлять
     await ev("setStore({ targetLang: 'DE' }); true"); await sleep(600);
     assert.strictEqual(await calls(), 0);
-    ok("DeepL с ключом без согласия: клавиша, «Перевести страницу», смена языка — 0 запросов; одно уведомление «нужно ваше согласие» с кнопками");
+    // согласие дали — уведомление «Перевод не работает» больше не правда и закрывается
+    await ev("setStore({ consent: { deepl: true } }); true"); await sleep(300);
+    assert.deepStrictEqual(await toastsNow(), [], "причину устранили — уведомление закрыто");
+    ok("DeepL с ключом без согласия: клавиша, «Перевести страницу», смена языка — 0 запросов; одно уведомление «нужно ваше согласие» с кнопками; дали согласие — уведомление закрылось");
 
     // ---- 2. согласие на другой сервис не считается; мусор в согласии не считается ----
     await load({ engine: "llm", llmApiKey: "sk-x", llmProvider: "anthropic", consent: { openai: true, deepl: true } });
@@ -115,12 +118,23 @@ const NONE = {};
     assert.ok(/DeepL не принял ключ/.test((await toastsNow()).join()), JSON.stringify(await toastsNow()));
     ok("«авто» без ключа или согласия, встроенный не смог: показана настоящая причина («не умеет переводить эту пару»), а не «не задан ключ DeepL»; ошибка ключа DeepL — по-прежнему она");
 
-    // ---- 6. мини-панель: иконки — SVG с подписями ----
+    // ---- 6. плавающая кнопка: значки — SVG; у кружка, кнопок над ним и пунктов «⋯» — подписи для чтения с экрана ----
     await load({ engine: "chrome", hudShown: true });
-    const hud = await ev("(() => { const r = hudRoot(); return [...r.querySelectorAll('button')].map((b) => (b.querySelector('svg') ? 'svg' : b.textContent) + ':' + b.getAttribute('aria-label')); })()");
-    assert.deepStrictEqual(hud, ["svg:Перевести страницу", "svg:Вернуть оригинал (Esc)", "svg:Выключить перевод на этом сайте", "svg:Скрыть панель"]);
-    assert.strictEqual(await ev("hudRoot().querySelector('select').getAttribute('aria-label')"), "Язык перевода");
-    ok("мини-панель на странице: иконки как в окне (SVG), у каждой кнопки и у списка — подпись для чтения с экрана");
+    assert.strictEqual(await ev("fabRoot().querySelector('.fk').hidden"), true, "кнопки скрыты, пока кружок не открыли");
+    const fc = await ev("uiPoint(fabRoot(), '.fab')");
+    await t.click(fc.x, fc.y); await sleep(150);       // кнопки и «⋯» — настоящими щелчками
+    const mc = await ev("uiPoint(fabRoot(), '.fk-btn[data-k=more]')");
+    await t.click(mc.x, mc.y); await sleep(150);
+    const fab = await ev(`(() => { const r = fabRoot(), b = r.querySelector('.fab');
+      const name = (e) => e.getAttribute('aria-label') || e.textContent.trim();
+      const one = (x) => (x.querySelector('svg') ? 'svg' : '-') + ':' + name(x);
+      return { fab: one(b), open: !r.querySelector('.fk').hidden, bar: [...r.querySelectorAll('.fk .fk-btn')].map(one),
+        code: r.querySelector('.fk-btn[data-k=lang]').textContent, more: [...r.querySelectorAll('#fk-more .fk-opt')].map(one) }; })()`);
+    const want = await ev(`(() => { const l = HT_langLabel('RU'); return { fab: 'svg:' + HT_t('csFabAria', [HT_t('extShortName')]), open: true,
+      bar: ['svg:' + HT_t('translatePage'), '-:' + HT_t('csFkLang', [l[0].toUpperCase() + l.slice(1)]), 'svg:' + HT_t('csFkMore')], code: 'RU',
+      more: ['svg:' + HT_t('csFabSiteOff', ['127.0.0.1']), 'svg:' + HT_t('csFabHide'), 'svg:' + HT_t('ppSettings')] }; })()`);
+    assert.deepStrictEqual(fab, want);
+    ok("плавающая кнопка: у кружка — значок SVG и подпись «" + want.fab.slice(4) + "», у кнопок над ним — значки и подписи («" + want.bar[1].slice(2) + "» — код «RU»), у пунктов «⋯» — значки SVG и подписи; кнопки скрыты, пока кружок не открыли щелчком");
 
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);

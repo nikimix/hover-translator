@@ -3,7 +3,7 @@
 //     каждый объявленный плейсхолдер используется, у плюральных — все четыре формы;
 //   • каждый ключ, на который ссылаются код (HT_t/HT_plural, таблицы shared.js и popup/content), разметка
 //     (data-i18n*) и manifest (__MSG_…__), существует; неиспользуемых ключей нет;
-//   • таблицы shared.js (переводчики, причины, подсказки, модели) дают непустые тексты на обоих языках;
+//   • таблицы shared.js (причины, подсказки, модели) дают непустые тексты на обоих языках;
 //   • кириллицы в коде и разметке больше нет (кроме абзаца для пробы на русском); в английских текстах её
 //     нет, в русских — нет английских слов, кроме названий сервисов, моделей и клавиш;
 //   • название — только в extName (полное) и extShortName (короткое): в остальных сообщениях, разметке и
@@ -63,8 +63,8 @@ function phOf(m) {
 }
 
 // ---- 2. ссылки на ключи: существуют, неиспользуемых нет ----
-const JS = ["shared.js", "background.js", "content.js", "popup.js", "welcome.js", "builtin.js"];
-const HTML = ["popup.html", "welcome.html"];
+const JS = ["shared.js", "background.js", "content.js", "popup.js", "options.js", "welcome.js", "builtin.js", "ui.js"];
+const HTML = ["popup.html", "options.html", "welcome.html"];
 const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 const refs = new Map();          // ключ -> где
 const addRef = (k, where) => { if (!refs.has(k)) refs.set(k, where); };
@@ -92,9 +92,10 @@ const addRef = (k, where) => { if (!refs.has(k)) refs.set(k, where); };
   // Ключи в таблицах (подписи и тексты выбираются по коду): значения-строки этих объектов и массивов.
   const tables = [
     ["shared.js", /var HT_ENGINES = \[([\s\S]*?)\n\];/], ["shared.js", /var HT_KEY_HINTS = \{([\s\S]*?)\};/],
-    ["shared.js", /var HT_PROBLEMS = \{([\s\S]*?)\n\};/], ["content.js", /const FALLBACK_SAY = \{([\s\S]*?)\};/],
-    ["popup.js", /const SETUP_GO = \{([\s\S]*?)\};/], ["popup.js", /const SETUP_FIX = \{([\s\S]*?)\};/],
-    ["popup.js", /const key = deepl \?([\s\S]*?);\n/],
+    ["shared.js", /var HT_PROBLEMS = \{([\s\S]*?)\n\};/], ["shared.js", /var HT_SWATCHES = \[([\s\S]*?)\];/],
+    ["content.js", /const FALLBACK_SAY = \{([\s\S]*?)\};/], ["content.js", /const FALLBACK_TELL = Object\.assign\(\{([\s\S]*?)\}/],
+    // подсказка к ошибке по её коду (отклонённый ключ): HT_t(FAIL_HINT[out.code])
+    ["content.js", /const FAIL_HINT = \{([\s\S]*?)\};/],
   ];
   for (const [f, re] of tables) {
     const m = read(f).match(re);
@@ -123,9 +124,8 @@ for (const lang of ["ru", "en"]) {
   const r = (e) => vm.runInContext(e, ctx);
   const texts = r(`(() => {
     const out = [];
-    for (const [code] of HT_ENGINES) out.push(HT_engineLabel(code), HT_engineHint(code));
     for (const f in HT_KEY_HINTS) out.push(HT_t(HT_KEY_HINTS[f]));
-    for (const p in HT_PROBLEMS) for (const kind of ["short", "page"]) {
+    for (const p in HT_PROBLEMS) for (const kind of ["short", "page"].filter((k) => HT_PROBLEMS[p][k])) {
       out.push(HT_problemText(p, kind, { targetLang: "TT" }));
       out.push(HT_problemText(p, kind, { targetLang: "RU", sourceLang: "KN" }));
     }
@@ -137,11 +137,11 @@ for (const lang of ["ru", "en"]) {
   assert.deepStrictEqual(i18n.missing, [], lang + ": запрошены несуществующие ключи");
   assert.strictEqual(r("HT_uiLang()"), lang);
   // проблема языка: «на» — для языка перевода, «с» — для языка оригинала
-  const to = r(`HT_problemText("builtin-lang", "page", { targetLang: "TT" })`), from = r(`HT_problemText("deepl-lang", "short", { targetLang: "RU", sourceLang: "KN" })`);
+  const to = r(`HT_problemText("deepl-lang", "page", { targetLang: "TT" })`), from = r(`HT_problemText("deepl-lang", "short", { targetLang: "RU", sourceLang: "KN" })`);
   if (lang === "ru") assert.ok(/на этот язык \(татарский\)/.test(to) && /с этого языка: каннада/.test(from), to + " | " + from);
   else assert.ok(/into Tatar/.test(to) && /from Kannada/.test(from), to + " | " + from);
 }
-ok("таблицы shared.js (переводчики, подсказки о ключе, причины — и про язык «на»/«с», модели ИИ) дают непустые тексты на ru и en");
+ok("таблицы shared.js (подсказки о ключе, причины — и про язык «на»/«с», модели ИИ) дают непустые тексты на ru и en");
 
 // ---- 4. кириллица осталась только в сообщениях ----
 {
@@ -153,7 +153,8 @@ ok("таблицы shared.js (переводчики, подсказки о кл
     for (const s of strings) bad.push(f + ": " + s);
   }
   for (const f of HTML) {
-    const vis = read(f).replace(/<!--[\s\S]*?-->/g, "").replace(/<p class="trainer" id="trainerRu"[^>]*>[^<]*<\/p>/, "");
+    // абзац для пробы на русском (приветствие) — не текст интерфейса: его язык — язык оригинала, а не интерфейса
+    const vis = read(f).replace(/<!--[\s\S]*?-->/g, "").replace(/<p lang="ru" hidden>[^<]*<\/p>/, "");
     for (const line of vis.split("\n")) if (/[А-Яа-яЁё]/.test(line)) bad.push(f + ": " + line.trim().slice(0, 80));
   }
   if (/[А-Яа-яЁё]/.test(read("manifest.json"))) bad.push("manifest.json");
@@ -165,7 +166,7 @@ ok("таблицы shared.js (переводчики, подсказки о кл
 // Допустимые английские слова в русских текстах: сервисы, модели, клавиши, адреса, раздел «API Keys» на
 // сайте DeepL, тариф «Free», примеры кодов языков, название расширения.
 const RU_ALLOWED = new Set(["DeepL", "OpenAI", "Anthropic", "ChatGPT", "Claude", "Chrome", "Google", "Shift", "Esc",
-  "API", "Keys", "Free", "fx", "deepl", "com", "pro", "api", "chrome", "extensions", "shortcuts", "EN", "RU"]);
+  "Alt", "Ctrl", "Windows", "API", "Keys", "Free", "fx", "deepl", "com", "pro", "api", "chrome", "extensions", "shortcuts", "EN", "RU"]);
 {
   const enCyr = Object.entries(MSG.en).filter(([, m]) => /[А-Яа-яЁё]/.test(m.message)).map(([k]) => k);
   assert.deepStrictEqual(enCyr, [], "кириллица в английских текстах");

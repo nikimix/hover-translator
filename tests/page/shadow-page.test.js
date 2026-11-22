@@ -1,0 +1,226 @@
+// «Перевести страницу» и новое содержимое внутри веб-компонентов сайта (открытые shadow root, как у MDN на Lit,
+// Reddit, YouTube): content.js в Chrome без интерфейса на fixtures/shadow-page.html с заглушкой chrome.*.
+//   • текст в открытых root (и в root внутри root) переводится вместе со страницей, далёкий — при прокрутке;
+//     закрытый root сайта, хост под notranslate и хост с пометкой нашего интерфейса не трогаются; текст light DOM
+//     в <slot> уходит в перевод один раз;
+//   • подложка «идёт перевод» внутри root действует так же, как в документе (лист в adoptedStyleSheets, свой лист
+//     компонента остаётся, <style> в root не добавляется), «не перевелось» — тоже;
+//   • компонент, добавленный после перевода (с компонентом внутри), и текст, изменённый внутри root, переводятся сами;
+//   • компонент, который стоял в разметке и получил root позже (customElements.define после «Перевести страницу»,
+//     и в документе, и в root другого компонента), переводится сам, его root — под наблюдением;
+//   • Esc и «Показать оригинал» возвращают оригинал и в root; смена языка перепереводит и в root; после Esc и
+//     «Показать оригинал» компонент, определённый позже, не переводится.
+const assert = require("assert");
+const { launch, sleep } = require("../lib/chrome");
+const { serve } = require("../lib/server");
+let pass = 0;
+const ok = (name) => { pass++; console.log("  ok  " + name); };
+const until = async (fn, ms = 5000, step = 50) => {
+  const t0 = Date.now();
+  for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) return v; await sleep(step); }
+};
+const J = JSON.stringify;
+
+(async () => {
+  const srv = await serve();
+  const URL = srv.base + "/shadow-page.html";
+  const b = await launch();
+  const errors = [];
+  b.listeners.push((m) => {
+    if (m.method === "Runtime.exceptionThrown") errors.push(J(m.params.exceptionDetails).slice(0, 400));
+  });
+  try {
+    const t = await b.openTab("about:blank");
+    await t.cmd("Emulation.setDeviceMetricsOverride", { width: 1000, height: 800, deviceScaleFactor: 1, mobile: false });
+    const ev = t.ev;
+    // Текст элемента по пути через root: txt("#outer", "x-inner", "p").
+    const txt = (...sels) => ev(`(deep(${sels.map((s) => J(s)).join(", ")}) || { textContent: null }).textContent`);
+    // Что проверяем: в документе, в root, в root внутри root, light DOM через <slot>.
+    const S = {
+      p1: ["#p1"], slotted: ["#slotted"], card: ["#card", ".ttl"], sw: ["#switch", ".lbl"],
+      outer: ["#outer", "h3"], inner: ["#outer", "x-inner", "p"],
+    };
+    const LATE = { late: ["#later x-late", "p"], leaf: ["#later x-late", "x-leaf", "span"] };
+    // Атрибуты в root: [путь, имя атрибута].
+    const A = { sw: [["#switch", "button"], "aria-label"], q: [["#outer", "x-inner", "input"], "placeholder"] };
+    const A_LATE = { leaf: [["#later x-late", "x-leaf", "span"], "title"] };
+    const attr = ([sels, name]) => ev(`(() => { const e = deep(${sels.map((x) => J(x)).join(", ")}); return e ? e.getAttribute(${J(name)}) : null; })()`);
+    const attrs = async (map) => { const o = {}; for (const k in map) o[k] = await attr(map[k]); return o; };
+    const attrsAre = async (map, want) => { const now = await attrs(map); return Object.keys(map).every((k) => now[k] === want[k]) ? true : null; };
+    const texts = async (map) => { const o = {}; for (const k in map) o[k] = await txt(...map[k]); return o; };
+    const allAre = async (map, want) => {
+      const now = await texts(map);
+      return Object.keys(map).every((k) => now[k] === want[k]) ? true : null;
+    };
+    const prefixed = (orig, lang) => Object.fromEntries(Object.entries(orig).map(([k, v]) => [k, `[${lang}] ${v}`]));
+    const esc = async () => { await t.key("rawKeyDown", "Escape", "Escape", 0, 27); await t.key("keyUp", "Escape", "Escape", 0, 27); await sleep(150); };
+    // Элементы с нашим классом в открытых root сайта (и в документе).
+    const inRoots = (cls) => ev(`__roots.filter((r) => r.mode === "open").flatMap((r) => [...r.querySelectorAll(${J(cls)})]).length`);
+
+    await t.cmd("Page.navigate", { url: URL });
+    await until(() => ev("typeof HT_siteKey === 'function' && document.readyState === 'complete'").catch(() => false), 5000);
+    await sleep(300);
+    const orig = await texts(S);
+    assert.deepStrictEqual(Object.values(orig).filter((v) => typeof v !== "string"), [], J(orig));
+    const farOrig = await txt("#far", "p");
+    const closedText = () => ev("__roots.find((r) => r.host.id === 'closed').textContent");
+    const closedOrig = await closedText();
+    const attrOrig = await attrs(A);
+    assert.deepStrictEqual(attrOrig, { sw: "Switch the colour theme", q: "Search inside the nested component" });
+
+    // ---- 1. Пока переводится: подложка в root — как в документе ----
+    await ev("window.__bgDelay = 1200; sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await inRoots(".ht-loading")) > 0, 3000), "в открытом root есть элемент с ht-loading");
+    await sleep(300);   // подложка начинается с задержкой 0,15 с
+    const look = await ev(`(() => {
+      const st = (e) => { const c = getComputedStyle(e); return { anim: c.animationName, cursor: c.cursor, bg: c.backgroundColor }; };
+      const inRoot = __roots.filter((r) => r.mode === "open").flatMap((r) => [...r.querySelectorAll(".ht-loading")])[0];
+      const inDoc = document.querySelector(".ht-loading");
+      return { root: inRoot && st(inRoot), doc: inDoc && st(inDoc) };
+    })()`);
+    assert.ok(look.root && look.doc, J(look));
+    assert.strictEqual(look.root.anim, "ht-pulse", "анимация подложки в root: " + J(look));
+    assert.strictEqual(look.root.anim, look.doc.anim);
+    assert.strictEqual(look.root.cursor, "progress");
+    assert.strictEqual(look.root.cursor, look.doc.cursor);
+    assert.notStrictEqual(look.root.bg, "rgba(0, 0, 0, 0)", "подложка в root видна: " + J(look));
+    ok("«идёт перевод» внутри root действует, как в документе: " + J(look.root));
+
+    // ---- 2. Переведено: текст в открытых root и в root внутри root; закрытый, notranslate и наш — нет ----
+    assert.ok(await until(() => allAre(S, prefixed(orig, "RU")), 8000), J(await texts(S)));
+    await ev("window.__bgDelay = 0; true");
+    const sent = await ev("sent()");
+    const count = (s) => sent.filter((x) => x.includes(s)).length;
+    assert.strictEqual(count("Slotted light text"), 1, "текст light DOM через <slot> — один раз: " + J(sent));
+    assert.strictEqual(count("Card title inside"), 1, J(sent));
+    assert.strictEqual(count("Closed component"), 0, "закрытый root сайта не переводится");
+    assert.strictEqual(await closedText(), closedOrig);
+    assert.strictEqual(count("Brand widget"), 0, "хост под notranslate: его root не переводится");
+    assert.strictEqual(await txt("#brand", "p"), "Brand widget text that the author keeps");
+    assert.strictEqual(count("Own interface"), 0, "хост с пометкой нашего интерфейса не переводится");
+    assert.strictEqual(await txt("#ours", "p"), "Own interface text must stay");
+    const ours = await ev("ourTexts()");
+    for (const s of ours) assert.ok(!sent.some((x) => s.includes(x.trim())), "текст нашего интерфейса ушёл в перевод: " + s);
+    assert.strictEqual(await txt("#far", "p"), farOrig, "компонент далеко внизу ждёт прокрутки");
+    assert.strictEqual(count("Far component"), 0);
+    assert.strictEqual(await inRoots(".ht-loading"), 0, "подложка снята");
+    assert.ok(await until(() => attrsAre(A, prefixed(attrOrig, "RU")), 3000), "атрибуты в root: " + J(await attrs(A)));
+    assert.strictEqual((await ev("sent()")).filter((x) => x.includes("Closed tooltip")).length, 0, "атрибут в закрытом root не переводится");
+    ok("«Перевести страницу» переводит текст и атрибуты в открытых root и во вложенном компоненте; <slot> — один раз; закрытый root, notranslate и наш хост — нет");
+
+    // ---- 3. Свой лист компонента остаётся, <style> в root не появляется; «не перевелось» в root тоже действует ----
+    const sheets = await ev(`(() => {
+      const r = deep("#card").shadowRoot, h = deep("#outer", "h3");
+      h.classList.add("ht-error");
+      const a = getComputedStyle(h, "::after"), c = getComputedStyle(h);
+      const out = { n: r.adoptedStyleSheets.length, own: getComputedStyle(r.querySelector(".ttl")).color,
+        styles: __roots.filter((x) => x.mode === "open").reduce((s, x) => s + x.querySelectorAll("style").length, 0),
+        after: a.content, bg: c.backgroundColor };
+      h.classList.remove("ht-error");
+      return out;
+    })()`);
+    assert.deepStrictEqual(sheets, { n: 2, own: "rgb(1, 2, 3)", styles: 0, after: '"!"', bg: "rgba(215, 40, 40, 0.1)" });
+    ok("лист подключён к root рядом со своим листом компонента (adoptedStyleSheets), <style> не добавлен; «!» ошибки в root рисуется");
+
+    // ---- 4. Ленивый перевод по видимости — и в root ----
+    await ev("document.querySelector('#far').scrollIntoView({ block: 'center' }); true");
+    assert.ok(await until(async () => (await txt("#far", "p")) === "[RU] " + farOrig, 5000), await txt("#far", "p"));
+    ok("компонент далеко внизу переводится, когда его прокрутят");
+
+    // ---- 5. Новое содержимое: компонент с компонентом внутри, текст заменён и переписан внутри root ----
+    await ev("window.scrollTo(0, 0); true"); await sleep(100);
+    await ev(`document.getElementById("later").appendChild(document.createElement("x-late"));
+      deep("#outer", "h3").textContent = "Outer heading changed by the site";
+      deep("#outer", "x-inner", "p").firstChild.nodeValue = "Nested text rewritten in place";
+      true`);
+    const lateOrig = await texts(LATE);
+    assert.deepStrictEqual(lateOrig, { late: "Component added after the page was translated", leaf: "Leaf text inside a late component" });
+    const changed = { outer: "Outer heading changed by the site", inner: "Nested text rewritten in place" };
+    const NOW = { outer: S.outer, inner: S.inner, ...LATE };
+    const nowOrig = { ...changed, ...lateOrig };
+    assert.ok(await until(() => allAre(NOW, prefixed(nowOrig, "RU")), 5000), J(await texts(NOW)));
+    const lateAttr = await attrs(A_LATE);
+    assert.ok(await until(() => attrsAre(A_LATE, { leaf: "[RU] Tooltip of the late leaf component" }), 3000), "атрибут добавленного компонента: " + J(lateAttr));
+    ok("добавленный после перевода компонент (и компонент в нём, с атрибутами) и текст, изменённый внутри root, переводятся сами");
+
+    // ---- 5б. Компонент получил root после начала наблюдения: элемент стоял в разметке, определён позже ----
+    // Апгрейд записей наблюдателю не даёт: ни в документе, ни в root x-holder рядом ничего не меняется.
+    const LAZY = { lazy: ["#lazy", ".lz"], nested: ["#holder", "x-lazy", ".lz"] };
+    const A_LAZY = { lazy: [["#lazy", ".lz"], "title"], nested: [["#holder", "x-lazy", ".lz"], "title"] };
+    const hasRoot = (...sels) => ev(`!!deep(${sels.map((x) => J(x)).join(", ")}).shadowRoot`);
+    assert.deepStrictEqual([await hasRoot("#lazy"), await hasRoot("#holder", "x-lazy")], [false, false], "до определения root нет");
+    await ev("setTimeout(() => defineLate('x-lazy'), 1000); true");
+    assert.ok(await until(() => hasRoot("#lazy"), 3000), "страница определила x-lazy");
+    const lazyText = "Text of the x-lazy component drawn on upgrade";
+    const lazyOrig = { lazy: lazyText, nested: lazyText };
+    assert.deepStrictEqual(await texts(LAZY), lazyOrig);
+    assert.ok(await until(() => allAre(LAZY, prefixed(lazyOrig, "RU")), 8000), "текст в root компонента, определённого позже: " + J(await texts(LAZY)));
+    const lazyTip = "Tooltip of the x-lazy component";
+    assert.ok(await until(() => attrsAre(A_LAZY, { lazy: "[RU] " + lazyTip, nested: "[RU] " + lazyTip }), 3000), "атрибут в его root: " + J(await attrs(A_LAZY)));
+    // root под наблюдением: текст, который сайт в нём поменял, тоже переводится
+    const lazyNow = { lazy: "Lazy component text changed by the site", nested: "Nested lazy text changed by the site" };
+    await ev(`deep("#lazy", ".lz").firstChild.nodeValue = ${J(lazyNow.lazy)};
+      deep("#holder", "x-lazy", ".lz").textContent = ${J(lazyNow.nested)};
+      true`);
+    assert.ok(await until(() => allAre(LAZY, prefixed(lazyNow, "RU")), 5000), "изменённый текст в его root: " + J(await texts(LAZY)));
+    ok("компонент, определённый после «Перевести страницу» (в документе и в root другого компонента), переводится сам — текст и атрибуты; его root под наблюдением");
+
+    // ---- 5в. То же, когда текст лежит прямо в root, без обёртки: строка — у хоста, и новое содержимое в ней тоже ----
+    // Куски текста с буквами в root #bare (без <style>): [текст, …].
+    const bare = () => ev(`(() => { const r = document.querySelector("#bare").shadowRoot; if (!r) return null;
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT), out = [];
+      for (let n = w.nextNode(); n; n = w.nextNode()) if (/\\p{L}/u.test(n.nodeValue)) out.push(n.nodeValue.trim());
+      return out; })()`);
+    const bareAll = async (re) => { const b = await bare(); return b && b.length && b.every((x) => re.test(x)) ? b : null; };
+    await ev("setTimeout(() => defineLateBare('x-bare'), 1000); true");
+    assert.ok(await until(() => bare(), 3000), "страница определила x-bare");
+    assert.deepStrictEqual(await bare(), ["Bare text of the x-bare component,", "with a bold part", "and a plain tail"]);
+    assert.ok(await until(() => bareAll(/^\[RU\] /), 8000), "текст прямо в root компонента, определённого позже: " + J(await bare()));
+    // сайт переписал текст прямо в root и дописал туда новый узел — переводятся (доводится строка хоста)
+    await ev(`(() => { const r = document.querySelector("#bare").shadowRoot;
+      r.firstChild.nodeValue = "Bare text rewritten by the site, "; r.append(" and words appended right into the root"); return true; })()`);
+    assert.ok(await until(async () => { const b = await bareAll(/^\[RU\] /); return b && b.length === 4 && /rewritten/.test(b[0]) ? b : null; }, 5000),
+      "изменённый и дописанный текст прямо в root: " + J(await bare()));
+    assert.strictEqual(await ev("sent().filter((x) => x === 'with a bold part').length"), 1, "непоменявшийся кусок не переводится заново");
+    ok("компонент с текстом прямо в root, определённый позже, переводится одной строкой хоста; изменённый и дописанный в root текст — тоже");
+
+    // ---- 6. Esc — оригинал везде, и в root ----
+    await esc();
+    const back = { ...orig, ...nowOrig };
+    const ALL = { ...S, ...LATE };
+    assert.ok(await until(() => allAre(ALL, back), 2000), J(await texts(ALL)));
+    assert.strictEqual(await txt("#far", "p"), farOrig);
+    assert.ok(await until(() => attrsAre({ ...A, ...A_LATE }, { ...attrOrig, leaf: "Tooltip of the late leaf component" }), 2000), "атрибуты в root после Esc: " + J(await attrs({ ...A, ...A_LATE })));
+    assert.ok(await until(() => allAre(LAZY, lazyNow), 2000), "компонент, определённый позже, после Esc: " + J(await texts(LAZY)));
+    assert.ok(await until(() => bareAll(/^(?!\[RU\] )/), 2000), "текст прямо в root после Esc: " + J(await bare()));
+    // наблюдение снято: новый текст в root больше не переводится, компонент, определённый теперь, — тоже
+    await ev(`deep("#switch", ".lbl").textContent = "Theme switch"; defineLate("x-lazy-esc"); true`); await sleep(1500);
+    assert.strictEqual(await txt("#switch", ".lbl"), "Theme switch");
+    assert.strictEqual(await ev("sent().filter((x) => x.includes('Theme switch')).length"), 0);
+    assert.strictEqual(await txt("#lazyEsc", ".lz"), "Text of the x-lazy-esc component drawn on upgrade");
+    assert.strictEqual(await ev("sent().filter((x) => x.includes('x-lazy-esc')).length"), 0, "компонент, определённый после Esc, не переводится");
+    await ev(`deep("#switch", ".lbl").textContent = "Theme"; true`);
+    ok("Esc возвращает оригинал и внутри root (текст, который сайт поменял, и атрибуты); после этого новое в root и компонент, определённый позже, не переводятся");
+
+    // ---- 7. Смена языка перепереводит и в root; «Показать оригинал» возвращает ----
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(() => allAre(ALL, prefixed(back, "RU")), 8000), J(await texts(ALL)));
+    await ev("setStore({ targetLang: 'DE' }); true");
+    assert.ok(await until(() => allAre(ALL, prefixed(back, "DE")), 8000), J(await texts(ALL)));
+    await ev("sendCmd('restoreAll'); true"); await sleep(150);
+    assert.ok(await until(() => allAre(ALL, back), 2000), J(await texts(ALL)));
+    assert.ok(await until(() => allAre(LAZY, lazyNow), 2000), J(await texts(LAZY)));
+    assert.strictEqual(await inRoots(".ht-loading"), 0);
+    // x-lazy-orig ждал определения и при этом переводе: после «Показать оригинал» его определение ничего не переводит
+    await ev("defineLate('x-lazy-orig'); true"); await sleep(1500);
+    assert.strictEqual(await txt("#lazyOrig", ".lz"), "Text of the x-lazy-orig component drawn on upgrade");
+    assert.strictEqual(await ev("sent().filter((x) => x.includes('x-lazy-orig')).length"), 0, "компонент, определённый после «Показать оригинал», не переводится");
+    ok("смена языка перепереводит текст в root; «Показать оригинал» возвращает его; компонент, определённый после этого, не переводится");
+
+    assert.deepStrictEqual(errors, [], "исключения на странице");
+    console.log(`\nВсе проверки пройдены: ${pass}`);
+  } finally {
+    await b.close();
+    await srv.close();
+  }
+})().catch((e) => { console.error("FAIL:", e && e.stack || e); process.exit(1); });

@@ -276,9 +276,21 @@ function HT_targetFromLocale(locale) {
 // абзаца для пробы на приветствии: английский → язык перевода; а если переводят на английский — с языка
 // интерфейса (русского), при английском интерфейсе — с испанского. Остальные пары скачиваются на сайте
 // при первом переводе. tgt пустой — встроенный не знает язык перевода.
-function HT_prepPair(targetLang) {
+// pageLang — язык открытой вкладки (атрибут lang страницы), если окно его знает: тогда готовим именно
+// его → язык перевода. Иначе на испанской странице готовилась пара «английский → русский», окно писало
+// «Готово», а на странице всё равно начиналась загрузка испанской модели.
+function HT_prepPair(targetLang, pageLang) {
   const tgt = HT_builtinCode(targetLang);
+  const page = HT_builtinOf(pageLang);
+  if (tgt && page && HT_langKey(page) !== HT_langKey(tgt)) return { src: page, tgt };
   return { src: HT_langKey(tgt) !== "en" ? "en" : HT_uiLang() === "ru" ? "ru" : "es", tgt };
+}
+// Код встроенного переводчика для языка из атрибута lang («es-ES» → «es»); "" — не знаем такого.
+function HT_builtinOf(lang) {
+  const key = HT_langKey(lang);
+  if (!key || !/^[a-z]{2,3}$/.test(key)) return "";
+  const row = HT_LANGS.find((r) => r[4] && HT_langKey(r[4]) === key);
+  return row ? row[4] : "";
 }
 
 // ---- движки ----
@@ -287,19 +299,13 @@ function HT_prepPair(targetLang) {
 //   keyField   — ключ настроек с ключом сервиса (нет — движку ключ не нужен);
 //   cacheAs    — под каким именем движка кэшировать (alias: auto даёт тот же результат, что deepl);
 //   scopeFields— какие ещё поля запроса входят в ключ кэша (для ИИ — провайдер/модель/origin);
-//   fallback   — на что переключиться, если основной путь не смог;
-//   formality  — поддерживает ли параметр «обращение»;
-//   note       — показывать ли в окне состояние встроенного переводчика (он участвует в переводе);
-//   hint       — сообщение с пояснением под названием в окне расширения.
-// Второй элемент строки — сообщение с названием (messages.json); подписи берёт HT_engineLabel/HT_engineHint.
-// Порядок строк — порядок в окне: встроенный первым, он по умолчанию.
+//   fallback   — на что переключиться, если основной путь не смог.
+// Встроенный — первым: он по умолчанию.
 var HT_ENGINES = [
-  ["chrome", "engChrome", { via: "local", note: true, hint: "engChromeHint" }],
-  ["deepl", "engDeepl", { via: "deepl", keyField: "apiKey", formality: true, hint: "engDeeplHint" }],
-  ["auto", "engAuto",
-    { via: "deepl", keyField: "apiKey", formality: true, cacheAs: "deepl", fallback: "local", note: true, hint: "engAutoHint" }],
-  ["llm", "engLlm",
-    { via: "llm", keyField: "llmApiKey", scopeFields: ["llmProvider", "llmModel", "origin"], hint: "engLlmHint" }],
+  ["chrome", { via: "local" }],
+  ["deepl", { via: "deepl", keyField: "apiKey" }],
+  ["auto", { via: "deepl", keyField: "apiKey", cacheAs: "deepl", fallback: "local" }],
+  ["llm", { via: "llm", keyField: "llmApiKey", scopeFields: ["llmProvider", "llmModel", "origin"] }],
 ];
 
 // Что показать, если ключа нет (сообщение). Ключуем ПОЛЕМ настроек, а не движком: deepl и auto делят
@@ -311,10 +317,8 @@ var HT_KEY_HINTS = {
 
 var HT_ENGINE = {};
 for (var i = 0; i < HT_ENGINES.length; i++) {
-  HT_ENGINE[HT_ENGINES[i][0]] = Object.assign({ code: HT_ENGINES[i][0], labelKey: HT_ENGINES[i][1] }, HT_ENGINES[i][2]);
+  HT_ENGINE[HT_ENGINES[i][0]] = Object.assign({ code: HT_ENGINES[i][0] }, HT_ENGINES[i][1]);
 }
-function HT_engineLabel(code) { return HT_t(HT_engine(code).labelKey); }
-function HT_engineHint(code) { return HT_t(HT_engine(code).hint); }
 
 // Неизвестное значение настройки трактуем как движок по умолчанию. Только собственные ключи
 // таблицы: HT_ENGINE["constructor"] иначе вернул бы функцию Object вместо описания движка.
@@ -378,9 +382,11 @@ function HT_canSend(engine, st) {
 function HT_engineProblem(engine, st, builtin) {
   const e = HT_engine(engine);
   const hasKey = !e.keyField || !!(st && st[e.keyField]);
-  // Язык — первым: без него ни ключ, ни согласие не помогут.
+  // Язык — первым: без него ни ключ, ни согласие не помогут. Затем согласие, потом ключ — в том же порядке,
+  // что и шаги подключения на странице настроек («Согласие → Ключ → Готово»).
+  const agreed = HT_agreed(st && st.consent, HT_provider(engine, st && st.llmProvider));
   const why = HT_langGap(e.via, st) ? "deepl-lang"
-    : !hasKey ? (e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key") : "no-consent";
+    : !agreed ? "no-consent" : !hasKey ? (e.keyField === "apiKey" ? "no-deepl-key" : "no-llm-key") : "no-consent";
   const net = e.via !== "local" && HT_canSend(engine, st);
   if (e.via !== "local" && !net && e.fallback !== "local") return why;
   const needLocal = e.via === "local" || !net;
@@ -389,18 +395,18 @@ function HT_engineProblem(engine, st, builtin) {
   return null;
 }
 
-// Тексты к причинам (сообщения): short — для подсказки значка, page — для уведомления на странице. У
+// Тексты к причинам (сообщения): short — причина коротко (подсказка значка, уведомление на странице, окно,
+// настройки); page — полная фраза для ошибки перевода (есть только у deepl-lang: её отдаёт background). У
 // причин про язык via — чей это язык, а у текстов есть вариант «с этого языка» (…From), подстановка —
 // название языка (HT_problemText).
 var HT_PROBLEMS = {
-  "no-deepl-key": { short: "probNoDeeplKey", page: "probNoDeeplKeyPage" },
-  "no-llm-key": { short: "probNoLlmKey", page: "probNoLlmKeyPage" },
-  "no-consent": { short: "probNoConsent", page: "probNoConsentPage" },
-  "no-builtin": { short: "probNoBuiltin", page: "probNoBuiltinPage" },
+  "no-deepl-key": { short: "probNoDeeplKey" },
+  "no-llm-key": { short: "probNoLlmKey" },
+  "no-consent": { short: "probNoConsent" },
+  "no-builtin": { short: "probNoBuiltin" },
   "deepl-lang": { via: "deepl", short: "probDeeplLangTo", page: "probDeeplLangToPage",
     shortFrom: "probDeeplLangFrom", pageFrom: "probDeeplLangFromPage" },
-  "builtin-lang": { via: "local", short: "probBuiltinLangTo", page: "probBuiltinLangToPage",
-    shortFrom: "probBuiltinLangFrom", pageFrom: "probBuiltinLangFromPage" },
+  "builtin-lang": { via: "local", short: "probBuiltinLangTo", shortFrom: "probBuiltinLangFrom" },
 };
 // Текст причины p: kind — "short" | "page"; st — состояние, по которому её нашли (языки).
 function HT_problemText(p, kind, st) {
@@ -464,15 +470,20 @@ var HT_DEFAULTS = {
   // чтобы их смена тоже триггерила живое перетранслирование уже показанных переводов.
   // Пустая модель — «по умолчанию» (первая в HT_LLM_MODELS для провайдера).
   llmProvider: "openai", llmModel: "",
-  dispMode: "auto", dispBg: "#0078d7", dispOpacity: 12,
-  dispBorder: false, dispBorderColor: "#0078d7", dispBorderStyle: "solid",
+  // Подсветка переведённого: «auto» — янтарная, подстраивается под фон страницы; «custom» — свой цвет
+  // (dispBg) и насыщенность в процентах (dispOpacity, 10–60); «none» — без подсветки. Обводка прежних
+  // версий (dispBorder*) убрана: её ключи стирает background при обновлении (HT_OBSOLETE_KEYS).
+  dispMode: "auto", dispBg: "#ffcf4a", dispOpacity: 35,
 };
+var HT_OBSOLETE_KEYS = ["dispBorder", "dispBorderColor", "dispBorderStyle"];
+// Шесть цветов подсветки на выбор (страница настроек): код, сообщение с названием.
+var HT_SWATCHES = [["#ffcf4a", "swAmber"], ["#7ed6a5", "swGreen"], ["#8fb8ff", "swBlue"], ["#f5a3c7", "swPink"], ["#c4b5fd", "swLilac"], ["#c9ced5", "swGray"]];
 
 // Допустимые значения настроек-перечислений. Хранилище общее для всех сайтов, а писать в него
-// может не только popup (мини-панель живёт на странице), поэтому значение сверяется со списком
+// может не только страница настроек (язык перевода меняют и окно, и кружок на странице), поэтому значение сверяется со списком
 // при каждом чтении: неизвестное становится значением по умолчанию и не попадает ни в запрос
 // к движку, ни в инструкцию для ИИ. Списки formality/llmProvider/displayMode/trigger обязаны
-// совпадать со значениями полей выбора в popup.html (<option> и переключателей).
+// совпадать со значениями полей выбора в options.html (<option> и переключателей).
 var HT_CHOICES = {
   targetLang: HT_TARGET_LANGS.map((r) => r[0]),
   sourceLang: HT_SOURCE_LANGS.map((r) => r[0]),
@@ -496,6 +507,8 @@ function HT_validAll(s) {
 // Задержка наведения. Клэмп общий: popup пишет уже нормализованное значение, а content
 // перепроверяет прочитанное — раньше две проверки расходились (в content не было верхней границы).
 var HT_DWELL_MAX = 2000;
+// Ползунок задержки на странице настроек: 300–1500 мс, шаг 100 (сохранённые значения вне диапазона не трогаем).
+var HT_DWELL_UI = { min: 300, max: 1500, step: 100 };
 function HT_clampDwell(v) {
   // Пустое поле — это «не задано», а не 0: Number("") === 0, и стёртое поле «Задержка» иначе молча
   // включило бы перевод без задержки. Не `|| DEFAULTS` — иначе валидный 0 стал бы значением по умолчанию.
@@ -505,7 +518,7 @@ function HT_clampDwell(v) {
 
 // ---- сайты, где перевод выключен ----
 // storage.local.disabledSites — список имён хостов (без «www.», в нижнем регистре). Пишут туда окно
-// расширения и мини-панель на странице, поэтому при каждом чтении сверяем тип и вид записей: в
+// расширения, страница настроек и кружок на странице, поэтому при каждом чтении сверяем тип и вид записей: в
 // список попадают только строки, похожие на имя хоста. «www.» отбрасываем, чтобы example.com и
 // www.example.com были одним сайтом; поддомены — разные сайты (mail.example.com ≠ example.com).
 var HT_SITES_MAX = 2000;
@@ -527,11 +540,19 @@ function HT_sites(v) {
   return out;
 }
 
-// Мини-панель: показана ли она и где стоит — общие для всех сайтов значения (hudShown, hudPos), чтобы
-// панель не пропадала при переходе на другую страницу. Позицию тоже сверяем при чтении.
-function HT_hudPos(v) {
-  return v && typeof v === "object" && Number.isFinite(v.left) && Number.isFinite(v.top)
-    ? { left: v.left, top: v.top } : null;
+// Плавающая кнопка: показана ли она и где стоит — общие для всех сайтов значения (hudShown, hudPos), чтобы
+// кнопка не пропадала при переходе на другую страницу. Место — { side: "left" | "right", top }: у какого края
+// окна кружок и сколько px от верха окна до его верха (как отпустили); null — место по умолчанию (справа внизу).
+// Сверяем при чтении. Старое место мини-панели { left, top } переводим в новое: край — та половина окна, где была
+// середина кружка (vw — ширина окна; без неё — справа), высота прежняя. Обратно в хранилище при чтении не пишем:
+// перепишется, когда кружок перетащат. Всё остальное — null.
+function HT_hudPos(v, vw) {
+  if (!v || typeof v !== "object") return null;
+  if ((v.side === "left" || v.side === "right") && Number.isFinite(v.top)) return { side: v.side, top: v.top };
+  if (Number.isFinite(v.left) && Number.isFinite(v.top)) {
+    return { side: vw && v.left + 22 < vw / 2 ? "left" : "right", top: v.top };
+  }
+  return null;
 }
 
 // ---- названия клавиш ----

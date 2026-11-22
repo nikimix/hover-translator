@@ -9,9 +9,11 @@
   <link rel="stylesheet" href="store.css" />
   <script src="texts.js"></script>
   <style>
+    /* Глубокий синий, заметно темнее плитки значка (#2563eb), иначе значок сливается с фоном;
+       светлое пятно — справа сверху, подальше от значка. */
     body { background:
-      radial-gradient(520px 360px at 18% 40%, rgba(255, 255, 255, 0.13), transparent 70%),
-      linear-gradient(150deg, #128a7e 0%, #0b625a 55%, #064039 100%); }
+      radial-gradient(700px 420px at 92% 0%, rgba(110, 150, 255, 0.2), transparent 70%),
+      linear-gradient(150deg, #173a9f 0%, #12297a 55%, #0b1c52 100%); }
     .block { position: absolute; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; }
     .block.row { flex-direction: row; align-items: center; justify-content: flex-start; }
     .logo { flex: none; }
@@ -20,13 +22,13 @@
     .p-tag { margin: 0; text-wrap: balance; font-weight: 500; color: rgba(255, 255, 255, 0.9); line-height: 1.25; }
     /* Рисунок: страница со строками, одна строка переведена (янтарная), курсор и клавиша */
     .art { position: absolute; }
-    .sheet { position: absolute; inset: 0; border-radius: 26px; background: #f2faf8; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.2); }
-    .ln { position: absolute; height: 18px; border-radius: 9px; background: #c3d4d0; }
-    .ln.t { background: #8fb3ab; height: 26px; border-radius: 13px; }
+    .sheet { position: absolute; inset: 0; border-radius: 26px; background: #f7f9fd; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.2); }
+    .ln { position: absolute; height: 18px; border-radius: 9px; background: #cdd5e3; }
+    .ln.t { background: #97a6c2; height: 26px; border-radius: 13px; }
     .hl { position: absolute; border-radius: 12px; background: rgba(255, 207, 74, 0.3); }
     .ln.a { background: #f5b912; }
-    .keycap { position: absolute; padding: 10px 22px 12px; border-radius: 14px; background: #fff; color: #0b625a; font-size: 34px; font-weight: 780;
-      box-shadow: 0 6px 0 #bfd3cf, 0 14px 30px rgba(0, 0, 0, 0.3); }
+    .keycap { position: absolute; padding: 10px 22px 12px; border-radius: 14px; background: #fff; color: #1d4ed8; font-size: 34px; font-weight: 780;
+      box-shadow: 0 6px 0 #c3cde0, 0 14px 30px rgba(0, 0, 0, 0.3); }
   </style>
 </head>
 <body data-wait>
@@ -40,15 +42,15 @@ document.body.style.width = W + "px"; document.body.style.height = H + "px";
 const add = (h) => document.body.insertAdjacentHTML("beforeend", h);
 // Значок: icon.svg — рисунок 96×96 в поле 128×128; size — размер рисунка без полей (поля уходят в отрицательный отступ).
 const logo = (size) => `<div class="logo" style="width:${size * 4 / 3}px;height:${size * 4 / 3}px;margin:${-size / 6}px"><img src="../icon.svg" alt=""></div>`;
-const ru = LANG === "ru";
-const name = ru ? "Переводчик<br>при наведении" : (SIZE === "small" ? "Hover<br>Translator" : T.name);
+// Название — «Hover Translator» латиницей в обеих локалях.
+const name = SIZE === "small" ? "Hover<br>Translator" : T.name;
 
 if (SIZE === "small") {
   add(`<div class="block row" style="left:34px;right:20px;top:0;bottom:0;gap:24px">${logo(96)}
-    <div><h1 class="p-name" style="font-size:${ru ? 33 : 42}px">${name}</h1><p class="p-tag" style="margin-top:12px;font-size:19px;width:250px">${T.tag}</p></div></div>`);
+    <div><h1 class="p-name" style="font-size:42px">${name}</h1><p class="p-tag" style="margin-top:12px;font-size:19px;width:250px">${T.tag}</p></div></div>`);
 } else {
   add(`<div class="block" style="left:110px;width:620px;top:0;bottom:0">${logo(150)}
-    <h1 class="p-name" style="margin-top:38px;font-size:${ru ? 62 : 72}px">${name}</h1><p class="p-tag" style="margin-top:16px;font-size:31px">${T.tag}</p></div>`);
+    <h1 class="p-name" style="margin-top:38px;font-size:72px">${name}</h1><p class="p-tag" style="margin-top:16px;font-size:31px">${T.tag}</p></div>`);
   // рисунок справа
   const ax = 780, ay = 78, aw = 520, ah = 404;
   const L = [[52, 52, 300, "t"], [52, 120, 410], [52, 160, 380], [52, 216, 420, "a"], [52, 256, 300, "a"], [52, 312, 390], [52, 352, 260]];
@@ -58,7 +60,7 @@ if (SIZE === "small") {
   </div>`);
   // курсор у конца переведённой строки (как на значке: белый с тёмной обводкой)
   add(`<svg style="position:absolute;left:${ax + 352 - 6}px;top:${ay + 262 - 6}px;filter:drop-shadow(0 6px 10px rgba(0,0,0,.3))" width="80" height="116" viewBox="-4 -4 50 70">
-    <path d="M0 0 L0 39.5 L9.6 30.4 L16.4 45.2 L23.1 42.4 L16.6 27.8 L29.1 27.8 Z" fill="#fff" stroke="#0b3f3b" stroke-width="6" stroke-linejoin="round" paint-order="stroke"/></svg>`);
+    <path d="M0 0 L0 39.5 L9.6 30.4 L16.4 45.2 L23.1 42.4 L16.6 27.8 L29.1 27.8 Z" fill="#fff" stroke="#0b1f4d" stroke-width="6" stroke-linejoin="round" paint-order="stroke"/></svg>`);
   add(`<div class="keycap" style="left:${ax + 380}px;top:${ay + 360}px">Shift</div>`);
 }
 document.fonts.ready.then(() => { document.body.dataset.ready = "1"; });

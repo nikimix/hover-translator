@@ -53,6 +53,8 @@ const SHIFT = 8;
     assert.strictEqual(await calls(), 0, "без Shift наведение не переводит");
     await tapShift();
     assert.ok(await tr("#p1"), "Shift переводит");
+    assert.deepStrictEqual(await ev("trCalls().map((c) => c.by)"), ["user-initiated"],
+      "перевод по Shift — действие пользователя (широкий бюджет), а не строгий лимит наведения");
     ok("по умолчанию — Shift (неизвестный способ → Shift): наведение само не переводит, нажатие Shift — переводит");
 
     // ---- 2. Задержка 600 мс по умолчанию; прокрутка без движения мыши перевод не запускает ----
@@ -62,6 +64,8 @@ const SHIFT = 8;
     await sleep(400);
     assert.strictEqual(await calls(), 0, "через 400 мс ещё рано");
     assert.ok(await until(() => tr("#p2"), 1000), "к ~600 мс переведено");
+    assert.deepStrictEqual(await ev("[...new Set(trCalls().map((c) => c.by))]"), ["page-initiated"],
+      "наведение с задержкой — строгий лимит: страница может подвинуть текст под неподвижный курсор");
     await away(); await sleep(100);
     assert.strictEqual(await text("#p2"), "Another paragraph with plain English text for the sweep test.");
     // прокрутка: курсор стоит над наполнителем, страница едет — под курсор приезжают другие абзацы
@@ -142,27 +146,42 @@ const SHIFT = 8;
     ok(`петля на краю абзаца: ${old ? "до исправления " + old.n + " переводов за 3 с неподвижного курсора, " : ""}сейчас 1; перевод держится до движения мыши`);
 
     // ---- 5. Карточка ----
+    // Пока идёт перевод, карточки нет (абзац пульсирует); пришёл перевод — карточка под абзацем с хвостиком,
+    // абзац обведён 2 px акцентом, сверху «Английский → русский», копировать и ✕.
     await load({ trigger: "shift", displayMode: "popover" });
-    await hover("#p2"); await tapShift();
-    await until(() => ev("cards().length === 1 && !cards()[0].querySelector('.card').classList.contains('loading')"));
-    let card = await ev("(() => { const r = cards()[0].host.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), right: Math.round(r.right) }; })()");
+    await ev("document.querySelector('#p2').style.setProperty('outline', '1px dotted rgb(1, 2, 3)'); true");
     const p2 = await rect("#p2");
-    assert.ok(card.top >= p2.b && card.top - p2.b <= 10, `карточка под абзацем: ${JSON.stringify(card)} / абзац до ${p2.b}`);
-    await t.shot("card.png", { clip: { x: 0, y: 0, width: 720, height: 260, scale: 1 } });
-    // новая закрывает старую
-    await hover("#p3"); await tapShift();
-    await until(() => ev("cards().length === 1 && cards()[0].host.getBoundingClientRect().top > " + (p2.b + 20)));
+    await hover("#p2"); await tapShift();
+    await until(() => ev("cards().length === 1"));
+    let card = await ev("(() => { const r = cards()[0].host.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), w: Math.round(r.width) }; })()");
+    assert.ok(card.top - p2.b >= 16 && card.top - p2.b <= 28, `карточка под абзацем с зазором под обводку и хвостик: ${JSON.stringify(card)} / абзац до ${p2.b}`);
+    assert.ok(card.left === p2.x && card.w === 560, "по левому краю абзаца, ширина 560 (абзац 600): " + JSON.stringify(card));
+    const cardInfo = await ev(`(() => { const r = cards()[0]; const c = r.querySelector('.tcard'); const t = r.querySelector('.c-text');
+      return { lang: r.querySelector('.c-lang').textContent, text: t.textContent, font: getComputedStyle(t).fontSize, bg: getComputedStyle(c).backgroundColor,
+        border: getComputedStyle(c).borderTopColor, caret: !!r.querySelector('.caret') && !c.classList.contains('up'),
+        btns: [...r.querySelectorAll('.c-btn')].map((b) => b.getAttribute('aria-label')) }; })()`);
+    assert.deepStrictEqual(cardInfo, { lang: "Английский → русский", text: "[RU] Another paragraph with plain English text for the sweep test.",
+      font: "16px", bg: "rgb(255, 255, 255)", border: "rgb(201, 206, 213)", caret: true, btns: ["Копировать", "Закрыть перевод"] });
+    const ring = () => ev("(() => { const s = document.querySelector('#p2').style; return s.getPropertyValue('outline') + ' ' + s.getPropertyPriority('outline') + ' / ' + s.getPropertyValue('outline-offset'); })()");
+    assert.strictEqual(await ring(), "rgb(37, 99, 235) solid 2px important / 6px", "абзац обведён 2 px акцентом");
+    await t.shot("card.png", { clip: { x: 0, y: 0, width: 720, height: 300, scale: 1 } });
+    // новая закрывает старую и снимает обводку прежнего абзаца (его собственный inline-стиль возвращается);
+    // берём абзац выше: текст под карточкой p2 ею накрыт
+    await hover("#p1"); await tapShift();
+    assert.ok(await until(() => ev("cards().length === 1 && cards()[0].host.getBoundingClientRect().top < " + p2.y)), "карточка первого абзаца");
     assert.strictEqual(await ev("cards().length"), 1, "одна карточка за раз");
+    assert.strictEqual(await ring(), "rgb(1, 2, 3) dotted 1px  / ", "обводка снята, свой стиль абзаца на месте");
     // ✕ — настоящий щелчок
-    const x = await ev("uiPoint(cards()[0], '.close')");
+    const x = await ev("uiPoint(cards()[0], '.c-btn[aria-label=\"Закрыть перевод\"]')");
     await click(x.x, x.y); await sleep(100);
     assert.strictEqual(await ev("cards().length"), 0, "✕ закрывает");
+    assert.strictEqual(await ev("document.querySelector('#p1').getAttribute('style')"), "", "обводка снята, у абзаца без своего стиля ничего не осталось");
     // поддельный щелчок по хосту не закрывает, щелчок мимо — закрывает
     await hover("#p1"); await tapShift(); await until(() => ev("cards().length === 1"));
     await ev("cards()[0].host.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); true");
     await sleep(50);
     assert.strictEqual(await ev("cards().length"), 1, "поддельные события страницы карточку не трогают");
-    const inCard = await ev("uiPoint(cards()[0], '.body')");
+    const inCard = await ev("uiPoint(cards()[0], '.c-text')");
     await click(inCard.x, inCard.y); await sleep(80);
     assert.strictEqual(await ev("cards().length"), 1, "щелчок по самой карточке её не закрывает");
     await click(900, 700); await sleep(80);
@@ -178,27 +197,41 @@ const SHIFT = 8;
     await ev("window.scrollBy(0, 200); true"); await sleep(150);
     assert.strictEqual(await ev("cards().length"), 0, "ещё 200 px — закрыта");
     await ev("window.scrollTo(0, 0); true"); await sleep(100);
-    // снизу места нет — над абзацем
+    // снизу места нет — над абзацем, хвостик снизу
     await ev("document.querySelector('#f3').scrollIntoView({ block: 'end' }); true"); await sleep(100);
     const f3 = await rect("#f3");
-    await hover("#f3"); await tapShift(); await until(() => ev("cards().length === 1 && !cards()[0].querySelector('.card').classList.contains('loading')"));
-    card = await ev("(() => { const r = cards()[0].host.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; })()");
-    assert.ok(card.bottom <= f3.y && f3.y - card.bottom <= 10, `у нижнего края — над абзацем: ${JSON.stringify(card)} / абзац с ${f3.y}`);
+    await hover("#f3"); await tapShift(); await until(() => ev("cards().length === 1"));
+    card = await ev("(() => { const r = cards()[0].host.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), up: cards()[0].querySelector('.tcard').classList.contains('up') }; })()");
+    assert.ok(card.up && card.bottom <= f3.y && f3.y - card.bottom <= 28, `у нижнего края — над абзацем: ${JSON.stringify(card)} / абзац с ${f3.y}`);
     await esc();
-    ok("карточка: под абзацем (над — только у нижнего края), одна за раз, ✕, Esc, щелчок мимо, заметная прокрутка; поддельные события её не трогают");
+    // пары языков нет, если выключен «Язык оригинала на карточке»; тёмный фон абзаца — тёмная карточка
+    await ev("window.scrollTo(0, 0); setStore({ showLangBadge: false }); true"); await sleep(100);
+    await hover("#dark"); await tapShift(); await until(() => ev("cards().length === 1"));
+    const dk = await ev("(() => { const r = cards()[0]; const c = r.querySelector('.tcard'); return [r.querySelector('.c-lang').textContent, getComputedStyle(c).backgroundColor, getComputedStyle(c).borderTopColor, document.querySelector('#dark').style.getPropertyValue('outline')]; })()");
+    assert.deepStrictEqual(dk, ["", "rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "rgb(122, 162, 255) solid 2px"]);
+    await t.shot("card-dark.png", { clip: { x: 0, y: 0, width: 720, height: 800, scale: 1 } });
+    await esc();
+    ok("карточка: под абзацем с хвостиком (над — только у нижнего края), абзац обведён и обводка снимается с возвратом своего стиля; «Английский → русский» (если включено), копировать, ✕; тёмная на тёмном фоне; одна за раз, ✕, Esc, щелчок мимо, заметная прокрутка; поддельные события её не трогают");
     // режим задержки: с абзаца можно дойти до карточки через зазор
-    await ev("window.scrollTo(0, 0); setStore({ trigger: 'dwell', dwellMs: 150 }); true"); await sleep(100);
+    await ev("window.scrollTo(0, 0); setStore({ trigger: 'dwell', dwellMs: 150, showLangBadge: true }); true"); await sleep(100);
     await away();
     await hover("#p1"); await move((await at("#p1")).x + 2, (await at("#p1")).y);
-    await until(() => ev("cards().length === 1 && !cards()[0].querySelector('.card').classList.contains('loading')"), 2000);
+    await until(() => ev("cards().length === 1"), 2000);
     const p1 = await rect("#p1");
     const c1 = await ev("(() => { const r = cards()[0].host.getBoundingClientRect(); return { x: Math.round(r.left + 30), top: Math.round(r.top), bottom: Math.round(r.bottom) }; })()");
     for (let y = p1.b - 2; y <= c1.top + 10; y += 2) { await move(c1.x, y); await sleep(15); }
     await sleep(500);
     assert.strictEqual(await ev("cards().length"), 1, "дошли с абзаца до карточки — она на месте");
-    await move(c1.x, c1.bottom + 60); await sleep(150);
+    await move(900, c1.bottom - 10); await sleep(150);   // вбок, на пустое место справа от текста
     assert.strictEqual(await ev("cards().length"), 0, "ушли с карточки — закрылась");
-    ok("режим задержки: от абзаца до карточки можно дойти через зазор (закрытие через 300 мс), уход с карточки — закрывает");
+    // ушли с абзаца, пока перевод шёл, — карточка не появляется
+    await ev("window.__bgDelay = 400; true");
+    await away();
+    await hover("#p2"); await move((await at("#p2")).x + 2, (await at("#p2")).y);
+    await sleep(250); await away(); await sleep(700);
+    assert.strictEqual(await ev("cards().length"), 0, "курсор ушёл до ответа — карточки нет");
+    await ev("window.__bgDelay = 0; true");
+    ok("режим задержки: от абзаца до карточки можно дойти через зазор (закрытие через 300 мс), уход с карточки — закрывает; ушли до ответа — карточки нет");
 
     // ---- 6. Esc возвращает оригинал везде; preventDefault не делаем ----
     await load({ trigger: "shift" });
@@ -232,140 +265,275 @@ const SHIFT = 8;
 
     // ---- 7. Понятные ошибки с кнопкой; запасной встроенный переводчик ----
     await load({ trigger: "shift", engine: "deepl" });
-    await ev(`window.__bgReply = () => ({ ok: false, code: "quota", error: "Лимит DeepL на этот месяц закончился.", detail: "код ответа 456" }); true`);
+    await ev(`window.__bgReply = (m) => m.type === "translateBatch" ? ({ ok: false, code: "quota", error: "Лимит DeepL на этот месяц закончился.", detail: "код ответа 456" }) : { ok: true }; true`);
     await hover("#p1"); await tapShift();
     assert.ok(await until(() => ev("document.querySelector('#p1').textContent.startsWith('[ru]')")), "перевели встроенным");
-    let ts = await toastsNow();
-    assert.ok(ts.length === 1 && /^info:Переводчик при наведенииЛимит DeepL на этот месяц закончился — перевожу встроенным переводчиком Chrome\.Переключиться на встроенный/.test(ts[0]), JSON.stringify(ts));
-    await t.shot("toast-fallback.png", { clip: { x: 150, y: 640, width: 700, height: 160, scale: 1 } });
+    let ts = await until(async () => { const v = await toastsNow(); return v.length ? v : null; }, 2000) || [];
+    assert.deepStrictEqual(ts, ["info:Лимит DeepL закончился — перевожу встроенным.Открыть настройки"]);
+    await t.shot("toast-fallback.png", { clip: { x: 600, y: 0, width: 400, height: 140, scale: 1 } });
     await hover("#p2"); await tapShift(); await sleep(200);
     assert.ok(await ev("document.querySelector('#p2').textContent.startsWith('[ru]')"));
     assert.strictEqual(await ev("typeCalls('noticeOnce').filter((c) => c.problem === 'deepl-quota').length"), 1, "сказали один раз");
     assert.ok(!(await ev("__sets.some((s) => 'engine' in s)")), "выбор переводчика не меняли");
-    ok("DeepL 456 + встроенный есть: перевод встроенным, одно уведомление «Лимит DeepL… перевожу встроенным», настройка не тронута");
+    const fbBtn = await ev("uiPoint(toastRoot(), '.t-btn')");
+    await click(fbBtn.x, fbBtn.y); await sleep(100);
+    assert.deepStrictEqual(await ev("typeCalls('openSettings')"), [{ type: "openSettings", focus: "deepl" }], "«Открыть настройки» — к DeepL");
+    ok("DeepL 456 + встроенный есть: перевод встроенным, одно уведомление «Лимит DeepL закончился — перевожу встроенным» с «Открыть настройки», настройка не тронута");
     // сеть
     await load({ trigger: "shift", engine: "deepl" });
-    await ev(`window.__bgReply = () => ({ ok: false, code: "network", error: "Нет связи с DeepL — проверьте интернет.", detail: "Failed to fetch" }); true`);
+    await ev(`window.__bgReply = (m) => m.type === "translateBatch" ? ({ ok: false, code: "network", error: "Нет связи с DeepL — проверьте интернет.", detail: "Failed to fetch" }) : { ok: true }; true`);
     await hover("#p1"); await tapShift(); await sleep(200);
     await hover("#p2"); await tapShift(); await sleep(200);
     assert.ok(await ev("['#p1','#p2'].every((s) => document.querySelector(s).textContent.startsWith('[ru]'))"));
     ts = await toastsNow();
-    assert.ok(ts.length === 1 && /Нет связи с DeepL — перевожу встроенным/.test(ts[0]), JSON.stringify(ts));
-    ok("нет связи с DeepL: перевод встроенным, уведомление один раз на страницу");
-    // без встроенного — ошибка с кнопкой «Открыть настройки»; висит дольше и закрывается ✕
+    assert.deepStrictEqual(ts, ["info:Нет связи с DeepL — перевожу встроенным."]);
+    ok("нет связи с DeepL: перевод встроенным, уведомление одной строкой один раз на страницу");
+    // без встроенного — ошибка: заголовок с красным «!», что случилось, мелко код ответа, «Открыть настройки»
     await load({ trigger: "shift", engine: "deepl" }, "&builtin=none");
-    await ev(`window.__bgReply = () => ({ ok: false, code: "quota", error: "Лимит DeepL на этот месяц закончился.", detail: "код ответа 456" }); true`);
+    await ev(`window.__bgReply = (m) => m.type === "translateBatch" ? ({ ok: false, code: "quota", error: "Лимит DeepL на этот месяц закончился.", detail: "код ответа 456" }) : { ok: true }; true`);
     await hover("#p1"); await tapShift(); await sleep(200);
     ts = await toastsNow();
-    assert.ok(ts.length === 1 && ts[0] === "err:Переводчик при наведенииЛимит DeepL на этот месяц закончился.код ответа 456Открыть настройки", JSON.stringify(ts));
-    await t.shot("toast-error-action.png", { clip: { x: 150, y: 660, width: 700, height: 140, scale: 1 } });
-    const tr0 = await ev("toastRoot()");
+    assert.deepStrictEqual(ts, ["err:Не удалось перевестиЛимит DeepL на этот месяц закончился.код ответа 456Открыть настройки"]);
+    const errLook = await ev(`(() => { const r = toastRoot(); const st = (sel, p) => getComputedStyle(r.querySelector(sel))[p];
+      return [st(".t-t .err", "color"), st(".t-btn", "borderTopColor"), st(".t-btn", "height"), st(".x-btn", "width"), r.querySelectorAll(".t-ic").length,
+        Math.round(r.host.getBoundingClientRect().width)]; })()`);
+    assert.deepStrictEqual(errLook, ["rgb(180, 35, 24)", "rgb(133, 139, 148)", "32px", "32px", 1, 360], "! красный, кнопка 32 с рамкой #858b94, ✕ 32, значок расширения, ширина 360");
+    assert.ok(await ev("document.querySelector('#p1').classList.contains('ht-error')"), "абзац отмечен ошибкой");
+    assert.strictEqual(await ev("getComputedStyle(document.querySelector('#p1'), '::after').content"), '"!"', "«!» после текста — псевдоэлементом");
+    assert.strictEqual(await ev("document.querySelector('#p1').childNodes.length"), 1, "в DOM абзаца ничего не добавлено");
+    await t.shot("toast-error-action.png", { clip: { x: 0, y: 0, width: 1000, height: 160, scale: 1 } });
     // поддельный щелчок по хосту — ничего; настоящий по кнопке — просьба открыть настройки
     await ev("toastRoot().host.click(); toastRoot().host.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); true");
     assert.strictEqual(await ev("typeCalls('openSettings').length"), 0);
     await sleep(5000);
     assert.strictEqual((await toastsNow()).length, 1, "ошибка с действием через 5 с ещё на экране");
-    const bt = await ev("uiPoint(toastRoot(), '.act')");
-    await click(bt.x, bt.y); await sleep(350);     // 250 мс — исчезновение
-    assert.strictEqual(await ev("typeCalls('openSettings').length"), 1, "настоящий щелчок — «Открыть настройки»");
+    const bt = await ev("uiPoint(toastRoot(), '.t-btn')");
+    await click(bt.x, bt.y); await sleep(300);     // 200 мс — исчезновение
+    assert.deepStrictEqual(await ev("typeCalls('openSettings')"), [{ type: "openSettings", focus: "translator" }], "настоящий щелчок — «Открыть настройки»");
     assert.strictEqual((await toastsNow()).length, 0, "после действия уведомление закрыто");
-    ok("без встроенного: красная ошибка простыми словами + «код ответа 456» мелко + «Открыть настройки»; висит > 5 с; кнопка — только настоящим щелчком");
-    // ключ не подошёл — тоже с кнопкой; простая ошибка (429) — без кнопки, исчезает сама
-    await ev(`window.__bgReply = () => ({ ok: false, code: "rate", error: "Слишком много запросов к DeepL — подождите немного и попробуйте ещё раз.", detail: "код ответа 429" }); true`);
+    ok("без встроенного: ошибка — «Не удалось перевести» с красным «!», текст + «код ответа 456» мелко + «Открыть настройки»; абзац — красный с «!» (псевдоэлемент); висит > 5 с; кнопка — только настоящим щелчком");
+    // простая ошибка (429) — без кнопки, исчезает сама
+    await ev(`window.__bgReply = (m) => m.type === "translateBatch" ? ({ ok: false, code: "rate", error: "Слишком много запросов к DeepL — подождите немного и попробуйте ещё раз.", detail: "код ответа 429" }) : { ok: true }; true`);
     await sleep(3100);
     await hover("#p2"); await tapShift(); await sleep(150);
     ts = await toastsNow();
-    assert.ok(ts.length === 1 && /^err:Слишком много запросов к DeepL.*код ответа 429$/.test(ts[0]), JSON.stringify(ts));
-    assert.strictEqual(await ev("toastRoot().host.style.pointerEvents"), "none", "без кнопок не мешает щёлкать по странице");
-    await sleep(4500);
+    assert.deepStrictEqual(ts, ["err:Не удалось перевестиСлишком много запросов к DeepL — подождите немного и попробуйте ещё раз.код ответа 429"]);
+    await sleep(5400);
     assert.strictEqual((await toastsNow()).length, 0, "простая ошибка исчезла сама");
-    // ✕ закрывает ошибку с действием
-    await ev(`window.__bgReply = () => ({ ok: false, code: "bad-key", error: "DeepL не принял ключ — проверьте его в окне расширения.", detail: "код ответа 403" }); true`);
+    // ключ не подошёл — свой заголовок, подсказка и главная кнопка; ✕ закрывает
+    await ev(`window.__bgReply = (m) => m.type === "translateBatch" ? ({ ok: false, code: "bad-key", error: "DeepL не принял ключ — проверьте его в окне расширения.", detail: "код ответа 403" }) : { ok: true }; true`);
     await hover("#p3"); await tapShift(); await sleep(150);
-    const xb = await ev("uiPoint(toastRoot(), '.x')");
-    await click(xb.x, xb.y); await sleep(350);
+    ts = await toastsNow();
+    assert.deepStrictEqual(ts, ["err:DeepL не принял ключПроверьте ключ в настройках. Пока ничего не переводится.код ответа 403Открыть настройки"]);
+    assert.deepStrictEqual(await ev("[...toastRoot().querySelectorAll('.t-btn')].map((b) => b.className + '|' + getComputedStyle(b).backgroundColor)"), ["t-btn pri|rgb(37, 99, 235)"], "главная — синяя");
+    await t.shot("toast-bad-key.png", { clip: { x: 600, y: 0, width: 400, height: 160, scale: 1 } });
+    const xb = await ev("uiPoint(toastRoot(), '.x-btn')");
+    await click(xb.x, xb.y); await sleep(300);
     assert.strictEqual((await toastsNow()).length, 0, "✕ закрывает");
-    ok("ключ не подошёл — с кнопкой и ✕; 429 — без кнопки, «прозрачно» для мыши, исчезает сама");
-    // «Переключиться на встроенный» пишет engine через таблицу
+    ok("ключ не подошёл — «DeepL не принял ключ / Проверьте ключ в настройках…» с главной синей кнопкой и ✕; 429 — без кнопки, исчезает сама");
+    // «Переводить встроенным» пишет engine через таблицу
     await load({ trigger: "shift", engine: "llm", llmApiKey: "x" });
-    await ev(`window.__bgReply = () => ({ ok: false, code: "money", error: "На счёте OpenAI закончились деньги — пополните его или выберите другой переводчик.", detail: "код ответа 429: quota" }); true`);
+    await ev(`window.__bgReply = (m) => m.type === "translateBatch" ? ({ ok: false, code: "money", error: "На счёте OpenAI закончились деньги — пополните его или выберите другой переводчик.", detail: "код ответа 429: quota" }) : { ok: true }; true`);
     await hover("#p1"); await tapShift(); await sleep(200);
-    const sw = await ev("uiPoint(toastRoot(), '.act')");
-    assert.ok(/Переключиться на встроенный/.test((await toastsNow())[0]));
-    await click(sw.x, sw.y); await sleep(150);
+    const sw = await ev("uiPoint(toastRoot(), '.t-btn')");
+    assert.ok(/Переводить встроенным$/.test((await toastsNow())[0]));
+    await click(sw.x, sw.y); await sleep(350);
     assert.deepStrictEqual(await ev("__sets.filter((s) => 'engine' in s)"), [{ engine: "chrome" }]);
-    ok("«Переключиться на встроенный» (нет денег на счёте ИИ): записан engine=chrome — значение из таблицы");
+    assert.deepStrictEqual(await toastsNow(), ["info:Переводит встроенныйЕму не нужен ключ. Сменить переводчик можно в настройках."]);
+    ok("«Переводить встроенным» (нет денег на счёте ИИ): записан engine=chrome — значение из таблицы, и об этом сказано");
 
-    // ---- 8. «Перевести страницу»: Перевожу… → Готово · Вернуть оригинал; «нечего» — нейтрально ----
+    // ---- 8. «Перевести страницу»: без «Перевожу…»; «Страница переведена» с парой и «Показать оригинал»; без заливки ----
     await load({ trigger: "shift" });
     await ev("window.__bgDelay = 400; true");
-    await ev("sendCmd('translatePage'); true"); await sleep(120);
-    ts = await toastsNow();
-    assert.ok(ts.length === 1 && ts[0] === "info:Переводчик при наведенииПеревожу страницу…", JSON.stringify(ts));
+    assert.strictEqual(await ev("sendCmd({ type: 'translatePage', via: 'popup' })"), true, "ответ сразу — окно не закрывается");
+    await sleep(250);
+    assert.deepStrictEqual(await toastsNow(), [], "пока переводится — без уведомления");
     await t.shot("page-translating.png", { clip: { x: 0, y: 0, width: 1000, height: 800, scale: 0.6 } });
-    const pulse = await ev("(() => { const e = document.querySelector('.ht-loading'); return e ? getComputedStyle(e).animationName : 'нет'; })()");
-    const pulseDark = await ev("document.querySelector('#dark').className");
-    assert.strictEqual(pulse, "ht-pulse", "во время перевода — пульсация");
-    assert.ok(/ht-loading-dark/.test(pulseDark), "на тёмном фоне — светлая пульсация: " + pulseDark);
-    assert.ok(await until(async () => /Готово/.test((await toastsNow()).join()), 3000));
+    const pulse = await ev("(() => { const e = document.querySelector('.ht-loading'); return e ? [getComputedStyle(e).animationName, getComputedStyle(e).animationDuration, getComputedStyle(e).animationDelay] : 'нет'; })()");
+    assert.deepStrictEqual(pulse, ["ht-pulse", "1.2s", "0.15s"], "во время перевода — синий пульс 1,2 с с задержкой 0,15 с");
+    const ldBg = await ev("getComputedStyle(document.querySelector('#p1')).backgroundColor");
+    assert.ok(/^rgba\(37, 99, 235, 0\.(1[0-4]|0[7-9])/.test(ldBg), "синяя подложка .14 ↔ .07: " + ldBg);
+    // #dark — во второй волне пачек (по 3 пачки по 4 одновременно)
+    assert.ok(await until(() => ev("document.querySelector('#dark').classList.contains('ht-loading')"), 1500), "очередь дошла до #dark");
+    assert.ok(/ht-loading-dark/.test(await ev("document.querySelector('#dark').className")), "на тёмном фоне — светлый пульс");
+    await sleep(200);
+    const ldDark = await ev("getComputedStyle(document.querySelector('#dark')).backgroundColor");
+    assert.ok(/^rgba\(120, 160, 255, 0\.(1[4-9]|2[0-8])/.test(ldDark), "на тёмном — .28 ↔ .14: " + ldDark);
+    assert.ok(await until(async () => /Страница переведена/.test((await toastsNow()).join()), 3000));
     ts = await toastsNow();
-    assert.ok(/^info:Переводчик при наведенииГотово\. Остальное переведётся, когда вы до него докрутите\.Вернуть оригинал$/.test(ts[0]), JSON.stringify(ts));
-    await t.shot("toast-done.png", { clip: { x: 150, y: 660, width: 700, height: 140, scale: 1 } });
-    const rb = await ev("uiPoint(toastRoot(), '.act')");
+    assert.deepStrictEqual(ts, ["info:Страница переведенаАнглийский → русскийПоказать оригиналилиEsc"]);
+    assert.strictEqual(await ev("getComputedStyle(toastRoot().querySelector('.t-t .ok')).color"), "rgb(21, 122, 60)", "✓ зелёная");
+    const fill = await ev("['#p1', '#p2', '#dark'].map((s) => document.querySelector(s).getAttribute('style') || '')");
+    assert.deepStrictEqual(fill, ["", "", ""], "страница целиком — без заливки блоков");
+    assert.ok(await tr("#p1") && await tr("#p2"));
+    await t.shot("toast-done.png", { clip: { x: 600, y: 0, width: 400, height: 160, scale: 1 } });
+    const rb = await ev("uiPoint(toastRoot(), '.t-btn')");
     await click(rb.x, rb.y); await sleep(150);
-    assert.ok(!(await tr("#p1")) && !(await tr("#p2")), "«Вернуть оригинал» вернул");
+    assert.ok(!(await tr("#p1")) && !(await tr("#p2")), "«Показать оригинал» вернул");
     assert.strictEqual(await ev("document.querySelectorAll('.ht-loading').length"), 0);
-    // reduced motion — ровный фон вместо пульсации
+    // reduced motion — ровная подложка вместо пульсации
     await t.cmd("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
     await hover("#p1"); await key("rawKeyDown", "Shift", "ShiftLeft", SHIFT, 16); await key("keyUp", "Shift", "ShiftLeft", 0, 16); await sleep(60);
     const still = await ev("(() => { const e = document.querySelector('.ht-loading'); return e ? getComputedStyle(e).animationName + ' ' + getComputedStyle(e).animationIterationCount : 'нет'; })()");
     assert.strictEqual(still, "ht-pulse-still 1", "prefers-reduced-motion: без пульсации");
     await t.cmd("Emulation.setEmulatedMedia", { features: [] });
     await sleep(500);
-    ok("«Перевести страницу»: «Перевожу страницу…» → «Готово…» с «Вернуть оригинал» (работает); пульсация при переводе (светлая на тёмном), при reduced-motion — без неё");
-    // нечего переводить — нейтрально, не зелёным
-    await ev("window.__bgDelay = 0; document.querySelectorAll('p, button, [role], nav').forEach((e) => e.setAttribute('translate', 'no')); true");
-    await ev("sendCmd('translatePage'); true"); await sleep(150);
+    ok("«Перевести страницу»: без «Перевожу…», пульс у переводимых блоков (светлый на тёмном, без движения при reduced-motion); «Страница переведена / Английский → русский / Показать оригинал или Esc» (работает); блоки без заливки");
+    // «Страница переведена» висит 3 с; курсор над уведомлением — не закрывается, увели — закрывается через 3 с
+    const pageDone = async () => { await ev("sendCmd('restoreAll'); sendCmd({ type: 'translatePage', via: 'popup' }); true");
+      return until(async () => /Страница переведена/.test((await toastsNow()).join()), 3000); };
+    await ev("window.__bgDelay = 0; true"); await move(5, 790); await sleep(100);
+    assert.ok(await pageDone());
+    let t0 = Date.now();
+    assert.ok(await until(async () => !(await toastsNow()).length, 5000, 100), "закрылось само");
+    const life = Date.now() - t0;
+    assert.ok(life > 2700 && life < 4000, "живёт 3 с (и 200 мс на исчезание): " + life);
+    assert.ok(await pageDone());
+    const tb = await ev("uiPoint(toastRoot(), '.t-b')");
+    await move(tb.x, tb.y);
+    await sleep(3600);
+    assert.strictEqual((await toastsNow()).length, 1, "курсор над уведомлением — не закрывается");
+    await move(5, 790);
+    t0 = Date.now();
+    assert.ok(await until(async () => !(await toastsNow()).length, 5000, 100), "увели курсор — закрылось");
+    const after = Date.now() - t0;
+    assert.ok(after > 2700 && after < 4000, "через 3 с после ухода курсора: " + after);
+    ok(`«Страница переведена» живёт 3 с (${life} мс); курсор над ним — не закрывается (3,6 с), увели — закрылось через ${after} мс`);
+    // нечего переводить — нейтрально, без значка
+    await ev("window.__bgDelay = 0; sendCmd('restoreAll'); document.querySelectorAll('p, button, [role], nav').forEach((e) => e.setAttribute('translate', 'no')); true");
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true"); await sleep(150);
     ts = await toastsNow();
-    assert.ok(ts.length === 1 && ts[0].startsWith("info:") && /Переводить нечего/.test(ts[0]), JSON.stringify(ts));
-    const bg = await ev("getComputedStyle(toastRoot().querySelector('.toast')).backgroundColor");
-    assert.strictEqual(bg, "rgb(31, 36, 48)", "тёмный нейтральный фон, не зелёный");
-    ok("«Переводить нечего» — нейтральная подсказка (тёмная), не зелёный «успех»");
+    assert.deepStrictEqual(ts, ["info:Переводить нечегоНа странице нет текста для перевода."]);
+    assert.strictEqual(await ev("toastRoot().querySelectorAll('.t-t svg').length"), 0, "без значка смысла");
+    ok("«Переводить нечего» — нейтральное уведомление без значка");
+
+    // ---- 8а. Подсветка переведённого клавишей ----
+    await load({ trigger: "shift" });
+    const hl = async (sel) => { await hover(sel, 10); await tapShift(); await sleep(60); return ev(`(() => { const s = document.querySelector(${JSON.stringify(sel)}).style; return ['background-color', 'box-shadow', 'text-decoration-line', 'text-decoration-color', 'text-decoration-thickness'].map((p) => s.getPropertyValue(p)).join(' | '); })()`); };
+    assert.strictEqual(await hl("#p1"), "rgba(255, 207, 74, 0.34) | rgba(255, 207, 74, 0.34) 0px 0px 0px 3px |  |  | ", "янтарь .34 с ореолом 3 px");
+    assert.strictEqual(await hl("#dark"), "rgba(255, 207, 74, 0.2) | rgba(255, 207, 74, 0.2) 0px 0px 0px 3px |  |  | ", "на тёмном — .20");
+    await ev("document.querySelector('#p2').parentElement.insertBefore(Object.assign(document.createElement('div'), { id: 'cream' }), document.querySelector('#p2')); const c = document.querySelector('#cream'); c.style.background = '#fff8dc'; c.appendChild(document.querySelector('#p2')); true");
+    assert.strictEqual(await hl("#p2"), " |  | underline | rgb(176, 122, 0) | 2px", "на кремовом фоне — подчёркивание #b07a00");
+    await t.shot("marks.png", { clip: { x: 0, y: 0, width: 700, height: 160, scale: 1 } });
+    await ev("setStore({ dispMode: 'custom', dispBg: '#7ed6a5', dispOpacity: 40 }); true"); await sleep(100);
+    assert.strictEqual(await ev("document.querySelector('#p1').style.backgroundColor"), "rgba(126, 214, 165, 0.4)", "свой цвет с насыщенностью — сразу у показанного");
+    await ev("setStore({ dispMode: 'none' }); true"); await sleep(100);
+    assert.strictEqual(await ev("document.querySelector('#p1').getAttribute('style')"), "", "без подсветки — стиль снят");
+    await ev("setStore({ dispMode: 'auto' }); true"); await sleep(100);
+    await ev("document.querySelector('#p3').style.backgroundColor = 'rgb(1, 2, 3)'; true");
+    await hl("#p3"); await tapShift(); await sleep(60);
+    assert.strictEqual(await ev("document.querySelector('#p3').getAttribute('style')"), "background-color: rgb(1, 2, 3);", "свой inline-стиль страницы вернулся");
+    ok("подсветка: янтарь .34 / .20 с ореолом, на кремовом — подчёркивание #b07a00, свой цвет с насыщенностью, «без подсветки»; свой стиль страницы возвращается");
+
+    // ---- 8б. «Перевести страницу»: сбой одной пачки не останавливает остальные и не даёт «Страница переведена» ----
+    const pageNow = async () => (await ev("sendCmd('getHudState')")).page;
+    await load({ trigger: "shift" });
+    // ошибку получает только пачка с #p2 (видимых больше 8 — по 2 в пачке); остальные переводятся как обычно
+    await ev(`window.__bgReply = (m) => m.items.some((s) => s.startsWith("Another paragraph"))
+      ? { ok: false, code: "other", error: "DeepL не принял запрос.", detail: "код ответа 400" }
+      : { ok: true, texts: m.items.map((s) => "[" + m.targetLang + "] " + s), srcLangs: m.items.map(() => "en") }; true`);
+    const p2Calls = () => ev("trCalls().filter((c) => c.items.some((s) => s.startsWith('Another paragraph'))).length");
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await pageNow()) === "done", 3000), "видимое обработано — «done»");
+    assert.ok(!(await tr("#p2")), "пачка с ошибкой не переведена");
+    for (const sel of ["#p3", "#plink", "#dark", "#edge"]) assert.ok(await tr(sel), sel + ": очередь после сбоя не остановилась");
+    ts = await toastsNow();
+    assert.ok(ts.length === 1 && ts[0].startsWith("err:Не удалось перевестиDeepL не принял запрос."), "уведомление о сбое: " + JSON.stringify(ts));
+    await sleep(400);
+    assert.ok(!/Страница переведена/.test((await toastsNow()).join()), "не «Страница переведена»");
+    assert.strictEqual(await p2Calls(), 1, "упавшую пачку сразу не повторяем");
+    // недопереведённое — при прокрутке с экрана и обратно
+    await ev("window.__bgReply = null; window.scrollTo(0, document.body.scrollHeight); true"); await sleep(400);
+    await ev("window.scrollTo(0, 0); true");
+    assert.ok(await until(() => tr("#p2"), 2000), "при прокрутке обратно #p2 переведён");
+    assert.strictEqual(await p2Calls(), 2);
+    // общий сбой (лимит DeepL, встроенного нет) по-прежнему останавливает очередь: только пачки, ушедшие сразу
+    await load({ trigger: "shift" }, "&builtin=none");
+    await ev(`window.__bgReply = () => ({ ok: false, code: "quota", error: "Лимит DeepL на этот месяц закончился.", detail: "код ответа 456" }); true`);
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await toastsNow()).length, 2000));
+    await sleep(300);
+    assert.ok(await calls() <= 3, "после общего сбоя дальше не шлём: " + await calls());
+    assert.strictEqual(await pageNow(), "idle", "ничего не переведено — страница не переведена");
+    ok("«Перевести страницу»: сбой одной пачки — остальные переводятся, уведомление о сбое вместо «Страница переведена», упавшее — при прокрутке; общий сбой (лимит) останавливает очередь");
+
+    // ---- 8в. Имена (файлы, папки, логины — как у GitHub) не переводятся; обычные ссылки и текст рядом — переводятся ----
+    await load({ trigger: "shift" });
+    const gh = "/expressjs/express/";
+    const names = `<h2 id="repo"><a href="/expressjs">expressjs</a> / <a href="${gh}">express</a></h2>
+      <table id="files"><tbody>
+        <tr><td><div><a href="${gh}tree/master/.github">.github</a></div></td><td><div><a id="cmsg" href="${gh}commit/1a2b">Update the release workflow</a></div></td></tr>
+        <tr><td><div><a href="${gh}tree/master/examples">examples</a></div></td><td><div id="cplain">Fix the broken links in docs</div></td></tr>
+        <tr><td><div><a href="${gh}tree/master/lib">lib</a></div></td></tr>
+        <tr><td><div><a href="${gh}blob/master/.gitignore">.gitignore</a></div></td></tr>
+        <tr><td><div><a href="${gh}blob/master/History.md">History.md</a></div></td></tr>
+        <tr><td><div><a href="${gh}blob/master/LICENSE">LICENSE</a></div></td></tr>
+      </tbody></table>
+      <div><div><a id="ititle" href="${gh}issues/6724">Add support for the QUERY method</a></div>
+        <div>#6724 · <a id="ilogin" href="/bjohansebas">bjohansebas</a> opened on Aug 23, 2025</div>
+        <div>#7533 ·<a id="plogin" href="${gh}pulls?q=is%3Apr+state%3Aopen+author%3Abjohansebas">bjohansebas</a> opened Oct 17, 2026</div>
+        <div><a id="clogin" href="${gh}commits?author=bjohansebas">bjohansebas</a> committed 3 days ago</div></div>
+      <ul><li><a id="wmex" href="/wiki/Mexico">Mexico</a></li><li><a id="wdog" href="/wiki/Dog">dog</a></li></ul>
+      <p id="wpara">The <a id="wtom" href="/wiki/Tomato">tomato</a> came to Europe from <a id="wmex2" href="/wiki/Mexico">Mexico</a>, as <a id="wnasa" href="/wiki/NASA">NASA</a> once noted.</p>
+      <p id="tags">Questions tagged <a id="tpy" href="/tags/python">python</a> are answered fast; read our <a id="tblog" href="/blog">blog</a> for news.</p>
+      <p id="inl">Follow the <a id="inla" href="/docs/install">install</a> guide, <i id="eg">e.g.</i> on a new machine.</p>
+      <p id="site">Visit example.com for details. It ends here.Then more.</p>`;
+    await ev(`document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(names)}); true`);
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await pageNow()) === "done", 3000), "видимое переведено");
+    // логин внутри фразы — как есть, а сама фраза вокруг («opened on …», «committed …») — переведена
+    assert.deepStrictEqual(await ev(`({
+      files: Array.from(document.querySelectorAll('#files td:first-child a'), (a) => a.textContent),
+      logins: ['#ilogin', '#plogin', '#clogin'].map((s) => document.querySelector(s).textContent),
+      around: ['#ilogin', '#plogin', '#clogin'].map((s) => /^\\[RU\\] /.test(document.querySelector(s).nextSibling.nodeValue.trim())) })`),
+    { files: [".github", "examples", "lib", ".gitignore", "History.md", "LICENSE"], logins: ["bjohansebas", "bjohansebas", "bjohansebas"], around: [true, true, true] },
+    "файлы, папки и логины — как есть, фраза вокруг логина — переведена");
+    assert.strictEqual(await text("#repo"), "expressjs / express", "владелец / репозиторий — как есть");
+    for (const sel of ["#cmsg", "#cplain", "#ititle", "#wmex", "#wdog", "#wpara", "#wtom", "#wmex2", "#wnasa", "#tags", "#tpy", "#tblog", "#inl", "#inla", "#eg", "#site"]) {
+      assert.ok(await tr(sel), sel + " переведён");
+    }
+    ok("имена не переводятся: .github, examples, lib, .gitignore, History.md, LICENSE, «expressjs / express», логин в «bjohansebas opened …» (/login, ?q=author:…) и «… committed …» (?author=) — фраза вокруг переводится; переводятся: сообщения рядом, /wiki/Mexico «Mexico», /wiki/Dog «dog», внутри фраз — /wiki/Tomato «tomato», /wiki/Mexico «Mexico», /wiki/NASA «NASA», /tags/python «python», /blog «blog», «install», «e.g.», «example.com» в предложении");
+
+    // ---- 8г. Подсветка запроса поверх поля (как у GitHub Issues) не переводится: это текст человека ----
+    await load({ trigger: "shift" });
+    const query = (id, q) => `<div class="qb"><div aria-hidden="true"><div id="${id}">${q.split(" ").map((w) => `<span>${w}</span>`).join(" ")}</div></div>`
+      + `<div><input id="${id}-in" type="text"></div></div>`;
+    const form = query("qbhl", "is:issue state:open")
+      + `<p id="qbnote">Filter the issues of this repository by their state.</p>`
+      + `<form><h3 id="subh">Subscribe now</h3><div><input type="email"><input type="submit" value="Subscribe now"></div></form>`;
+    await ev(`document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(form)}); document.querySelector('#qbhl-in').value = 'is:issue state:open'; true`);
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await pageNow()) === "done", 3000), "видимое переведено");
+    assert.strictEqual(await text("#qbhl"), "is:issue state:open", "подсветка запроса — как в поле");
+    assert.ok(await tr("#qbnote") && await tr("#subh"), "текст рядом и заголовок с тем же текстом, что у кнопки submit, — переведены");
+    // новое содержимое после перевода страницы (как переход SPA на Issues)
+    await ev(`document.body.insertAdjacentHTML("afterbegin", ${JSON.stringify(query("qbhl2", "is:pr label:deps") + `<p id="late">Pull requests that update the dependencies.</p>`)});
+      document.querySelector('#qbhl2-in').value = 'is:pr label:deps'; true`);
+    assert.ok(await until(() => tr("#late"), 2000), "новый текст переведён");
+    assert.strictEqual(await text("#qbhl2"), "is:pr label:deps", "новая подсветка запроса — как в поле");
+    ok("подсветка запроса поверх поля (is:issue state:open) не переводится — ни при переводе страницы, ни появившись позже; текст рядом и заголовок, равный value кнопки submit, — переводятся");
 
     // ---- 9. Выключить на этом сайте ----
     await load({ trigger: "shift", disabledSites: ["127.0.0.1", 5, "<script>"], hudShown: true });
-    assert.deepStrictEqual(await ev("sendCmd('getHudState')"), { ok: true, hud: false, site: "127.0.0.1", siteOff: true });
+    assert.deepStrictEqual(await ev("sendCmd('getHudState')"), { ok: true, hud: false, site: "127.0.0.1", siteOff: true, lang: "en", page: "idle", done: 0, total: 0, count: 0, src: "" });
     await hover("#p1"); await tapShift();
     assert.strictEqual(await calls(), 0, "клавиша не переводит");
     await ev("setStore({ trigger: 'dwell', dwellMs: 100 }); true");
     await away(); await hover("#p2"); await move((await at("#p2")).x + 2, (await at("#p2")).y); await sleep(400);
     assert.strictEqual(await calls(), 0, "наведение не переводит");
-    assert.strictEqual(await ev("hudRoot()"), null, "мини-панели нет (хотя она включена)");
+    assert.strictEqual(await ev("document.querySelectorAll('[data-ht-ui]').length"), 0, "нашего интерфейса на странице нет (плавающая кнопка включена, но сайт выключен)");
     assert.strictEqual(await ev("sendCmd('toggleHud').hud"), false);
     await ev("sendCmd({ type: 'translatePage', via: 'command', keys: 'Alt+Shift+O' }); true"); await sleep(100);
-    assert.ok(/На этом сайте перевод выключен/.test((await toastsNow()).join()), "«Перевести страницу» на выключенном сайте — объяснение, без перевода");
+    assert.deepStrictEqual(await toastsNow(), ["info:На этом сайте перевод выключенВключить можно в окне расширения: «Переводить на 127.0.0.1»."], "«Перевести страницу» на выключенном сайте — объяснение, без перевода");
     assert.strictEqual(await calls(), 0);
     assert.deepStrictEqual(await ev("typeCalls('siteBadge')"), [{ type: "siteBadge", off: true }], "значок вкладки — «off»");
-    // включили обратно (из окна расширения) — работает, панель вернулась
+    // включили обратно (из окна расширения) — работает, плавающая кнопка вернулась (сама она — в page/fab.test.js)
     await ev("setStore({ disabledSites: [], trigger: 'shift' }); true"); await sleep(100);
-    assert.ok(await ev("!!hudRoot()"), "панель вернулась");
+    assert.strictEqual(await ev("sendCmd('getHudState').hud"), true, "плавающая кнопка вернулась");
     assert.deepStrictEqual(await ev("typeCalls('siteBadge').pop()"), { type: "siteBadge", off: false });
     await hover("#p1"); await tapShift();
     assert.ok(await tr("#p1"));
-    // кнопка ⊘ в мини-панели: оригиналы вернулись, панель скрылась, сайт в списке; «Включить снова»
-    const off = await ev("uiPoint(hudRoot(), 'button[title^=\"Выключить\"]')");
-    await click(off.x, off.y); await sleep(350);   // прежнее уведомление исчезает 250 мс
-    assert.ok(!(await tr("#p1")), "оригинал вернулся");
-    assert.strictEqual(await ev("hudRoot()"), null, "панель скрыта");
-    assert.deepStrictEqual(await ev("__store.disabledSites"), ["127.0.0.1"]);
-    ts = await toastsNow();
-    assert.ok(/Перевод на сайте 127\.0\.0\.1 выключен/.test(ts[0]) && /Включить снова/.test(ts[0]), JSON.stringify(ts));
-    await t.shot("toast-site-off.png", { clip: { x: 150, y: 660, width: 700, height: 140, scale: 1 } });
-    const on = await ev("uiPoint(toastRoot(), '.act')");
-    await click(on.x, on.y); await sleep(150);
-    assert.deepStrictEqual(await ev("__store.disabledSites"), []);
-    assert.ok(await ev("!!hudRoot()"), "панель снова на месте");
-    ok("выключен сайт: ни клавиши, ни наведения, ни панели, «Перевести страницу» объясняет; ⊘ в панели выключает (с «Включить снова»); значок вкладки «off»; мусор в списке отброшен");
+    ok("выключен сайт: ни клавиши, ни наведения, ни плавающей кнопки, «Перевести страницу» объясняет; значок вкладки «off»; включили обратно — работает, кнопка вернулась; мусор в списке отброшен");
     // встроенное окно с другого адреса смотрит на сайт верхней страницы
     const frameRun = async (store) => {
       const fr = OTHER + "/stub-frame.html?store=" + encodeURIComponent(JSON.stringify(store));
@@ -383,76 +551,127 @@ const SHIFT = 8;
     assert.ok(/^\[RU\]/.test(f2.text), "выключен только адрес самого окна — не считается: сайт определяется по верхней странице");
     ok("встроенное окно с другого адреса проверяет сайт верхней страницы (location.ancestorOrigins)");
 
-    // ---- 10. Мини-панель: показ и место запоминаются ----
-    await load({ trigger: "shift", hudShown: true, hudPos: { left: 120, top: 300 } });
-    let hp = await ev("(() => { const r = hudRoot().host.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; })()");
-    assert.deepStrictEqual(hp, [120, 300], "показана сразу и на сохранённом месте");
-    const grip = await ev("uiPoint(hudRoot(), '.grip')");
-    await move(grip.x, grip.y);
-    await t.mouse("mousePressed", grip.x, grip.y, { button: "left", clickCount: 1 });
-    for (let i = 1; i <= 5; i++) await t.mouse("mouseMoved", grip.x + i * 20, grip.y - i * 10, { button: "left", buttons: 1 });
-    await t.mouse("mouseReleased", grip.x + 100, grip.y - 50, { button: "left", clickCount: 1 });
-    await sleep(100);
-    const posSets = await ev("__sets.filter((s) => 'hudPos' in s)");
-    assert.ok(posSets.length === 1 && posSets[0].hudPos.left === 220 && posSets[0].hudPos.top === 250, "место записано один раз, при отпускании: " + JSON.stringify(posSets));
-    // «другая страница»: перезагрузка с тем, что записано
-    await load({ trigger: "shift", hudShown: true, hudPos: posSets[0].hudPos });
-    hp = await ev("(() => { const r = hudRoot().host.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)]; })()");
-    assert.deepStrictEqual(hp, [220, 250]);
-    const close = await ev("uiPoint(hudRoot(), 'button[title=\"Скрыть панель\"]')");
-    await click(close.x, close.y); await sleep(100);
-    assert.strictEqual(await ev("hudRoot()"), null);
-    assert.deepStrictEqual(await ev("__sets.filter((s) => 'hudShown' in s)"), [{ hudShown: false }]);
-    // показали в другой вкладке — появляется и здесь; мусор в позиции — место по умолчанию
-    await ev("setStore({ hudPos: { left: 'x', top: 1 }, hudShown: true }); true"); await sleep(80);
-    hp = await ev("(() => { const r = hudRoot().host.getBoundingClientRect(); const d = document.documentElement; return [d.clientWidth - Math.round(r.right), d.clientHeight - Math.round(r.bottom)]; })()");
-    assert.deepStrictEqual(hp, [16, 16], "неверная позиция — снизу справа (отступ 16 px от краёв окна без полосы прокрутки)");
-    ok("мини-панель: показ и место (общие для сайтов) восстанавливаются на новой странице, место пишется один раз при отпускании, ✕ запоминает «скрыта»");
-
     // ---- 11. Горячая клавиша вкл/выкл: сказать на странице ----
     await ev("sendCmd({ type: 'say', what: 'disabled', keys: 'Alt+Shift+O' }); true"); await sleep(80);
-    assert.ok(/Перевод выключен\. Включить снова — Alt\+Shift\+O\./.test((await toastsNow()).join()));
+    assert.deepStrictEqual(await toastsNow(), ["info:Перевод выключенВключить снова — Alt+Shift+O"]);
     await ev("setStore({ enabled: false }); sendCmd({ type: 'translatePage', via: 'command', keys: 'Alt+Shift+O' }); true"); await sleep(80);
-    assert.ok(/Перевод выключен\. Включить: Alt\+Shift\+O или значок расширения\./.test((await toastsNow()).join()));
-    ok("горячие клавиши: «Перевод выключен. Включить снова — Alt+Shift+O»; «перевести страницу» при выключенном переводе — подсказка");
+    assert.ok((await toastsNow()).includes("info:Перевод выключенВключить: Alt+Shift+O или «Везде» в окне расширения"), JSON.stringify(await toastsNow()));
+    await ev("setStore({ enabled: true }); sendCmd({ type: 'say', what: 'enabled' }); true"); await sleep(80);
+    assert.ok((await toastsNow()).includes("info:Перевод включён"));
+    ok("горячие клавиши: «Перевод выключен / Включить снова — Alt+Shift+O», «Перевод включён»; «перевести страницу» при выключенном переводе — подсказка");
 
-    // ---- 12. Уведомление и мини-панель не накрывают друг друга ----
-    // Прямоугольники хостов: [left, top, right, bottom]; пересекаются ли.
+    // ---- 12. Где встаёт уведомление: вверху справа; закрыло бы текст под курсором — внизу справа ----
+    // (над плавающей кнопкой — в page/fab.test.js). Прямоугольники: [left, top, right, bottom]; пересекаются ли.
     const boxes = () => ev(`(() => { const b = (r) => r ? (({ left, top, right, bottom }) => [left, top, right, bottom].map(Math.round))(r.host.getBoundingClientRect()) : null;
-      return { toast: b(toastRoot()), hud: b(hudRoot()), h: document.documentElement.clientHeight }; })()`);
+      const d = document.documentElement; return { toast: b(toastRoot()), w: d.clientWidth, h: d.clientHeight }; })()`);
+    const elBox = (sel) => ev(`(({ left, top, right, bottom }) => [left, top, right, bottom].map(Math.round))(document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect())`);
     const cross = (a, c) => a[0] < c[2] && c[0] < a[2] && a[1] < c[3] && c[1] < a[3];
-    const pageDone = async () => {
-      await ev("sendCmd('restoreAll'); sendCmd('translatePage'); true");
-      assert.ok(await until(async () => /Готово/.test((await toastsNow()).join()), 3000), "уведомление «Готово»");
-      return boxes();
-    };
-    // узкое окно, панель на месте по умолчанию (внизу справа): уведомление встаёт над панелью
+    const say = async () => { await ev("sendCmd({ type: 'say', what: 'disabled', keys: 'Alt+Shift+O' }); true"); await sleep(120); return boxes(); };
+    // широкое окно, курсор слева на тексте (600 px) — вверху справа с отступом 16
+    await t.cmd("Emulation.setDeviceMetricsOverride", { width: 1100, height: 800, deviceScaleFactor: 1, mobile: false });
+    await load({ trigger: "shift" });
+    await hover("#p1", 10);
+    let bx = await say();
+    assert.deepStrictEqual([bx.toast[1], bx.w - bx.toast[2], bx.toast[2] - bx.toast[0]], [16, 16, 360], "вверху справа, отступ 16, ширина 360: " + JSON.stringify(bx));
+    await t.shot("toast-top.png");
+    // узкое окно: текст под курсором ушёл бы под уведомление — оно внизу справа, отступ 16 (кружка нет)
     await t.cmd("Emulation.setDeviceMetricsOverride", { width: 640, height: 600, deviceScaleFactor: 1, mobile: false });
-    await load({ trigger: "shift", hudShown: true, hudPos: null });
-    let bx = await pageDone();
-    console.log(`      (окно 640 px: уведомление ${JSON.stringify(bx.toast)}, панель ${JSON.stringify(bx.hud)})`);
-    assert.ok(bx.toast && bx.hud && !cross(bx.toast, bx.hud), "уведомление не накрывает панель: " + JSON.stringify(bx));
-    assert.strictEqual(bx.toast[3], bx.hud[1] - 8, "уведомление — над панелью с зазором 8 px");
-    await t.shot("toast-over-hud-narrow.png");
-    // уведомление уже на экране, а панель утащили наверх — уведомление возвращается вниз
-    await ev("setStore({ hudPos: { left: 200, top: 10 } }); true"); await sleep(100);
+    await load({ trigger: "shift" });
+    await hover("#p1", 560);
+    bx = await say();
+    const p1box = await elBox("#p1");
+    assert.ok(!cross(bx.toast, p1box) && bx.h - bx.toast[3] === 16 && bx.w - bx.toast[2] === 16, "внизу справа, не закрывает текст: " + JSON.stringify({ bx, p1box }));
+    await t.shot("toast-low.png");
+    // текст, который начали переводить, не закрывается: уведомление уже вверху — уходит вниз
+    await away(); await sleep(50);
+    bx = await say();
+    assert.strictEqual(bx.toast[1], 16, "курсора над текстом нет — вверху: " + JSON.stringify(bx));
+    await ev("window.__bgDelay = 300; true");
+    await hover("#p1", 10); await tapShift(); await sleep(60);   // курсор слева, правый край абзаца — под уведомлением
     bx = await boxes();
-    assert.ok(!cross(bx.toast, bx.hud) && bx.toast[3] === bx.h - 20, "панель ушла — уведомление снова внизу: " + JSON.stringify(bx));
-    // панель утащили вниз посередине — уведомление над ней
-    await load({ trigger: "shift", hudShown: true, hudPos: { left: 150, top: 560 } });
-    bx = await pageDone();
-    assert.ok(!cross(bx.toast, bx.hud) && bx.toast[3] <= bx.hud[1], "панель внизу посередине — уведомление над ней: " + JSON.stringify(bx));
-    // скрыли панель — уведомление на обычном месте
-    await ev("sendCmd('toggleHud'); true"); await sleep(100);
-    bx = await boxes();
-    assert.ok(bx.hud === null && bx.toast[3] === bx.h - 20, JSON.stringify(bx));
-    // широкое окно: панель правее уведомления — уведомление на обычном месте, внизу посередине
-    await t.cmd("Emulation.setDeviceMetricsOverride", { width: 1300, height: 800, deviceScaleFactor: 1, mobile: false });
-    await load({ trigger: "shift", hudShown: true, hudPos: null });
-    bx = await pageDone();
-    assert.ok(!cross(bx.toast, bx.hud) && bx.toast[3] === bx.h - 20, "широкое окно — уведомление не сдвигается: " + JSON.stringify(bx));
+    assert.strictEqual(bx.h - bx.toast[3], 16, "переводимый текст под уведомлением — оно ушло вниз: " + JSON.stringify(bx));
+    await ev("window.__bgDelay = 0; true");
     await t.cmd("Emulation.setDeviceMetricsOverride", { width: 1000, height: 800, deviceScaleFactor: 1, mobile: false });
-    ok("уведомление и мини-панель не накрывают друг друга: в узком окне уведомление над панелью, панель скрыли или увели — уведомление на обычном месте; в широком — не сдвигается");
+    ok("уведомление: вверху справа (16, 360); закрыло бы текст под курсором или переводимый — внизу справа в 16");
+
+    // ---- 12а. Свои цвета — по фону сайта, а не по теме системы (кружок — в page/fab.test.js) ----
+    await load({ trigger: "shift" });
+    const look = () => ev(`(() => { const c = toastRoot().querySelector('.toast'); const g = getComputedStyle;
+      return [g(c).backgroundColor, g(c).borderTopColor, g(c).fontFamily.split(',')[0]]; })()`);
+    await t.cmd("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+    await ev("sendCmd({ type: 'say', what: 'enabled' }); true"); await sleep(100);
+    assert.deepStrictEqual(await look(), ["rgb(255, 255, 255)", "rgb(201, 206, 213)", "system-ui"], "светлый сайт при тёмной теме системы — белое");
+    await t.cmd("Emulation.setEmulatedMedia", { features: [] });
+    await load({ trigger: "shift" }, "&dark=1");
+    await ev("sendCmd({ type: 'say', what: 'enabled' }); true"); await sleep(100);
+    assert.deepStrictEqual(await look(), ["rgb(42, 45, 51)", "rgba(255, 255, 255, 0.4)", "system-ui"], "тёмный сайт — #2a2d33 с рамкой .4");
+    await t.shot("dark-site.png");
+    ok("уведомление: на светлом сайте белое с рамкой #c9ced5 (и при тёмной теме системы), на тёмном — #2a2d33 с рамкой rgba(255,255,255,.4); шрифт системный");
+
+    // ---- 13. Состояние страницы для окна: tabState, stopPage, pageState ----
+    const state = () => ev("sendCmd('getHudState')");
+    const pick = (st) => [st.page, st.done, st.total, st.count, st.src];
+    const pushed = () => ev("typeCalls('pageState').map((c) => c.state.page + ':' + c.state.done + '/' + c.state.total + ':' + c.state.count)");
+    await load({ trigger: "shift" });
+    assert.deepStrictEqual(pick(await state()), ["idle", 0, 0, 0, ""]);
+    // клавишей — «part» с числом абзацев
+    await hover("#p1"); await tapShift(); await hover("#p2"); await tapShift(); await sleep(100);
+    assert.deepStrictEqual(pick(await state()), ["part", 0, 0, 2, "en"]);
+    await esc();
+    assert.deepStrictEqual(pick(await state()), ["idle", 0, 0, 0, "en"], "Esc после перевода клавишей — снова ничего");
+    // страница: «busy» со счётом видимых абзацев → «done»; Esc → «orig»
+    await ev("window.__calls.length = 0; window.__bgDelay = 300; true");
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true"); await sleep(60);
+    const busy = await state();
+    assert.ok(busy.page === "busy" && busy.done === 0 && busy.total > 8, "идёт перевод видимого: " + JSON.stringify(busy));
+    assert.ok(await until(async () => (await state()).page === "done", 3000), "видимое готово — сразу «done»");
+    const doneSt = await state();
+    assert.ok(doneSt.count >= busy.total - 2 && doneSt.src === "en", JSON.stringify(doneSt));
+    await sleep(100);
+    const seq = await pushed();
+    console.log(`      (pageState окну: ${JSON.stringify(seq)})`);
+    assert.ok(seq[0].startsWith("busy:0/" + busy.total) && seq.some((x) => /^busy:([1-9]\d*)\//.test(x)) && seq[seq.length - 1].startsWith("done:"), "окну пришло «busy 0 из M», промежуточный счёт и «done»");
+    const nCalls = await ev("trCalls().length");
+    assert.ok(nCalls >= Math.ceil(busy.total / 4), `видимое — пачками по 4 абзаца: ${nCalls} запросов на ${busy.total} абзацев`);
+    await ev("window.__bgDelay = 0; true");
+    await esc();
+    assert.deepStrictEqual(pick(await state()).slice(0, 4), ["orig", 0, 0, 0], "Esc на переведённой целиком странице — «orig»");
+    // «Перевод» (translatePage) снова — «done»; смена языка — перевод заново с «busy»
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await state()).page === "done", 3000));
+    await ev("window.__calls.length = 0; window.__bgDelay = 200; setStore({ targetLang: 'DE' }); true");
+    assert.ok(await until(async () => (await state()).page === "busy", 2000), "смена языка на переведённой странице — «busy»");
+    assert.ok(await until(async () => (await state()).page === "done", 3000));
+    assert.ok(await until(() => text("#p1").then((v) => v.startsWith("[DE]")), 2000), "переведено заново: " + await text("#p1"));
+    assert.ok((await pushed()).some((x) => x.startsWith("busy:")), "окну сообщили «busy»");
+    await ev("window.__bgDelay = 0; sendCmd('restoreAll'); setStore({ targetLang: 'RU' }); true"); await sleep(500);
+    // «Стоп»: перевод останавливается, переведённое остаётся
+    await load({ trigger: "shift" });
+    await ev("window.__bgDelay = 300; true");
+    await ev("sendCmd({ type: 'translatePage', via: 'popup' }); true");
+    assert.ok(await until(async () => (await state()).count > 0, 2000), "первые пачки пришли");
+    const stopped = await ev("sendCmd('stopPage')");
+    assert.ok(stopped.page === "part" && stopped.count > 0, "«Стоп» — «part» с переведённым: " + JSON.stringify(stopped));
+    const kept = stopped.count;
+    const n0 = await calls();
+    await sleep(700);
+    assert.strictEqual((await state()).count, kept, "пачки в полёте на страницу не попали");
+    assert.ok(await tr("#p1"), "переведённое осталось (без отката)");
+    await ev("window.scrollTo(0, document.body.scrollHeight); true"); await sleep(700);
+    assert.strictEqual(await calls(), n0, "по прокрутке больше не переводится");
+    assert.deepStrictEqual(await toastsNow(), [], "после «Стопа» — без «Страница переведена»");
+    await ev("window.scrollTo(0, 0); window.__bgDelay = 0; true");
+    // Стоп сразу — «idle», ничего не записано
+    await load({ trigger: "shift" });
+    await ev("window.__bgDelay = 300; sendCmd({ type: 'translatePage', via: 'popup' }); true"); await sleep(60);
+    assert.deepStrictEqual(pick(await ev("sendCmd('stopPage')")).slice(0, 4), ["idle", 0, 0, 0]);
+    await sleep(500);
+    assert.ok(!(await tr("#p1")) && (await state()).count === 0, "ответы после «Стопа» отброшены");
+    await ev("window.__bgDelay = 0; true");
+    // toggleHud отвечает тем же состоянием
+    const tg = await ev("sendCmd('toggleHud')");
+    assert.ok(tg.hud === true && tg.page === "idle" && "count" in tg && "src" in tg, JSON.stringify(tg));
+    ok("окну: tabState { page, done, total, count, src } — idle → part (клавишей) → busy N из M по видимым пачками по 4 → done → orig (Esc); pageState при каждом изменении; смена языка — busy заново; stopPage — без отката, пачки в полёте отброшены, прокрутка больше не переводит");
 
     assert.deepStrictEqual(errors, [], "ошибок на странице нет");
     console.log(`\nВсе проверки пройдены: ${pass}`);

@@ -1,884 +1,789 @@
-// popup.js — окно расширения. Всё хранится в chrome.storage.local и подхватывается
-// content.js/background.js на лету.
+// popup.js — окно расширения (редизайн «А»). Шапка с «Везде» → язык перевода и недавние →
+// место действия (всегда 72 px) → строка «Переводить на <сайт>» → подвал (переводчик, плавающая кнопка,
+// настройки). Переводчик, ключи, согласия, способ показа — на странице настроек (options.html); отсюда туда
+// ведут кнопки (сообщение openSettings в background).
 //
-// Порядок — по задачам: выключатель и сайт, язык, способ включения, действия со страницей. Выбор
-// переводчика («Качество перевода») и «Дополнительно» при открытии свёрнуты: в обычном состоянии окно
-// помещается в 600 px, больше Chrome не показывает. Что сделать, если перевод не работает (ключ,
-// согласие, скачать модели), — наверху, с кнопкой, а в заголовке «Качества перевода» — коротко, что
-// выбрано и в каком оно состоянии.
+// Вид окна — функция от модели: факты (хранилище, вкладка и её content-скрипт, встроенный переводчик, сбой
+// сервиса) → derive() → модель вида (простые данные: номер состояния 0…19, тексты, кнопки с именами
+// действий) → render(). Любое состояние можно нарисовать для проверки: HT_popup.render(модель) или
+// HT_popup.show(факты) — после этого окно больше не перерисовывается само.
+//
+// Порядок, в котором выбирается состояние (первое подходящее):
+//   вкладка недоступна (10 служебная, 11 открыта до установки) → выключено везде (9) → выключено на сайте (8)
+//   → переводчик не может работать (12–16, по HT_engineProblem) → сбой сервиса (17–19, storage.session.htNetErr)
+//   → загрузка встроенного не удалась (14) → состояние страницы (3 перевод, 4 переведена, 5 оригинал, 6 часть)
+//   → встроенный надо скачать (1, 2) → обычное (0) или «страница уже на языке перевода» (7).
 
-// Общие с content.js значения берём из shared.js, к ним добавляем то, что нужно только окну: ключи,
-// отметки «ключ проверен», недавние языки и согласие на отправку текста.
-const DEFAULTS = Object.assign({}, HT_DEFAULTS, {
-  apiKey: "", keyVerified: false,
-  llmApiKey: "", llmVerified: false,
-  recentLangs: [], consent: {},
-});
-
-// Статический текст разметки — из сообщений (_locales), до всего остального: ниже код читает и меняет
-// уже подписанные элементы.
 HT_localize(document);
 
-const $ = (id) => document.getElementById(id);
-const els = {
-  enabled: $("enabled"), enabledText: $("enabledText"),
-  siteRow: $("siteRow"), siteOn: $("siteOn"), siteName: $("siteName"),
-  pageMsg: $("pageMsg"), reloadTab: $("reloadTab"),
-  setup: $("setup"), setupText: $("setupText"), setupFix: $("setupFix"), setupGo: $("setupGo"), prepBox: $("prepBox"),
-  targetLang: $("targetLang"), recentLangs: $("recentLangs"),
-  trigger: $("trigger"), triggerHint: $("triggerHint"),
-  dwellField: $("dwellField"), dwellMs: $("dwellMs"), dwellVal: $("dwellVal"),
-  translatePage: $("translatePage"), resetPage: $("resetPage"), hudBtn: $("hudBtn"),
-  qualityHead: $("qualityHead"), qualityBody: $("qualityBody"), qualitySum: $("qualitySum"),
-  engine: $("engine"), builtinBox: $("builtinBox"),
-  consentBox: $("consentBox"), consentText: $("consentText"), consentOk: $("consentOk"),
-  consentGiven: $("consentGiven"), consentGivenText: $("consentGivenText"), consentRevoke: $("consentRevoke"),
-  keyBlock: $("keyBlock"), apiKey: $("apiKey"), toggleKey: $("toggleKey"), check: $("check"),
-  status: $("status"), quota: $("quota"),
-  llmBlock: $("llmBlock"), llmProvider: $("llmProvider"), llmKeyLbl: $("llmKeyLbl"), llmApiKey: $("llmApiKey"),
-  toggleLlmKey: $("toggleLlmKey"), llmCheck: $("llmCheck"),
-  llmModelSel: $("llmModelSel"), llmModel: $("llmModel"), llmStatus: $("llmStatus"),
-  moreHead: $("moreHead"), moreBody: $("moreBody"),
-  sourceLang: $("sourceLang"),
-  formalityField: $("formalityField"), formality: $("formality"),
-  displayMode: $("displayMode"), displayNote: $("displayNote"), badgeRow: $("badgeRow"), showLangBadge: $("showLangBadge"),
-  dispMode: $("dispMode"), dispCustom: $("dispCustom"),
-  dispBg: $("dispBg"), dispOpacity: $("dispOpacity"), dispOpacityVal: $("dispOpacityVal"),
-  dispBorder: $("dispBorder"), dispBorderColor: $("dispBorderColor"), dispBorderStyle: $("dispBorderStyle"),
-  borderControls: $("borderControls"),
-  noTranslate: $("noTranslate"),
-  cacheRow: $("cacheRow"), stats: $("stats"), clearCache: $("clearCache"), cacheMsg: $("cacheMsg"),
-  keysText: $("keysText"), keysEdit: $("keysEdit"),
-};
-
-const MAC = HT_isMac();
-const CHECK_FAIL = HT_t("checkFail");
-const NO_PAGE = HT_t("noPage");
-const STORE_FULL = HT_t("storeFull");
-const LANG_LABEL = Object.fromEntries(HT_TARGET_LANGS);
-let recent = [];
-let enabledOn = true;
-let consent = HT_consent(null);
-let builtinUi = null;                 // блок встроенного переводчика (builtin.js)
-let builtinState = "";                // "" — ещё проверяем; "ready" | "need" | "none" | "pair-unavailable" | "no-lang"
-let keyVerified = false, llmVerified = false;
-let builtinOnTop = false;             // блок встроенного переводчика перенесён наверх (нужно скачать модели)
-let site = null;                      // { name, off } — сайт активной вкладки (от её content-скрипта)
-let savedSome = false;                // есть сохранённые переводы DeepL или ИИ (по счётчикам расхода)
-const keys = { toggle: "", page: "" };  // сочетания клавиш команд (chrome.commands)
-
-// ---- списки ----
-// Языки и переводчики строим из общих таблиц shared.js, а не держим копией в разметке. Заполняем
-// СИНХРОННО, до чтения настроек: ниже им присваивается сохранённое значение.
-HT_fillSelect(els.targetLang, HT_TARGET_LANGS);
-HT_fillSelect(els.sourceLang, HT_SOURCE_LANGS);
-
-// Переводчики — переключатели с пояснением: в выпадающем списке пояснение не поместилось бы.
-for (const [code] of HT_ENGINES) {
-  const row = document.createElement("label");
-  row.className = "eng";
-  const input = document.createElement("input");
-  input.type = "radio";
-  input.name = "engine";
-  input.value = code;
-  const text = document.createElement("span");
-  const name = document.createElement("span");
-  name.className = "eng-name";
-  name.textContent = HT_engineLabel(code);
-  const hint = document.createElement("span");
-  hint.className = "eng-hint";
-  hint.textContent = HT_engineHint(code);
-  text.append(name, hint);
-  row.append(input, text);
-  els.engine.appendChild(row);
-}
-
-// Клавиши способа включения — как они подписаны на клавиатуре (на Mac — ⌥ Option, ⌘ Cmd).
-for (const span of els.trigger.querySelectorAll("[data-key]")) span.textContent = HT_triggerKey(span.dataset.key, MAC);
-
-function radioValue(name) {
-  const r = document.querySelector(`input[name="${name}"]:checked`);
-  return r ? r.value : "";
-}
-function setRadio(name, value) {
-  for (const r of document.querySelectorAll(`input[name="${name}"]`)) r.checked = r.value === value;
-}
-const engineValue = () => HT_valid("engine", radioValue("engine"));
-const triggerValue = () => HT_valid("trigger", radioValue("trigger"));
-
-// Модели ИИ: первая строка списка — «по умолчанию» (пустое значение в настройках), последняя —
-// «Другая…» с полем для точного названия.
-const OTHER_MODEL = "other";
-function fillModels(provider) {
-  els.llmModelSel.textContent = "";
-  HT_llmModels(provider).forEach((row, i) => {
-    const o = document.createElement("option");
-    o.value = i === 0 ? "" : row[0];
-    o.textContent = HT_llmModelLabel(row);
-    els.llmModelSel.appendChild(o);
-  });
-  const other = document.createElement("option");
-  other.value = OTHER_MODEL;
-  other.textContent = HT_t("modelOther");
-  els.llmModelSel.appendChild(other);
-}
-function setModelUI(provider, model) {
-  fillModels(provider);
-  const row = model ? HT_llmModelRow(provider, model) : null;
-  const custom = !!model && !row;
-  els.llmModelSel.value = !model || model === HT_llmDefault(provider) ? "" : custom ? OTHER_MODEL : model;
-  els.llmModel.value = custom ? model : "";
-  els.llmModel.hidden = !custom;
-}
-function modelValue() {
-  const v = els.llmModelSel.value;
-  return v === OTHER_MODEL ? els.llmModel.value.trim() : v;
-}
-
-// ---- общие ----
-function setMsg(el, text, kind) {
-  el.textContent = text;
-  el.className = (el === els.quota ? "quota" : "status") + (kind ? " " + kind : "");
-}
-const setStatus = (text, kind) => setMsg(els.status, text, kind);
-const setLlmStatus = (text, kind) => setMsg(els.llmStatus, text, kind);
-// Сообщение о вкладке; offMsg — это просьба включить перевод (её убирает сам выключатель).
-let offMsg = false;
-const setPageMsg = (text, kind, off) => { offMsg = !!off; setMsg(els.pageMsg, text, kind); };
-
-// Подпись кнопки: title и aria-label всегда ставятся вместе.
-function setTip(el, text) {
-  el.title = text;
-  el.setAttribute("aria-label", text);
-}
-
-function setEnabledUI(on) {
-  enabledOn = on;
-  els.enabled.setAttribute("aria-checked", String(on));
-  els.enabledText.textContent = HT_t(on ? "enabledOn" : "enabledOff");
-  els.enabled.title = keys.toggle ? HT_t("hotkeyTip", keys.toggle) : "";
-}
-
-// «Мини-панель на странице»: нажата, пока панель показана на активной вкладке.
-function setHudUI(on) {
-  els.hudBtn.setAttribute("aria-pressed", String(!!on));
-  els.hudBtn.title = HT_t(on ? "hudShownTip" : "hudHiddenTip");
-}
-
-// Сворачиваемый блок: кнопка-заголовок с aria-expanded и тело с hidden.
-function setFold(head, body, open) {
-  head.setAttribute("aria-expanded", String(open));
-  body.hidden = !open;
-}
-function openQuality() { setFold(els.qualityHead, els.qualityBody, true); }
-
-// Спросить background, заблокировав кнопку на время запроса. Всегда возвращает объект, поэтому
-// вызывающим не нужно повторять проверку `r && r.ok`.
-async function ask(btn, type) {
-  btn.disabled = true;
-  try { return (await chrome.runtime.sendMessage({ type })) || { ok: false, error: CHECK_FAIL }; }
-  catch (e) { return { ok: false, error: (e && e.message) || CHECK_FAIL }; }
-  finally { btn.disabled = false; }
-}
-
-function save() {
-  // storage.local делит квоту с сохранёнными переводами, поэтому set() может отказать. Без catch
-  // это валило весь обработчик, из которого save() вызван: «Перевести страницу» молча не
-  // срабатывала, а введённый ключ и смена языка терялись, хотя окно показывало новое значение.
-  return chrome.storage.local.set({
-    enabled: enabledOn,
-    apiKey: els.apiKey.value.trim(),
-    targetLang: els.targetLang.value,
-    sourceLang: els.sourceLang.value,
-    trigger: triggerValue(),
-    dwellMs: HT_clampDwell(els.dwellMs.value),
-    engine: engineValue(),
-    displayMode: els.displayMode.value,
-    showLangBadge: els.showLangBadge.checked,
-    formality: els.formality.value,
-    noTranslate: els.noTranslate.value,
-    llmProvider: els.llmProvider.value,
-    llmApiKey: els.llmApiKey.value.trim(),
-    llmModel: modelValue(),
-    dispMode: els.dispMode.value,
-    dispBg: els.dispBg.value,
-    dispOpacity: Number(els.dispOpacity.value),
-    dispBorder: els.dispBorder.checked,
-    dispBorderColor: els.dispBorderColor.value,
-    dispBorderStyle: els.dispBorderStyle.value,
-    recentLangs: recent,
-  }).then(() => true).catch((e) => {
-    setPageMsg(HT_t("settingsNotSaved", (e && e.message) || STORE_FULL), "err");
-    return false;
-  });
-}
-
-// ---- состояние переводчика ----
-// То же, по чему background ставит «!» на значке (shared.js), но по значениям в окне: подсказка
-// меняется сразу, как вставили ключ, согласились или сменили переводчик.
-function netState() {
-  return {
-    apiKey: !!els.apiKey.value.trim(), llmApiKey: !!els.llmApiKey.value.trim(),
-    llmProvider: els.llmProvider.value, consent,
-    targetLang: els.targetLang.value, sourceLang: els.sourceLang.value,
-  };
-}
-const currentProvider = () => HT_provider(engineValue(), els.llmProvider.value);
-const problemNow = () => HT_engineProblem(engineValue(), netState(), HT_builtin.hasApi());
-// Переводит ли сейчас встроенный: выбран он сам или «авто», которому DeepL пока недоступен.
-function builtinPrimary() {
-  const e = HT_engine(engineValue());
-  return e.via === "local" || (e.fallback === "local" && !HT_canSend(e.code, netState()));
-}
-// Короткое имя сервиса для текста согласия.
-const SEND_TO = { deepl: "DeepL", openai: "OpenAI", anthropic: "Anthropic" };
-// Что именно человек разрешает — одними словами и наверху окна, и в «Качестве перевода» (сообщения
-// disclosure*, setupNoConsent, setupAutoConsent повторяют одну и ту же фразу).
-// «Авто» с ключом, но без согласия: работает, но только встроенным — сказать, что DeepL ждёт согласия.
-function autoWaitsConsent() {
-  const e = HT_engine(engineValue());
-  const prov = currentProvider();
-  return e.fallback === "local" && !!els.apiKey.value.trim() && !HT_agreed(consent, prov);
-}
-
-// Встроенному переводчику нужно скачать модели, а переводит сейчас он — блок с кнопкой «Подготовить
-// переводчик» переезжает наверх: в свёрнутом «Качестве перевода» его никто бы не нашёл. Обратно до
-// закрытия окна не возвращаем, чтобы «Готово» после загрузки осталось на виду. Язык, которого
-// встроенный не знает («no-lang»), объясняет блок наверху окна (updateSetup) — сюда не переезжаем.
-function placeBuiltin() {
-  if (builtinOnTop || !builtinPrimary()) return;
-  if (builtinState !== "need" && builtinState !== "pair-unavailable") return;
-  builtinOnTop = true;
-  els.prepBox.appendChild(els.builtinBox);
-}
-
-function updateEngineVisibility() {
-  const e = HT_engine(engineValue());
-  els.keyBlock.hidden = e.keyField !== "apiKey";
-  els.llmBlock.hidden = e.keyField !== "llmApiKey";
-  els.formalityField.hidden = !e.formality;
-  updateCacheRow();
-  els.builtinBox.hidden = !e.note;               // встроенный участвует в переводе
-  placeBuiltin();
-  els.prepBox.hidden = !builtinOnTop || els.builtinBox.hidden;
-  updateConsent();
-  updateSetup();
-  updateQualitySum();
-}
-
-// Согласие на отправку текста: пока его нет — объяснение и «Согласен»; после — строка о том, что
-// и куда уходит, с возможностью отозвать.
-function updateConsent() {
-  const prov = currentProvider();
-  const agreed = HT_agreed(consent, prov);
-  // Согласие — про выбранный сервис: у ИИ — после выбора сервиса, у DeepL — перед ключом.
-  const llm = HT_engine(engineValue()).via === "llm";
-  const anchor = llm ? els.llmKeyLbl : els.keyBlock;
-  if (els.consentGiven.nextElementSibling !== anchor) anchor.before(els.consentBox, els.consentGiven);
-  els.consentBox.hidden = !prov || agreed;
-  els.consentGiven.hidden = !prov || !agreed;
-  if (!prov) return;
-  const auto = HT_engine(engineValue()).fallback === "local";
-  els.consentText.textContent = HT_t(auto ? "disclosureAuto" : "disclosure", SEND_TO[prov]);
-  els.consentGivenText.textContent = HT_t("consentGiven", SEND_TO[prov]);
-}
-
-async function setConsent(prov, value) {
-  let stored = {};
-  try { stored = (await chrome.storage.local.get({ consent: {} })).consent; } catch (e) { /* пустое */ }
-  const next = HT_consent(stored);
-  next[prov] = value;
-  try { await chrome.storage.local.set({ consent: next }); }
-  catch (e) { setPageMsg(HT_t("notSaved", STORE_FULL), "err"); return false; }
-  consent = next;
-  updateEngineVisibility();
-  return true;
-}
-
-els.consentOk.addEventListener("click", async () => {
-  const prov = currentProvider();
-  if (!prov || !(await setConsent(prov, true))) return;
-  // Следующий шаг — ключ, если его ещё нет; иначе фокус на строке «отправляется в …».
-  const keyEl = prov === "deepl" ? els.apiKey : els.llmApiKey;
-  if (!keyEl.value.trim()) keyEl.focus(); else els.consentRevoke.focus();
-  if (prov === "deepl" && els.apiKey.value.trim()) fetchQuota();
-});
-els.consentRevoke.addEventListener("click", async () => {
-  const prov = currentProvider();
-  if (prov && (await setConsent(prov, false))) els.consentOk.focus();
-});
-
-// ---- перевод не работает: что сделать ----
-// Кнопки: go — главное действие, fix — другой путь (обычно встроенный переводчик, он работает сразу).
-const SETUP_GO = { key: "setupGoKey", agree: "agree", deepl: "setupGoDeepl", lang: "setupGoLang" };
-const SETUP_FIX = { chrome: "setupFixChrome", keep: "setupFixKeep", deepl: "setupGoDeepl" };
-let setupGo = null, setupFix = null, setupLangFrom = false;
-function updateSetup() {
-  const builtin = HT_builtin.hasApi();
-  const p = problemNow();
-  const prov = currentProvider();
-  let text = "", info = false;
-  setupGo = null; setupFix = null;
-  if (p === "no-deepl-key") {
-    text = HT_t(builtin ? "setupNoDeeplKeyBuiltin" : "setupNoDeeplKey");
-    setupGo = "key"; setupFix = builtin ? "chrome" : null;
-  } else if (p === "no-llm-key") {
-    text = HT_t(builtin ? "setupNoLlmKeyBuiltin" : "setupNoLlmKey");
-    setupGo = "key"; setupFix = builtin ? "chrome" : null;
-  } else if (p === "no-consent") {
-    text = HT_t("setupNoConsent", SEND_TO[prov]);
-    setupGo = "agree"; setupFix = builtin ? "chrome" : null;
-  } else if (p === "no-builtin") {
-    text = HT_t("setupNoBuiltin");
-    setupGo = "deepl";
-  } else if (p === "deepl-lang" || p === "builtin-lang") {
-    // Язык, которого выбранный переводчик не знает: выбрать другой язык или другой переводчик.
-    const deepl = p === "deepl-lang";
-    const gap = HT_langGap(deepl ? "deepl" : "local", netState()) || { dir: "to", code: els.targetLang.value };
-    setupLangFrom = gap.dir === "from";
-    const key = deepl ? (setupLangFrom ? "setupDeeplLangFrom" : "setupDeeplLangTo")
-      : (setupLangFrom ? "setupBuiltinLangFrom" : "setupBuiltinLangTo");
-    text = HT_t(key, HT_langLabel(gap.code));
-    setupGo = "lang"; setupFix = deepl ? (builtin ? "chrome" : null) : "deepl";
-  } else if (autoWaitsConsent()) {
-    text = HT_t("setupAutoConsent", SEND_TO[prov]);
-    setupGo = "agree"; setupFix = "keep"; info = true;
-  }
-  els.setup.hidden = !text;
-  if (!text) return;
-  els.setup.classList.toggle("info", info);
-  els.setupText.textContent = text;
-  els.setupGo.hidden = !setupGo;
-  els.setupGo.textContent = setupGo ? HT_t(SETUP_GO[setupGo]) : "";
-  els.setupGo.className = "btn";                 // главное действие — заметнее второго пути
-  els.setupFix.hidden = !setupFix;
-  els.setupFix.textContent = setupFix ? HT_t(SETUP_FIX[setupFix]) : "";
-}
-
-// Открыть «Качество перевода» и поставить фокус туда, где нужно действие: ключ или «Согласен».
-function focusQualityTarget() {
-  openQuality();
-  const prov = currentProvider();
-  if (prov && !HT_agreed(consent, prov)) { els.consentOk.focus(); return; }
-  const keyEl = HT_engine(engineValue()).keyField === "llmApiKey" ? els.llmApiKey : els.apiKey;
-  keyEl.focus();
-}
-els.setupGo.addEventListener("click", async () => {
-  if (setupGo === "agree") {
-    const prov = currentProvider();
-    if (!prov || !(await setConsent(prov, true))) return;
-    // Блок с кнопкой исчез — говорим, что вышло (строка состояния читается и с экрана), и не теряем фокус.
-    setPageMsg(HT_t("setupAgreed", SEND_TO[prov]), "ok");
-    els.qualityHead.focus();
-    if (prov === "deepl" && els.apiKey.value.trim()) fetchQuota();
-    return;
-  }
-  if (setupGo === "lang") {
-    // Язык оригинала — в «Дополнительно», язык перевода — на виду.
-    if (setupLangFrom) { setFold(els.moreHead, els.moreBody, true); els.sourceLang.focus(); } else els.targetLang.focus();
-    return;
-  }
-  if (setupGo === "deepl") setEngine("deepl");
-  focusQualityTarget();
-});
-els.setupFix.addEventListener("click", () => {
-  if (!setupFix) return;
-  if (setupFix === "deepl") { setEngine("deepl"); focusQualityTarget(); } else setEngine("chrome");
-});
-
-// ---- «Качество перевода»: что выбрано и в каком состоянии ----
-// Заголовок узкий: когда всё в порядке — что выбрано («DeepL ✓»), когда нет — только что не так
-// («нет согласия»): подробности и кнопка — в блоке наверху окна. Полный текст — во всплывающей подсказке.
-const AI_NAME = { openai: "ChatGPT", anthropic: "Claude" };
-function updateQualitySum() {
-  const v = engineValue();
-  const e = HT_engine(v);
-  const p = problemNow();
-  const name = e.via === "local" ? HT_t("sumBuiltin") : e.via === "llm" ? AI_NAME[currentProvider()]
-    : v === "auto" ? HT_t("sumAuto") : "DeepL";
-  let status = "", kind = "";
-  if (p === "deepl-lang" || p === "builtin-lang") { status = HT_t("sumNoLang"); kind = "err"; }
-  else if (e.via === "local" || (p === "no-builtin")) {
-    if (p === "no-builtin" || builtinState === "none") { status = HT_t("sumUnavailable"); kind = "err"; }
-    else if (builtinState === "need") { status = HT_t("sumDownload"); kind = "warn"; }
-    else if (builtinState === "pair-unavailable" || builtinState === "no-lang") { status = HT_t("sumNoLang"); kind = "warn"; }
-    else if (builtinState === "ready") kind = "ok";
-  } else {
-    const st = netState();
-    if (!st[e.keyField]) { status = HT_t("sumNoKey"); kind = p ? "err" : "warn"; }
-    else if (!HT_canSend(v, st)) { status = HT_t("sumNoConsent"); kind = p ? "err" : "warn"; }
-    else if (e.via === "llm" ? llmVerified : keyVerified) kind = "ok";
-  }
-  els.qualitySum.textContent = status || name + (kind === "ok" ? " ✓" : "");
-  els.qualitySum.title = status ? HT_t("sumTip", [name, status]) : "";
-  els.qualitySum.className = "fold-sum" + (kind ? " " + kind : "");
-}
-
-els.qualityHead.addEventListener("click", () => {
-  setFold(els.qualityHead, els.qualityBody, els.qualityHead.getAttribute("aria-expanded") !== "true");
-});
-els.moreHead.addEventListener("click", () => {
-  setFold(els.moreHead, els.moreBody, els.moreHead.getAttribute("aria-expanded") !== "true");
-});
-
-function setEngine(code) {
-  setRadio("engine", code);
-  onEngineChange();
-  save();
-}
-
-// ---- способ включения ----
-function updateTrigger() {
-  const t = triggerValue();
-  els.dwellField.hidden = t !== "dwell";
-  els.triggerHint.textContent = t === "dwell" ? HT_t("triggerHintDwell") : HT_t("triggerHintKey", HT_triggerKey(t, MAC));
-}
-
-// Задержка в секундах: «0,6 с» на экране, «0,6 секунды» — для чтения с экрана (число и форма слова — по
-// языку интерфейса).
-function updateDwell() {
-  const sec = HT_clampDwell(els.dwellMs.value) / 1000;
-  els.dwellVal.textContent = HT_t("dwellValue", HT_num(sec));
-  els.dwellMs.setAttribute("aria-valuetext", HT_plural("seconds", sec));
-}
-
-// ---- недавние языки ----
-// Названия, а не коды; текущий язык уже виден в списке — в чипах только остальные.
-function pushRecent(code) {
-  if (!LANG_LABEL[code]) return;
-  recent = [code, ...recent.filter((c) => c !== code)].slice(0, 5);
-}
-function renderRecent() {
-  els.recentLangs.textContent = "";
-  const list = recent.filter((c) => c !== els.targetLang.value && LANG_LABEL[c]).slice(0, 4);
-  if (!list.length) return;
-  const lbl = document.createElement("span");
-  lbl.className = "chips-lbl";
-  lbl.textContent = HT_t("recentLabel");
-  els.recentLangs.appendChild(lbl);
-  for (const code of list) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "chip";
-    b.textContent = LANG_LABEL[code];
-    b.lang = HT_langBase(code);
-    b.title = HT_t("recentTip");
-    // Чипы строятся заново — фокус с клавиатуры переносим на список языков, а не теряем.
-    b.addEventListener("click", () => { setTargetLang(code); els.targetLang.focus(); });
-    els.recentLangs.appendChild(b);
-  }
-}
-let shownLang = "";
-function setTargetLang(code) {
-  // Прежний язык тоже попадает в недавние — иначе после первой смены вернуться было бы нечем.
-  pushRecent(shownLang);
-  if (els.targetLang.value !== code) els.targetLang.value = code;
-  pushRecent(code);
-  shownLang = code;
-  save();
-  renderRecent();
-  updateEngineVisibility();             // выбранный переводчик может не знать этот язык
-  if (builtinUi) builtinUi.refresh();   // пара «английский → язык» сменилась
-}
-
-// ---- отображение ----
-function updateDispVisibility() {
-  // Язык оригинала показывается только в карточке — при замене на месте галочка ни на что не влияет.
-  const pop = els.displayMode.value === "popover";
-  els.badgeRow.hidden = !pop;
-  els.displayNote.hidden = !pop;
-  els.dispCustom.hidden = els.dispMode.value !== "custom";
-  els.borderControls.hidden = !els.dispBorder.checked;
-  els.dispOpacityVal.textContent = els.dispOpacity.value + "%";
-}
-
-// ---- остаток DeepL и проверка ключей ----
-function renderQuota(r) {
-  if (!r || !r.ok || typeof r.limit !== "number") { setMsg(els.quota, "", ""); return; }
-  const remaining = Math.max(0, r.limit - r.used);
-  setMsg(els.quota, HT_plural("quotaLeft", r.limit, HT_num(remaining)), remaining < r.limit * 0.1 ? "warn" : "");
-}
-// Ошибка проверки ключа. В самом окне «проверьте его в окне расширения» звучало бы странно.
-function checkError(r) {
-  const text = r.code === "bad-key" ? HT_t("keyRejected") : (r.error || CHECK_FAIL);
-  return r.detail ? HT_t("withDetail", [text, r.detail]) : text;
-}
-
-async function fetchQuota() {
-  if (!els.apiKey.value.trim()) { renderQuota(null); return; }
-  try { renderQuota(await chrome.runtime.sendMessage({ type: "checkUsage" })); } catch (e) { renderQuota(null); }
-}
-
-// Проверка ключа уходит только сам ключ — тому сервису, который его выдал, — без текста страниц,
-// поэтому согласия не ждёт (см. checkUsage/checkLlm в background.js).
-async function checkDeepl() {
-  if (!els.apiKey.value.trim()) { setStatus(HT_t("pasteKeyFirst"), "err"); return; }
-  if (!(await save())) return;      // иначе проверялся бы прежний ключ из storage
-  setStatus(HT_t("checkingKey"), "");
-  const r = await ask(els.check, "checkUsage");
-  keyVerified = !!r.ok;
-  if (r.ok) { setStatus(HT_t("keyWorks"), "ok"); renderQuota(r); }
-  else { renderQuota(null); setStatus(checkError(r), "err"); }
-  chrome.storage.local.set({ keyVerified }).catch(() => {});
-  updateQualitySum();
-}
-
-async function checkLlm() {
-  if (!els.llmApiKey.value.trim()) { setLlmStatus(HT_t("pasteKeyFirst"), "err"); return; }
-  if (!(await save())) return;
-  setLlmStatus(HT_t("checkingLlmKey"), "");
-  const r = await ask(els.llmCheck, "checkLlm");
-  llmVerified = !!r.ok;
-  setLlmStatus(r.ok ? HT_t("keyWorks") : checkError(r), r.ok ? "ok" : "err");
-  chrome.storage.local.set({ llmVerified }).catch(() => {});
-  updateQualitySum();
-}
-
-// Вставили ключ (а не набирают по букве) — проверяем сразу, не дожидаясь кнопки.
-const pasted = (e) => e.inputType === "insertFromPaste" || e.inputType === "insertFromDrop";
-
-// ---- сохранённые переводы и статистика расхода ----
-// Сохраняются переводы DeepL и ИИ, встроенного — нет. Но после перехода с DeepL на встроенный прежние
-// переводы ещё 14 дней лежат в браузере, и удалить их должно быть можно: блок показываем и при
-// встроенном, если что-то сохранено. Счётчики расхода обнуляются только вместе с удалением сохранённого,
-// поэтому ненулевые счётчики и значат «что-то сохранено» — без чтения всего хранилища при каждом
-// открытии окна.
-function updateCacheRow() {
-  els.cacheRow.hidden = HT_engine(engineValue()).via === "local" && !savedSome;
-}
-async function fetchStats() {
-  let r;
-  try { r = await chrome.runtime.sendMessage({ type: "getStats" }); } catch (e) { r = null; }
-  if (!r || !r.ok) { els.stats.textContent = ""; return; }
-  // Раз показав блок, до закрытия окна его не прячем: иначе после «Удалить» при встроенном вместе со
-  // счётчиками пропало бы и «Удалено».
-  if (r.chars > 0 || r.hits > 0) savedSome = true;
-  updateCacheRow();
-  els.stats.textContent = [HT_plural("statsSent", r.chars), HT_plural("statsHits", r.hits, HT_plural("statsFree", r.saved)),
-    HT_t("statsKept")].join(" ");
-}
-
-// ---- связь со страницей ----
-// Команды адресуем ТОЛЬКО верхнему фрейму. Content-скрипт объявлен с all_frames:true, и без
-// frameId каждая команда уходила в каждый iframe: свой бюджет PAGE_MAX на фрейм (на странице с
-// десятком встроенных виджетов — кратный перерасход ключа на контент, который никто не читает),
-// N+1 панелей HUD, и `ok` от произвольного фрейма — поэтому «Эта страница недоступна» не
-// показывалось никогда, даже когда в верхнем фрейме скрипта нет.
-const TOP_FRAME = { frameId: 0 };
-
-// Отправить команду верхнему фрейму активной вкладки. map получает ответ и признак недоступности
-// страницы (служебная страница, нет content-скрипта) и решает, что вернуть вызывающему.
-// frames — адресат ({} — все фреймы: «Вернуть оригинал» касается и встроенных окон).
-let activeTab = null;                 // вкладка последней команды — для подсказки «обновите вкладку»
-function askTab(type, map, frames) {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-      activeTab = tab || null;
-      if (!tab || tab.id == null) return resolve(map(null, true));
-      chrome.tabs.sendMessage(tab.id, { type }, frames || TOP_FRAME, (resp) => resolve(map(resp, !!chrome.runtime.lastError)));
-    });
-  });
-}
-
-// ---- вкладка не отвечает ----
-// Content-скрипта на вкладке нет в двух случаях: страница, куда Chrome расширения не пускает
-// (chrome://, магазин расширений), или сайт, открытый до установки или обновления расширения, —
-// туда новая версия попадает только после обновления вкладки. Адрес вкладки окну расширения виден
-// лишь с разрешением "tabs" или "activeTab" (их нет), поэтому без адреса различаем по факту:
-// предлагаем обновить вкладку и проверяем снова. Если адрес известен — сразу говорим как есть.
+const TOP = { frameId: 0 };
+const RECENT_MAX = 6;                    // недавних языков храним с запасом: в чипах нет текущего и исходного
+const NET_FRESH_MS = 10 * 60 * 1000;     // временный сбой сети старше 10 минут не показываем
+const LLM_SHORT = { openai: "ChatGPT", anthropic: "Claude" };
+const SERVICE = { deepl: "DeepL", openai: "OpenAI", anthropic: "Anthropic" };
 const WEBSTORE = /^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)(\/|$)/i;
-function tabKind(tab) {
-  const url = tab && (tab.url || tab.pendingUrl);
-  if (!url) return "unknown";
-  if (url.startsWith(chrome.runtime.getURL(""))) return "own";   // своя страница (приветствие)
-  return /^https?:/i.test(url) && !WEBSTORE.test(url) ? "web" : "closed";
-}
+const LANG_LABEL = Object.fromEntries(HT_TARGET_LANGS);
+const { h, ic } = HT_ui;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// quiet — при открытии окна: без адреса это может быть и служебная страница, поэтому не красным.
-function tabNotResponding(quiet) {
-  const kind = tabKind(activeTab);
-  els.reloadTab.hidden = kind === "own" || kind === "closed";
-  if (kind === "own") { setPageMsg("", ""); return; }
-  if (kind === "closed") { setPageMsg(NO_PAGE, "err"); return; }
-  setPageMsg(HT_t(kind === "web" ? "tabReload" : "tabUnknown"), quiet ? "" : "err");
-}
+// ---------- факты ----------
+// s — настройки (ключи — только факт, есть ли они); tab — активная вкладка: { id, url, kind: "web" | "closed" |
+// "unknown", loading, pending (ответа content ещё ждём) }; ts — tabState от content-скрипта (null — не ответил);
+// bi — HT_builtin.status() (только когда переводит встроенный); dl — загрузка встроенного из окна: { run, pct } |
+// { fail } | { again }; net — htNetErr; keys — сочетания команд; doing — действие, которое сейчас выполняется.
+const F = { s: null, tab: null, ts: null, bi: null, dl: null, net: null, keys: { toggle: "", page: "" },
+  hasApi: HT_builtin.hasApi(), mac: HT_isMac(), doing: "", now: 0 };
 
-const pingTab = (tabId) => new Promise((resolve) => {
-  chrome.tabs.sendMessage(tabId, { type: "getHudState" }, TOP_FRAME, (r) => resolve(!chrome.runtime.lastError && !!r));
-});
-
-// Обновить вкладку и дождаться content-скрипта: статус загрузки виден без разрешений, а скрипт
-// запускается чуть позже (document_idle) — после «complete» даём ему до 2 с.
-async function reloadAndPing(tabId) {
-  try { await chrome.tabs.reload(tabId); } catch (e) { return false; }
-  let completeAt = 0;
-  for (let i = 0; i < 80; i++) {
-    await new Promise((r) => setTimeout(r, 250));
-    let t;
-    try { t = await chrome.tabs.get(tabId); } catch (e) { return false; }
-    if (t.status !== "complete") { completeAt = 0; continue; }
-    if (await pingTab(tabId)) return true;
-    if (!completeAt) completeAt = Date.now();
-    else if (Date.now() - completeAt > 2000) return false;
-  }
-  return false;
-}
-
-els.reloadTab.addEventListener("click", async () => {
-  if (!activeTab || activeTab.id == null) return;
-  els.reloadTab.disabled = true;
-  setPageMsg(HT_t("tabReloading"), "");
-  const ok = await reloadAndPing(activeTab.id);
-  els.reloadTab.disabled = false;
-  els.reloadTab.hidden = true;
-  if (ok) { setPageMsg(HT_t("tabReloaded"), "ok"); refreshTabState(); }
-  else setPageMsg(NO_PAGE, "err");
-});
-
-// true, если content-скрипт получил команду.
-const sendToTab = (type) => askTab(type, (resp, failed) => !failed);
-// Ответ content-скрипта или null, если страница недоступна.
-const queryTab = (type) => askTab(type, (resp, failed) => (failed ? null : resp));
-
-// ---- загрузка ----
-chrome.storage.local.get(DEFAULTS, (s) => {
-  // Неизвестное значение <select> не выберет (value станет ""), и первое же сохранение записало
-  // бы пустую строку — сверяем с таблицами shared.js заранее.
+async function readSettings() {
+  const d = Object.assign({}, HT_DEFAULTS, { apiKey: "", llmApiKey: "", recentLangs: [], consent: {}, disabledSites: [] });
+  let s = d;
+  try { s = await chrome.storage.local.get(d); } catch (e) { /* хранилище недоступно — значения по умолчанию */ }
   HT_validAll(s);
-  consent = HT_consent(s.consent);
-  keyVerified = s.keyVerified === true;
-  llmVerified = s.llmVerified === true;
-  setEnabledUI(s.enabled);
-  els.apiKey.value = s.apiKey;
-  els.targetLang.value = s.targetLang;
-  shownLang = s.targetLang;
-  els.sourceLang.value = s.sourceLang;
-  setRadio("trigger", s.trigger);
-  els.dwellMs.value = HT_clampDwell(s.dwellMs);
-  setRadio("engine", s.engine);
-  els.displayMode.value = s.displayMode === "inline" ? "replace" : s.displayMode; // режим «строка» убран → замена
-  els.showLangBadge.checked = s.showLangBadge;
-  els.formality.value = s.formality;
-  els.noTranslate.value = s.noTranslate;
-  els.llmProvider.value = s.llmProvider;
-  els.llmApiKey.value = s.llmApiKey;
-  setModelUI(s.llmProvider, typeof s.llmModel === "string" ? s.llmModel.trim() : "");
-  if (keyVerified && s.apiKey) setStatus(HT_t("keyWorks"), "ok");
-  if (llmVerified && s.llmApiKey) setLlmStatus(HT_t("keyWorks"), "ok");
-  els.dispMode.value = s.dispMode;
-  els.dispBg.value = s.dispBg;
-  els.dispOpacity.value = s.dispOpacity;
-  els.dispBorder.checked = s.dispBorder;
-  els.dispBorderColor.value = s.dispBorderColor;
-  els.dispBorderStyle.value = s.dispBorderStyle;
-  recent = Array.isArray(s.recentLangs) ? s.recentLangs.filter((c) => LANG_LABEL[c]) : [];
-  updateTrigger();
-  updateDwell();
-  updateDispVisibility();
-  updateEngineVisibility();
-  renderRecent();
-  builtinUi = HT_builtin.mount(els.builtinBox, () => els.targetLang.value, (state) => {
-    builtinState = state;
-    updateEngineVisibility();
-  });
-  // Остаток DeepL — только для DeepL/«авто» и только после согласия: само по себе окно ничего не
-  // отправляет, пока человек не разрешил (проверка ключа по его действию — можно и до согласия).
-  if (HT_engine(s.engine).keyField === "apiKey" && s.apiKey && HT_agreed(consent, "deepl")) fetchQuota();
-  fetchStats();
-});
-
-// ---- вкладка: мини-панель и «Переводить на этом сайте» ----
-// Нажатость кнопки мини-панели — по фактическому состоянию панели на активной вкладке, и имя её
-// сайта. Заодно узнаём, есть ли на вкладке content-скрипт: нет — сразу подсказываем обновить вкладку.
-function applyTabState(r) {
-  setHudUI(r && r.hud);
-  site = r && typeof r.site === "string" && HT_isSite(r.site) ? { name: r.site, off: !!r.siteOff } : null;
-  els.siteRow.hidden = !site;            // страница без имени сайта (файл, служебная) — выключать нечего
-  if (site) { els.siteName.textContent = site.name; els.siteName.title = site.name; els.siteOn.checked = !site.off; }
-}
-function refreshTabState() {
-  return queryTab("getHudState").then((r) => { applyTabState(r); if (!r) tabNotResponding(true); });
-}
-refreshTabState();
-
-// Список общий с мини-панелью на страницах — читаем свежий перед записью.
-els.siteOn.addEventListener("change", async () => {
-  if (!site) return;
-  const off = !els.siteOn.checked;
-  let list = [];
-  try { list = HT_sites((await chrome.storage.local.get({ disabledSites: [] })).disabledSites); } catch (e) { /* пустой */ }
-  list = list.filter((x) => x !== site.name);
-  if (off) list.push(site.name);
-  try { await chrome.storage.local.set({ disabledSites: list.slice(-HT_SITES_MAX) }); }
-  catch (e) { els.siteOn.checked = !off; setPageMsg(HT_t("notSaved", STORE_FULL), "err"); return; }
-  site.off = off;
-  setPageMsg(off ? HT_t("siteOffNow") : "", "");
-  if (off) setHudUI(false);
-});
-
-// ---- горячие клавиши ----
-// Их можно сменить или снять на chrome://extensions/shortcuts; если сочетание занято другим
-// расширением, Chrome его не назначает — тогда пишем «не назначено».
-const KEYS_URL = "chrome://extensions/shortcuts";
-function renderKeys() {
-  const item = (k, what) => {
-    const li = document.createElement("li");
-    const key = document.createElement(k ? "kbd" : "span");
-    key.textContent = k || HT_t("keyNotSet");
-    if (!k) key.className = "muted";
-    li.append(key, " — " + what);
-    return li;
+  const key = typeof s.apiKey === "string" ? s.apiKey.trim() : "";
+  return {
+    enabled: s.enabled !== false, targetLang: s.targetLang, sourceLang: s.sourceLang, engine: s.engine,
+    trigger: s.trigger, llmProvider: s.llmProvider,
+    apiKey: !!key, apiKeyFree: key.endsWith(":fx"), llmApiKey: !!(typeof s.llmApiKey === "string" && s.llmApiKey.trim()),
+    consent: HT_consent(s.consent),
+    recentLangs: Array.isArray(s.recentLangs) ? s.recentLangs.filter((c) => LANG_LABEL[c]) : [],
+    disabledSites: HT_sites(s.disabledSites),
   };
-  els.keysText.textContent = "";
-  els.keysText.append(
-    item(keys.toggle, HT_t("keysToggle")),
-    item(keys.page, HT_t("keysPage")),
-    item("Esc", HT_t("keysEsc")),
-  );
-  setEnabledUI(enabledOn);
-  els.translatePage.title = keys.page ? HT_t("hotkeyTip", keys.page) : "";
 }
-if (chrome.commands && chrome.commands.getAll) {
-  chrome.commands.getAll().then((all) => {
-    for (const c of all) {
+
+async function readNet() {
+  try { return (chrome.storage.session && (await chrome.storage.session.get("htNetErr")).htNetErr) || null; }
+  catch (e) { return null; }
+}
+
+// Что за вкладка — по адресу. Адрес окну виден благодаря activeTab (окно открыли значком или сочетанием клавиш).
+function tabKind(url) {
+  if (!url) return "unknown";
+  if (/^https?:/i.test(url) && !WEBSTORE.test(url)) return "web";
+  return "closed";   // chrome://, магазин Chrome, страницы расширений, file:// без доступа, about:
+}
+
+async function queryTab() {
+  let tab = null;
+  try { [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); } catch (e) { /* нет вкладки */ }
+  if (!tab || tab.id == null) return { id: null, url: "", kind: "unknown", loading: false };
+  const url = tab.url || tab.pendingUrl || "";
+  return { id: tab.id, url, kind: tabKind(url), loading: tab.status === "loading" };
+}
+
+// Сообщение верхнему фрейму вкладки; null — content-скрипта нет (или не ответил).
+async function ask(msg, frames) {
+  if (!F.tab || F.tab.id == null) return null;
+  try { const r = await chrome.tabs.sendMessage(F.tab.id, msg, frames || TOP); return r == null ? null : r; }
+  catch (e) { return null; }
+}
+const okState = (r) => (r && r.ok && typeof r === "object" ? r : null);
+
+async function readCommands() {
+  const keys = { toggle: "", page: "" };
+  try {
+    for (const c of await chrome.commands.getAll()) {
       if (c.name === "toggle-enabled") keys.toggle = c.shortcut || "";
       if (c.name === "translate-page") keys.page = c.shortcut || "";
     }
-    renderKeys();
-  }).catch(renderKeys);
-} else renderKeys();
-els.keysEdit.addEventListener("click", () => { chrome.tabs.create({ url: KEYS_URL }).catch(() => {}); });
-
-// ---- автосохранение ----
-// 'change' — сразу; 'input' (непрерывные: ползунки, выбор цвета, поля ввода) — с задержкой, иначе
-// каждый шаг пишет весь объект настроек в storage.local (квота записей в минуту) и будит onChanged
-// в content.js (сравнение и перерисовка) десятки раз за одно перетаскивание.
-let saveTimer = null;
-function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 250); }
-// Подстраховка: при потере фокуса полем (в т.ч. перед закрытием окна) сбрасываем отложенную запись.
-addEventListener("blur", () => { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; save(); } }, true);
-["change", "input"].forEach((ev) => {
-  const handler = ev === "input" ? saveSoon : save;
-  [els.trigger, els.dwellMs, els.engine, els.sourceLang, els.formality, els.noTranslate,
-   els.displayMode, els.showLangBadge, els.llmModelSel, els.llmModel,
-   els.dispMode, els.dispBg, els.dispOpacity, els.dispBorder, els.dispBorderColor, els.dispBorderStyle]
-    .forEach((el) => el.addEventListener(ev, handler));
-});
-els.enabled.addEventListener("click", () => {
-  setEnabledUI(!enabledOn);
-  if (enabledOn && offMsg) setPageMsg("", "");
-  save();
-});
-els.trigger.addEventListener("change", updateTrigger);
-els.dwellMs.addEventListener("input", updateDwell);
-
-function onEngineChange() {
-  updateEngineVisibility();
-  const v = engineValue();
-  if (HT_engine(v).via === "local") renderQuota(null);
-  else if (els.apiKey.value.trim() && HT_engine(v).keyField === "apiKey" && HT_agreed(consent, "deepl")) fetchQuota();
-  fetchStats();
+  } catch (e) { /* без сочетаний */ }
+  return keys;
 }
-els.engine.addEventListener("change", onEngineChange);
 
-els.llmProvider.addEventListener("change", () => {
-  // Модель другого сервиса здесь не подойдёт — возвращаем «по умолчанию»; ключ — тоже другой.
-  setModelUI(els.llmProvider.value, "");
-  llmVerified = false;
-  setLlmStatus("", "");
-  chrome.storage.local.set({ llmVerified: false }).catch(() => {});
-  save();
-  updateEngineVisibility();
-});
-els.llmModelSel.addEventListener("change", () => {
-  const other = els.llmModelSel.value === OTHER_MODEL;
-  els.llmModel.hidden = !other;
-  if (other) els.llmModel.focus();
-  llmVerified = false;
-  setLlmStatus("", "");
-  chrome.storage.local.set({ llmVerified: false }).catch(() => {});
-  updateQualitySum();
-});
-els.dispMode.addEventListener("change", updateDispVisibility);
-els.displayMode.addEventListener("change", updateDispVisibility);
-els.dispOpacity.addEventListener("input", updateDispVisibility);
-els.dispBorder.addEventListener("change", updateDispVisibility);
-els.targetLang.addEventListener("change", () => setTargetLang(els.targetLang.value));
-els.sourceLang.addEventListener("change", updateEngineVisibility);   // переводчик может не знать этот язык
+// ---------- производные ----------
+const netSt = (s) => ({ apiKey: s.apiKey, llmApiKey: s.llmApiKey, llmProvider: s.llmProvider, consent: s.consent,
+  targetLang: s.targetLang, sourceLang: s.sourceLang });
+// Язык страницы: по ответам переводчика, иначе атрибут lang.
+const pageLangOf = (ts) => (ts ? String(ts.src || ts.lang || "") : "");
 
-// ---- ключ DeepL ----
-els.apiKey.addEventListener("input", (e) => {
-  saveSoon();                          // запись всего объекта — с задержкой; отметку о проверке — сразу
-  keyVerified = false;
-  setStatus("", "");
-  renderQuota(null);
-  updateSetup();
-  updateQualitySum();
-  chrome.storage.local.set({ keyVerified: false }).catch(() => {});
-  if (pasted(e)) checkDeepl();
-});
-els.apiKey.addEventListener("keydown", (e) => { if (e.key === "Enter") checkDeepl(); });
-els.check.addEventListener("click", checkDeepl);
-
-// ---- ключ ИИ ----
-els.llmApiKey.addEventListener("input", (e) => {
-  saveSoon();
-  llmVerified = false;
-  setLlmStatus("", "");
-  updateSetup();
-  updateQualitySum();
-  chrome.storage.local.set({ llmVerified: false }).catch(() => {});
-  if (pasted(e)) checkLlm();
-});
-els.llmApiKey.addEventListener("keydown", (e) => { if (e.key === "Enter") checkLlm(); });
-els.llmCheck.addEventListener("click", checkLlm);
-
-function bindReveal(btn, input) {
-  btn.addEventListener("click", () => {
-    const reveal = input.type === "password";
-    input.type = reveal ? "text" : "password";
-    btn.classList.toggle("on", reveal);
-    btn.setAttribute("aria-pressed", String(reveal));
-    setTip(btn, HT_t(reveal ? "hideKey" : "showKey"));
-  });
+// Сбой сервиса, который относится к выбранному переводчику (DeepL — и для «Авто»), или null.
+function netFor(s, net, now) {
+  if (!net || typeof net !== "object" || !net.code) return null;
+  const e = HT_engine(s.engine);
+  if (net.via !== e.via) return null;
+  if (net.via === "llm" && net.provider !== HT_valid("llmProvider", s.llmProvider)) return null;
+  const temp = net.code === "network" || net.code === "timeout" || net.code === "server";
+  if (temp && net.at && now - net.at > NET_FRESH_MS) return null;
+  return net;
 }
-bindReveal(els.toggleKey, els.apiKey);
-bindReveal(els.toggleLlmKey, els.llmApiKey);
 
-// ---- действия со страницей ----
-els.translatePage.addEventListener("click", async () => {
-  if (!enabledOn) { setPageMsg(HT_t("offTurnOn"), "err", true); return; }
-  if (site && site.off) { setPageMsg(HT_t("siteOffCheck"), "err"); return; }
-  setPageMsg("", "");
-  if (!(await save())) return;      // настройки не записались — сообщение уже показано, не закрываемся
-  const ok = await sendToTab("translatePage");
-  if (ok) window.close();           // закрываем окно, чтобы видеть страницу
-  else tabNotResponding(false);
-});
-els.resetPage.addEventListener("click", async () => {
-  const ok = await askTab("restoreAll", (resp, failed) => !failed, {});
-  if (ok) setPageMsg("", ""); else tabNotResponding(false);
-});
-els.hudBtn.addEventListener("click", async () => {
-  setPageMsg("", "");
-  if (site && site.off) { setPageMsg(HT_t("siteOffHud"), "err"); return; }
-  if (!(await save())) return;
-  const r = await queryTab("toggleHud");
-  if (r && r.ok) { applyTabState(r); setPageMsg("", ""); } // кнопка нажата, пока панель показана; окно не закрываем
-  else tabNotResponding(false);
-});
+// Переводит ли сейчас встроенный (он сам или «Авто», которому DeepL недоступен).
+function usesBuiltin(s, net) {
+  const e = HT_engine(s.engine);
+  if (e.via === "local") return true;
+  return e.fallback === "local" && (!HT_canSend(e.code, netSt(s)) || !!net);
+}
 
-// ---- сохранённые переводы (заодно обнуляет статистику расхода) ----
-els.clearCache.addEventListener("click", async () => {
-  els.clearCache.disabled = true;
-  els.cacheMsg.textContent = HT_t("deleting");
-  let r;
-  try { r = await chrome.runtime.sendMessage({ type: "clearCache" }); } catch (e) { r = null; }
-  if (r && r.ok) {
-    try { await chrome.runtime.sendMessage({ type: "resetStats" }); } catch (e) { /* игнор */ }
-    fetchStats(); // показываем обнулённые счётчики
+// Короткое имя переводчика для подвала: «Встроенный», «DeepL», «Авто», «ChatGPT», «Claude».
+function shortName(s) {
+  if (s.engine === "chrome") return HT_t("ppNameBuiltin");
+  if (s.engine === "auto") return HT_t("ppNameAuto");
+  if (s.engine === "deepl") return "DeepL";
+  return LLM_SHORT[HT_valid("llmProvider", s.llmProvider)];
+}
+const footText = (name, status) => HT_t("ppFoot", [name, status]);
+// Имя без состояния — там, где перевод не работает вовсе (8–11): серая точка и просто имя.
+const plainName = (s) => (s.engine === "chrome" ? HT_t("ppNameBuiltinFull") : shortName(s));
+
+// Подвал, когда всё работает: имя переводчика. У «Авто» — ещё коротко, почему он сейчас без DeepL.
+function footNormal(s, net) {
+  if (s.engine === "chrome") return { dot: "", text: HT_t("ppNameBuiltinFull") };
+  if (s.engine !== "auto") return { dot: "", text: shortName(s) };
+  const name = HT_t("ppNameAuto");
+  if (net) {
+    if (net.code === "bad-key") return { dot: "err", text: footText(name, HT_t("ppStBadKey")) };
+    if (net.code === "quota") return { dot: "warn", text: footText(name, HT_t("ppStAutoQuota")) };
+    if (net.code === "server") return { dot: "warn", text: footText(name, HT_t("ppStServer")) };
+    return { dot: "warn", text: footText(name, HT_t("ppStNet")) };
   }
-  els.clearCache.disabled = false;
-  els.cacheMsg.textContent = HT_t(r && r.ok ? "deleted" : "tryAgainFailed");
-  setTimeout(() => { els.cacheMsg.textContent = ""; }, 2500);
+  if (!s.apiKey) return { dot: "warn", text: footText(name, HT_t("ppStNoKey")) };
+  if (!HT_agreed(s.consent, "deepl")) return { dot: "warn", text: footText(name, HT_t("ppStConsent")) };
+  if (HT_langGap("deepl", netSt(s))) return { dot: "warn", text: footText(name, HT_t("ppStLang")) };
+  return { dot: "", text: name };
+}
+
+// Недавние языки для чипов: без текущего и без языка страницы. Кандидатов — до 5: показываются первые 3,
+// которые влезают в строку (fit), — длинное «Español (Latinoamérica)» не вытесняет остальные.
+function chipsOf(recent, target, pageLang) {
+  const page = pageLang ? HT_langKey(pageLang) : "";
+  return recent.filter((c) => c !== target && LANG_LABEL[c] && (!page || HT_langKey(c) !== page)).slice(0, 5);
+}
+
+// «Английский → русский»; язык оригинала неизвестен или совпадает — «На русский».
+function pairText(src, target) {
+  if (!src || HT_langKey(src) === HT_langKey(target)) return HT_t("intoLang", HT_langLabel(target));
+  return HT_ui.pair(src, target);
+}
+
+// Имя сайта: от content-скрипта, иначе по адресу вкладки.
+function siteOf(tab, ts) {
+  if (ts && HT_isSite(ts.site)) return ts.site;
+  if (ts) return "";                     // content есть, но сайта нет (файл) — выключать нечего
+  if (tab && tab.kind === "web") {
+    try { const s = HT_siteKey(new URL(tab.url).hostname); return HT_isSite(s) ? s : ""; } catch (e) { return ""; }
+  }
+  return "";
+}
+
+const btn = (label, run, o) => Object.assign({ label, run, primary: true }, o || {});
+const sec = (label, run, o) => Object.assign({ label, run, primary: false }, o || {});
+
+// ---------- факты → модель вида ----------
+function derive(f) {
+  const s = f.s, t = f.tab || { kind: "unknown" }, ts = okState(f.ts);
+  const target = s.targetLang;
+  const pageLang = pageLangOf(ts);
+  const net = netFor(s, f.net, f.now || Date.now());
+  const v = {
+    n: 0, on: s.enabled, target,
+    chips: chipsOf(s.recentLangs, target, pageLang),
+    scopeTip: f.keys.toggle ? HT_t("ppScopeTipKey", f.keys.toggle) : HT_t("ppScopeTip"),
+    act: null, site: null,
+    foot: Object.assign({ mini: null }, footNormal(s, net)),
+  };
+  const off = () => { v.foot = { dot: "off", text: plainName(s), mini: null }; };
+
+  // 10/11 — на вкладке нет content-скрипта. Пока вкладка грузится или ответа ещё ждём — считаем, что есть.
+  const live = !!ts || (t.kind === "web" && (t.loading || t.pending));
+  if (!live) {
+    off();
+    if (t.kind === "web") {
+      v.n = 11;
+      const busy = f.doing === "reload";
+      v.act = { k: "btn", icon: busy ? "spin" : "refresh", label: HT_t(busy ? "ppReloading" : "ppReload"), run: "reload", busy,
+        hint: [HT_t("ppReloadHint")] };
+    } else {
+      v.n = 10;
+      v.act = { k: "off", t: HT_t("ppClosedT"), d: HT_t("ppClosedD") };
+    }
+    return v;
+  }
+  const site = siteOf(t, ts);
+  const siteOff = !!site && s.disabledSites.includes(site);
+  if (site) v.site = { name: site, on: !siteOff, dis: !s.enabled };
+
+  if (!s.enabled) { v.n = 9; off(); v.act = { k: "off", t: HT_t("ppAllOffT"), d: HT_t("ppAllOffD") }; return v; }
+  if (siteOff) { v.n = 8; off(); v.act = { k: "off", t: HT_t("ppSiteOffT"), d: HT_t("ppSiteOffD") }; return v; }
+  // подвал, переключатель плавающей кнопки: null — его нет, true — кружок на странице, false — скрыт
+  // (поле зовётся mini со времён мини-панели — его читают проверки)
+  v.foot.mini = !!(ts && ts.hud);
+
+  // 12, 13, 15, 16 — выбранный переводчик не может работать
+  const prob = HT_engineProblem(s.engine, netSt(s), f.hasApi);
+  if (prob) return problem(v, prob, s);
+  // 17–19 — последний ответ сервиса был ошибкой («Авто» в это время переводит встроенным — только подвал)
+  if (net && s.engine !== "auto") return netProblem(v, net, s, f.doing);
+  const local = usesBuiltin(s, net);
+  // 14 — загрузка встроенного из окна не удалась
+  if (local && f.dl && f.dl.fail) {
+    v.n = 14;
+    v.act = { k: "prob", kind: "err", icon: "alert", t: HT_t("ppDlFailT"), d: HT_t("ppDlFailD"),
+      buttons: [btn(HT_t("ppRetry"), "download", { icon: "refresh" })] };
+    v.foot.dot = "err"; v.foot.text = footText(HT_t("ppNameBuiltin"), HT_t("ppStFail"));
+    return v;
+  }
+
+  // 3–6 — что с переводом страницы
+  const page = ts ? ts.page : "idle";
+  const pair = pairText(pageLang, target);
+  if (page === "busy") {
+    v.n = 3;
+    v.act = { k: "busy", done: Math.max(0, Number(ts.done) || 0), total: Math.max(0, Number(ts.total) || 0), hint: [HT_t("ppRestLater")] };
+    return v;
+  }
+  if (page === "done" || page === "orig") {
+    v.n = page === "done" ? 4 : 5;
+    v.act = { k: "seg", tr: page === "done", hint: [HT_t(page === "done" ? "ppEscHint" : "ppOrigHint", pair)] };
+    return v;
+  }
+  const translate = { k: "btn", icon: "languages", label: HT_t("translatePage"), run: "translate", title: f.keys.page || "" };
+  if (page === "part" && Number(ts.count) > 0) {
+    v.n = 6;
+    v.act = Object.assign(translate, { hint: [HT_plural("ppPartDone", Number(ts.count)) + " · ", { link: HT_t("ppShowOrig"), run: "restore" }] });
+    return v;
+  }
+
+  // 1, 2 — встроенный переводчик ещё не скачан
+  if (local) {
+    const bi = f.bi || {};
+    const pp = bi.src ? { src: bi.src, tgt: bi.tgt } : HT_prepPair(target, pageLang);
+    const biPair = pp.tgt ? HT_ui.pair(pp.src, pp.tgt) : "";
+    if ((f.dl && f.dl.run) || bi.kind === "downloading") {
+      const pct = f.dl && f.dl.run && typeof f.dl.pct === "number" ? f.dl.pct : null;
+      v.n = 2;
+      v.act = { k: "prog", pct, label: HT_t(pct == null ? "ppDownloadingWait" : "ppDownloading"), hint: [biPair] };
+      v.foot.dot = "busy"; v.foot.text = footText(HT_t("ppNameBuiltin"), HT_t("ppStDl"));
+      return v;
+    }
+    if (bi.kind === "need") {
+      v.n = 1;
+      v.act = { k: "btn", icon: "download", label: HT_t("ppDownload"), run: "download",
+        hint: [f.dl && f.dl.again ? HT_t("ppDlAgain") : HT_t("ppOffline", biPair)] };
+      v.foot.dot = "warn"; v.foot.text = footText(HT_t("ppNameBuiltin"), HT_t("ppStNeed"));
+      return v;
+    }
+  }
+
+  // 0 / 7 — обычное; страница уже на языке перевода (по атрибуту lang) — кнопка всё равно активна
+  const already = !!(ts && ts.lang && HT_langKey(ts.lang) === HT_langKey(target));
+  v.n = already ? 7 : 0;
+  const key = HT_triggerKey(s.trigger, f.mac);
+  v.act = Object.assign(translate, { hint: already ? [HT_t("ppAlready")] : key ? keyHint(key) : [HT_t("ppHintDwell")] });
+  return v;
+}
+
+// «Абзац — наведите курсор и нажмите [Shift]»: клавиша — отдельной плашкой, порядок слов — из сообщения.
+function keyHint(key) {
+  const MARK = "";
+  const parts = HT_t("ppHintKey", MARK).split(MARK);
+  return [parts[0] || "", { kbd: key }, parts[1] || ""];
+}
+
+// 12, 13, 15, 16 — причина из HT_engineProblem.
+function problem(v, p, s) {
+  const prov = HT_provider(s.engine, s.llmProvider);
+  const name = shortName(s);
+  const llm = HT_engine(s.engine).via === "llm";
+  const settings = (label, focus, o) => btn(label, "settings", Object.assign({ arg: focus }, o || {}));
+  if (p === "no-builtin") {
+    v.n = 12;
+    v.act = { k: "prob", kind: "warn", icon: "puzzle", t: HT_t("ppNoBuiltinT"), d: HT_t("ppNoBuiltinD"),
+      buttons: [settings(HT_t("ppOpenSettings"), "translator")] };
+    v.foot.dot = "warn"; v.foot.text = footText(HT_t("ppNameBuiltin"), HT_t("ppStNone"));
+  } else if (p === "builtin-lang" || p === "deepl-lang") {
+    const bi = p === "builtin-lang";
+    const gap = HT_langGap(bi ? "local" : "deepl", netSt(s)) || { dir: "to", code: s.targetLang };
+    const lang = HT_ui.cap(HT_langLabel(gap.code));
+    v.n = 13;
+    if (gap.dir === "from") {
+      v.act = { k: "prob", kind: "warn", icon: "languages", t: HT_t(bi ? "ppBiLangFromT" : "ppDlLangFromT"),
+        d: HT_t("ppLangFromD", lang), buttons: [settings(HT_t("ppOpenSettings"), "source-lang")] };
+    } else {
+      const d = bi ? (HT_deeplCode(gap.code) ? HT_t("ppLangDeeplAiD", lang) : HT_t("ppLangAiD", lang))
+        : (HT_builtinCode(gap.code) ? HT_t("ppLangBiAiD", lang) : HT_t("ppLangAiD", lang));
+      v.act = { k: "prob", kind: "warn", icon: "languages", t: HT_t(bi ? "ppBiLangT" : "ppDlLangT"), d,
+        buttons: [btn(HT_t("ppPickLang"), "pickLang"), sec(HT_t("ppOpenSettings"), "settings", { arg: "translator" })] };
+    }
+    v.foot.dot = "warn"; v.foot.text = footText(bi ? HT_t("ppNameBuiltin") : "DeepL", HT_t("ppStLang"));
+  } else if (p === "no-consent") {
+    v.n = 15;
+    v.act = { k: "prob", kind: "info", icon: "shield", t: HT_t("ppConsentT", SERVICE[prov] || name),
+      d: HT_t("ppConsentD", HT_PROVIDER_NAMES[prov] || name),
+      buttons: [btn(HT_t("ppAllowSend"), "consent"), sec(HT_t("useBuiltin"), "builtin")] };
+    v.foot.dot = "warn"; v.foot.text = footText(name, HT_t("ppStConsent"));
+  } else {   // no-deepl-key, no-llm-key
+    v.n = 16;
+    v.act = { k: "prob", kind: "warn", icon: "key", t: HT_t("ppNoKeyT", SERVICE[prov] || name),
+      d: llm ? HT_t("ppNoKeyLlmD", [name, SERVICE[prov]]) : HT_t("ppNoKeyDeeplD"),
+      buttons: [settings(HT_t("ppAddKey"), llm ? "llm-key" : "deepl-key"), sec(HT_t("useBuiltin"), "builtin")] };
+    v.foot.dot = "warn"; v.foot.text = footText(name, HT_t("ppStNoKey"));
+  }
+  return v;
+}
+
+// 17–19 — последний сбой сервиса (storage.session.htNetErr).
+function netProblem(v, x, s, doing) {
+  const llm = x.via === "llm";
+  const svc = llm ? SERVICE[x.provider] || "" : "DeepL";
+  const name = shortName(s);
+  const keyFocus = llm ? "llm-key" : "deepl-key";
+  const toBuiltin = sec(HT_t("useBuiltin"), "builtin");
+  const set = (n, kind, icon, t, d, buttons, dot, status) => {
+    v.n = n;
+    v.act = { k: "prob", kind, icon, t, d, buttons };
+    v.foot.dot = dot; v.foot.text = footText(name, status);
+    return v;
+  };
+  const checking = doing === "recheck";
+  const recheck = btn(HT_t(checking ? "ppChecking" : "ppRecheck"), "recheck", { icon: checking ? "spin" : "refresh", busy: checking });
+  switch (x.code) {
+    case "bad-key":
+      return set(17, "err", "alert", HT_t("ppBadKeyT", svc), HT_t("ppBadKeyD", svc),
+        [btn(HT_t("ppCheckKey"), "settings", { arg: keyFocus })], "err", HT_t("ppStBadKey"));
+    case "denied":
+      return set(17, "err", "alert", HT_t("ppDeniedT", svc), HT_t("ppDeniedD"),
+        [btn(HT_t("useBuiltin"), "builtin"), sec(HT_t("ppOpenSettings"), "settings", { arg: "translator" })], "err", HT_t("ppStDenied"));
+    case "quota":
+      if (!llm) {
+        return set(18, "warn", "gauge", HT_t("ppQuotaT"), HT_t(s.apiKeyFree ? "ppQuotaD" : "ppQuotaOwnD"),
+          [btn(HT_t("ppAuto"), "auto")], "warn", HT_t("ppStQuota"));
+      }
+    // falls through — у ИИ «quota» значит то же, что пустой счёт
+    case "money":
+      return set(18, "warn", "gauge", HT_t("ppMoneyT", svc), HT_t("ppMoneyD"),
+        [btn(HT_t("useBuiltin"), "builtin"), sec(HT_t("ppOpenSettings"), "settings", { arg: "translator" })], "warn", HT_t("ppStMoney"));
+    case "server":
+      return set(19, "warn", "wifiOff", HT_t("ppServerT", svc), HT_t("ppServerD"), [recheck, toBuiltin], "warn", HT_t("ppStServer"));
+    default:   // network, timeout
+      return set(19, "warn", "wifiOff", HT_t("ppNetT", svc), HT_t("ppNetD"), [recheck, toBuiltin], "warn", HT_t("ppStNet"));
+  }
+}
+
+// ---------- модель вида → DOM ----------
+let el = null;          // постоянные части окна
+let last = null;        // последняя нарисованная модель
+let frozen = false;     // нарисовано руками (HT_popup.render/show) — живые обновления не перерисовывают
+
+function build() {
+  const root = document.getElementById("popup");
+  const sw = HT_ui.switchBtn(true, { "aria-label": HT_t("ppScopeAria"), onclick: () => act("scope") });
+  const scope = h("label", { class: "p-scope" }, h("span", null, HT_t("ppScope")), sw);
+  const sel = HT_ui.select("target", HT_TARGET_LANGS, null, { onchange: (e) => act("lang", e.target.value) });
+  const chips = h("div", { class: "chips", role: "group", "aria-label": HT_t("ppRecent") });
+  const body = h("div", { class: "p-body" },
+    h("div", { class: "field" }, h("label", { class: "lbl", for: "target" }, HT_t("ppLang")), sel.wrap, chips));
+  const dot = h("span", { class: "dot" });
+  const stT = h("span", { class: "st-t" });
+  const status = h("button", { type: "button", class: "status", title: HT_t("ppStatusTip"), onclick: () => act("settings", "translator") },
+    dot, stT, ic("chevRight", 16, "chev"));
+  // Плавающая кнопка: переключатель (aria-pressed), имя одно — состояние говорит aria-pressed; подсказка — что будет.
+  const mini = h("button", { type: "button", class: "icon-btn", "aria-label": HT_t("ppFab"), onclick: () => act("mini") }, ic("fabPage"));
+  const gear = h("button", { type: "button", class: "icon-btn", "aria-label": HT_t("ppSettings"), title: HT_t("ppSettings"),
+    onclick: () => act("settings", "") }, ic("gear"));
+  const foot = h("div", { class: "p-foot" }, status, mini, gear);
+  const siteSlot = h("div", { class: "p-site" });
+  root.textContent = "";
+  root.append(h("div", { class: "p-head" }, HT_ui.logo(24), h("span", { class: "p-title" }, HT_t("extShortName")), scope), body, siteSlot, foot);
+  el = { root, sw, scope, sel: sel.sel, chips, body, actEl: null, siteSlot, dot, stT, mini, foot };
+}
+
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+function render(v) {
+  if (!el) build();
+  const prev = last;
+  last = v;
+  // шапка
+  el.sw.setAttribute("aria-checked", String(!!v.on));
+  el.scope.title = v.scopeTip;
+  // язык и недавние
+  if (el.sel.value !== v.target) el.sel.value = v.target;
+  if (!prev || !same(prev.chips, v.chips)) {
+    const had = el.chips.contains(document.activeElement);
+    el.chips.textContent = "";
+    for (const c of v.chips) {
+      el.chips.append(h("button", { type: "button", class: "chip", lang: HT_langBase(c), onclick: () => { act("lang", c); el.sel.focus(); } }, LANG_LABEL[c]));
+    }
+    el.chips.hidden = !v.chips.length;
+    if (had) el.sel.focus();
+  }
+  // место действия
+  if (!prev || !same(prev.act, v.act)) {
+    if (prev && prev.act && prev.act.k === "busy" && v.act.k === "busy" && same(prev.act.hint, v.act.hint)) patchBusy(v.act);
+    else {
+      const had = el.actEl && el.actEl.contains(document.activeElement);
+      const focusKey = had && document.activeElement.dataset ? document.activeElement.dataset.k : "";
+      const node = actNode(v.act);
+      if (el.actEl) el.actEl.replaceWith(node); else el.body.append(node);
+      el.actEl = node;
+      if (had) {
+        const t = (focusKey && node.querySelector(`[data-k="${focusKey}"]`)) || node.querySelector("button:not([disabled]), [tabindex='0']");
+        if (t) t.focus();
+      }
+    }
+  }
+  // строка сайта: нет сайта (служебная вкладка, файл) — полосы нет совсем
+  if (!prev || !same(prev.site, v.site)) {
+    el.siteSlot.textContent = "";
+    el.siteSlot.hidden = !v.site;
+    if (v.site) el.siteSlot.append(siteRow(v.site));
+  }
+  // подвал
+  el.dot.className = "dot" + (v.foot.dot ? " " + v.foot.dot : "");
+  el.stT.textContent = v.foot.text;
+  el.mini.hidden = v.foot.mini == null;
+  el.mini.setAttribute("aria-pressed", String(!!v.foot.mini));
+  el.mini.title = HT_t(v.foot.mini ? "ppFabHide" : "ppFab");
+  fit();
+  return v;
+}
+
+// Подсказка — одна строка: текст, плашки клавиш и кнопки-ссылки.
+function hintNode(parts) {
+  const p = h("p", { class: "hint" });
+  for (const x of parts || []) {
+    if (typeof x === "string") p.append(x);
+    else if (x.kbd) p.append(h("span", { class: "kbd" }, x.kbd));
+    else if (x.link) p.append(h("button", { type: "button", class: "link-btn", "data-k": "link-" + x.run, onclick: () => act(x.run) }, x.link));
+  }
+  p.title = p.textContent;   // обрезанную многоточием строку можно прочитать целиком
+  return p;
+}
+
+function actNode(a) {
+  if (a.k === "off") {
+    return h("div", { class: "p-off", role: "status" }, h("p", { class: "p-off-t" }, a.t), h("p", { class: "p-off-d" }, a.d));
+  }
+  if (a.k === "prob") {
+    return h("div", { class: "p-prob" },
+      h("div", { class: "notice notice-" + a.kind, role: a.kind === "err" ? "alert" : "status" }, ic(a.icon),
+        h("div", { class: "notice-b" }, h("p", { class: "notice-t" }, a.t), h("p", { class: "notice-d" }, a.d))),
+      a.buttons.map(buttonNode));
+  }
+  let main;
+  if (a.k === "btn") main = buttonNode(Object.assign({ primary: true }, a));
+  else if (a.k === "prog") {
+    const known = typeof a.pct === "number";
+    main = h("div", { class: "prog", role: "status" },
+      h("div", { class: "prog-top" }, h("span", null, a.label), h("span", { class: "pct" }, known ? HT_num(Math.round(a.pct)) + "%" : "")),
+      HT_ui.progress(known ? a.pct : null, a.label));
+  } else if (a.k === "busy") {
+    const n = h("span", { class: "n" });
+    const bar = h("span", { class: "progress", role: "progressbar", "aria-label": HT_t("ppBusyAria"), "aria-valuemin": "0" }, h("span"));
+    main = h("div", { class: "p-act-row" },
+      h("div", { class: "p-busy", role: "status", "aria-live": "polite" },
+        h("span", { class: "p-busy-t" }, ic("spin", 16), h("span", null, HT_t("ppBusy") + " ", n)), bar),
+      h("button", { type: "button", class: "btn btn-secondary", "data-k": "stop", onclick: () => act("stop") }, HT_ui.stopIc(), HT_t("ppStop")));
+    fillBusy(main, a);
+  } else if (a.k === "seg") {
+    const opt = (tr) => h("button", { type: "button", role: "radio", "aria-checked": String(a.tr === tr), tabindex: a.tr === tr ? "0" : "-1",
+      "data-k": tr ? "tr" : "orig", onclick: () => act(tr ? "tr" : "orig"), onkeydown: segKey }, HT_t(tr ? "ppTr" : "ppOrig"));
+    main = h("div", { class: "seg", role: "radiogroup", "aria-label": HT_t("ppSegAria") }, opt(false), opt(true));
+  }
+  return h("div", { class: "p-act" }, main, hintNode(a.hint));
+}
+
+// «Перевожу… N из M» обновляем на месте: спиннер не перезапускается, фокус на «Стоп» не теряется.
+function patchBusy(a) { if (el && el.actEl) fillBusy(el.actEl, a); }
+function fillBusy(root, a) {
+  const box = root.querySelector(".p-busy");
+  if (!box) return;
+  box.querySelector(".n").textContent = a.total ? HT_t("ppBusyN", [HT_num(a.done), HT_num(a.total)]) : "";
+  const bar = box.querySelector(".progress");
+  if (a.total) {
+    bar.setAttribute("aria-valuemax", String(a.total));
+    HT_ui.setProgress(bar, Math.min(100, (100 * a.done) / a.total));
+    bar.setAttribute("aria-valuenow", String(a.done));
+  } else HT_ui.setProgress(bar, null);
+}
+
+// Сегмент — radiogroup: стрелки переключают и сразу применяют выбор.
+function segKey(e) {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) return;
+  e.preventDefault();
+  const other = [...e.currentTarget.parentNode.children].find((b) => b !== e.currentTarget);
+  if (other && other.getAttribute("aria-checked") !== "true") other.click();
+  if (other) other.focus();
+}
+
+function buttonNode(b) {
+  const cls = "btn btn-block " + (b.primary ? "btn-primary" : "btn-secondary");
+  return h("button", { type: "button", class: cls, title: b.title || null, disabled: !!b.busy, "aria-busy": b.busy ? "true" : null,
+    "data-k": b.run + (b.arg ? "-" + b.arg : ""), onclick: () => act(b.run, b.arg) }, b.icon ? ic(b.icon) : null, b.label);
+}
+
+function siteRow(st) {
+  const MARK = "";
+  const parts = HT_t("ppSiteRow", MARK).split(MARK);
+  const b = h("b", null, st.name);
+  const text = h("span", { class: "srow-t" }, parts[0] || "", b, parts[1] || "");
+  const sw = HT_ui.switchBtn(st.on, { disabled: st.dis, onclick: () => act("site") });
+  return h("label", { class: "srow" + (st.dis ? " is-disabled" : ""), title: st.name, "data-full": st.name }, text, sw);
+}
+
+// После разметки: длинный домен режем с начала («…example-news-site.co.uk»), чипы, которые не влезли, убираем.
+function fit() {
+  const row = el.siteSlot.querySelector(".srow-t");
+  if (row) {
+    const b = row.querySelector("b");
+    const full = row.parentNode.dataset.full;
+    b.textContent = full;
+    // самый длинный хвост имени, который влезает (видна узнаваемая часть: сайт и зона)
+    // (ширину текста меряем точно: scrollWidth округлён, а многоточие CSS появляется от любой доли пикселя)
+    const range = document.createRange();
+    const over = () => { range.selectNodeContents(row); return range.getBoundingClientRect().width > row.getBoundingClientRect().width + 0.01; };
+    for (let i = 1; over() && i < full.length - 4; i++) b.textContent = "\u2026" + full.slice(i);
+  }
+  const box = el.chips;
+  if (!box.hidden) {
+    for (const c of box.children) c.hidden = true;
+    const right = box.getBoundingClientRect().right;
+    let shown = 0;
+    for (const c of box.children) {
+      if (shown >= 3) break;
+      c.hidden = false;
+      if (c.getBoundingClientRect().right > right + 0.5) c.hidden = true; else shown++;
+    }
+  }
+}
+
+// ---------- действия ----------
+const ACTIONS = {
+  scope: () => store({ enabled: !F.s.enabled }),
+  site: toggleSite,
+  lang: setTarget,
+  translate: () => ask({ type: "translatePage", via: "popup" }).then((r) => { if (r == null) refreshTab(); }),
+  tr: () => ACTIONS.translate(),
+  stop: () => ask({ type: "stopPage" }).then((r) => { if (okState(r)) { F.ts = r; update(); } }),
+  orig: restoreAll,
+  restore: restoreAll,
+  mini: () => ask({ type: "toggleHud" }).then((r) => { if (okState(r)) { F.ts = r; update(); } }),
+  settings: (focus) => {
+    chrome.runtime.sendMessage({ type: "openSettings", focus: focus || "" }).catch(() => {});
+  },
+  pickLang: () => {
+    el.sel.focus();
+    try { el.sel.showPicker(); } catch (e) { /* без раскрытия — фокус на списке */ }
+  },
+  consent: allowSend,
+  builtin: () => store({ engine: "chrome" }),
+  auto: () => store({ engine: "auto" }),
+  download,
+  reload: reloadTab,
+  recheck,
+};
+function act(name, arg) {
+  if (frozen) return;
+  const fn = ACTIONS[name];
+  if (fn) return fn(arg);
+}
+
+// Запись настроек: сразу в факты (окно отвечает без задержки), затем в хранилище.
+function store(o) {
+  Object.assign(F.s, o);
+  update();
+  return chrome.storage.local.set(o).catch(async () => { F.s = await readSettings(); update(); });
+}
+
+function setTarget(code) {
+  if (!LANG_LABEL[code] || code === F.s.targetLang) return;
+  const prev = F.s.targetLang;
+  const recent = [code, prev].concat(F.s.recentLangs.filter((c) => c !== code && c !== prev)).filter((c) => LANG_LABEL[c]).slice(0, RECENT_MAX);
+  F.dl = null;
+  store({ targetLang: code, recentLangs: recent });
+}
+
+// Список выключенных сайтов общий с плавающей кнопкой на страницах — читаем свежий перед записью.
+async function toggleSite() {
+  const v = last;
+  if (!v || !v.site || v.site.dis) return;
+  const name = v.site.name;
+  let list = [];
+  try { list = HT_sites((await chrome.storage.local.get({ disabledSites: [] })).disabledSites); } catch (e) { /* пустой */ }
+  const off = !list.includes(name);
+  list = list.filter((x) => x !== name);
+  if (off) list.push(name);
+  store({ disabledSites: list.slice(-HT_SITES_MAX) });
+}
+
+// «Оригинал» и «Показать оригинал» — всем фреймам вкладки (во встроенных окнах свой content-скрипт).
+function restoreAll() {
+  return ask({ type: "restoreAll" }, {}).then((r) => { if (r == null) refreshTab(); });
+}
+
+// «Разрешить отправку» — согласие на сервис выбранного переводчика, только на него.
+async function allowSend() {
+  const prov = HT_provider(F.s.engine, F.s.llmProvider);
+  if (!prov) return;
+  let cur = {};
+  try { cur = (await chrome.storage.local.get({ consent: {} })).consent; } catch (e) { /* пустое */ }
+  const next = Object.assign(HT_consent(cur), { [prov]: true });
+  store({ consent: next });
+}
+
+// «Скачать переводчик» / «Повторить»: prepare() — сразу из обработчика щелчка (нужно действие пользователя).
+function download() {
+  if (F.dl && F.dl.run) return;
+  const pl = pageLangOf(okState(F.ts));
+  const target = F.s.targetLang;
+  F.dl = { run: true, pct: null };
+  const job = HT_builtin.prepare(target, pl, (pct) => { if (F.dl && F.dl.run) { F.dl = { run: true, pct }; update(); } });
+  update();
+  return job.then(async (r) => {
+    if (r.ok) { F.dl = null; await refreshBuiltin(true); }
+    else F.dl = r.again ? { again: true } : { fail: true };
+    update();
+  }, () => { F.dl = { fail: true }; update(); });
+}
+
+// «Обновить вкладку»: перезагрузить и дождаться content-скрипта (он запускается по document_idle, после
+// «complete» даём ему до 2 с). Не дождались — значит, сюда расширения не пускают (состояние 10).
+async function reloadTab() {
+  if (F.doing === "reload" || !F.tab || F.tab.id == null) return;
+  F.doing = "reload"; update();
+  const id = F.tab.id;
+  let ok = false;
+  try {
+    await chrome.tabs.reload(id);
+    let completeAt = 0;
+    for (let i = 0; i < 80 && !ok; i++) {
+      await sleep(250);
+      const t = await chrome.tabs.get(id);
+      if (t.status !== "complete") { completeAt = 0; continue; }
+      const r = okState(await ask({ type: "getHudState" }));
+      if (r) { F.ts = r; ok = true; break; }
+      if (!completeAt) completeAt = Date.now();
+      else if (Date.now() - completeAt > 2000) break;
+    }
+  } catch (e) { /* вкладку закрыли */ }
+  F.doing = "";
+  if (!ok) F.tab = Object.assign({}, F.tab, { kind: "closed", loading: false, pending: false });
+  update();
+}
+
+// «Проверить снова»: ключ DeepL (usage) или ИИ (одно слово); успешный ответ снимает htNetErr в background.
+async function recheck() {
+  if (F.doing === "recheck" || !F.net) return;
+  F.doing = "recheck"; update();
+  try { await chrome.runtime.sendMessage({ type: F.net.via === "llm" ? "checkLlm" : "checkUsage" }); } catch (e) { /* ниже — что записано */ }
+  F.net = await readNet();
+  F.doing = "";
+  update();
+}
+
+// ---------- обновление ----------
+let biKey = "";
+let stopWatch = null;
+// Состояние встроенного переводчика — только когда он переводит; пара зависит от языка перевода и страницы.
+async function refreshBuiltin(force) {
+  const s = F.s;
+  if (!s || !usesBuiltin(s, netFor(s, F.net, Date.now())) || !F.hasApi) { biKey = ""; F.bi = null; return; }
+  const pl = pageLangOf(okState(F.ts));
+  const key = s.targetLang + "|" + pl;
+  if (!force && key === biKey) return;
+  biKey = key;
+  const st = await HT_builtin.status(s.targetLang, pl).catch(() => null);
+  if (key !== biKey) return;           // за это время сменили язык — ответ устарел
+  F.bi = st;
+  if (stopWatch) { stopWatch(); stopWatch = null; }
+  // Загрузку начали без окна (на сайте или на приветствии) — ждём, пока Chrome докачает.
+  if (st && st.kind === "downloading" && !(F.dl && F.dl.run)) {
+    stopWatch = HT_builtin.watch(s.targetLang, pl, (done) => { stopWatch = null; if (biKey === key) { F.bi = done; update(); } });
+  }
+}
+
+function update() {
+  if (!F.s || !F.tab || frozen) return;
+  F.now = Date.now();
+  render(derive(F));
+  refreshBuiltin(false).then(() => { if (!frozen) render(derive(F)); });
+}
+
+// Вкладка и её content-скрипт. Ответа нет, а вкладка ещё грузится — ждём content до конца загрузки + 2 с.
+let tabTimer = null;
+async function refreshTab() {
+  const tab = await queryTab();
+  F.tab = tab;
+  const r = okState(await ask({ type: "getHudState" }));
+  F.ts = r;
+  update();
+  clearTimeout(tabTimer);
+  if (!r && tab.kind === "web") waitContent(tab.id, 0);
+}
+function waitContent(id, completeAt) {
+  tabTimer = setTimeout(async () => {
+    let t = null;
+    try { t = await chrome.tabs.get(id); } catch (e) { return; }
+    const r = okState(await ask({ type: "getHudState" }));
+    if (r) { F.ts = r; F.tab.loading = false; update(); return; }
+    const loading = t.status !== "complete";
+    if (!loading && completeAt && Date.now() - completeAt > 2000) { F.tab.loading = false; update(); return; }
+    F.tab.loading = true;
+    waitContent(id, loading ? 0 : completeAt || Date.now());
+  }, 300);
+}
+
+// ---------- запуск ----------
+(async () => {
+  // Ответ content ждём недолго: на тяжёлой странице он может задержаться — тогда рисуем окно как для
+  // рабочей вкладки и дорисовываем, когда ответ придёт.
+  const tabP = queryTab().then(async (tab) => {
+    F.tab = tab;
+    const r = ask({ type: "getHudState" }).then(okState);
+    const first = await Promise.race([r, sleep(400).then(() => undefined)]);
+    if (first === undefined) {
+      tab.pending = true;
+      r.then((x) => {
+        tab.pending = false;
+        F.ts = x;
+        if (!x && tab.kind === "web") { tab.loading = true; waitContent(tab.id, 0); }
+        update();
+      });
+      return;
+    }
+    F.ts = first;
+    if (!first && tab.kind === "web" && tab.loading) waitContent(tab.id, 0);
+  });
+  const [s, net, keys] = await Promise.all([readSettings(), readNet(), readCommands(), tabP]);
+  F.s = s; F.net = net; F.keys = keys;
+  await Promise.race([refreshBuiltin(false), sleep(300)]);
+  update();
+})();
+
+// Пуши от вкладки: «Перевожу… N из M», переведено, оригинал, плавающая кнопка.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || msg.type !== "pageState" || !F.tab || !sender || !sender.tab) return;
+  if (sender.tab.id !== F.tab.id || (sender.frameId != null && sender.frameId !== 0)) return;
+  if (!okState(msg.state)) return;
+  F.ts = msg.state;
+  if (F.tab.kind !== "web" || F.tab.loading || F.tab.pending) F.tab = Object.assign({}, F.tab, { loading: false, pending: false });
+  update();
 });
+
+// Вкладка перезагрузилась, пока окно открыто, — спросить её заново.
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if (F.tab && id === F.tab.id && info.status === "complete" && F.doing !== "reload") {
+    ask({ type: "getHudState" }).then((r) => { r = okState(r); if (r) { F.ts = r; update(); } });
+  }
+});
+
+const WATCH = ["enabled", "targetLang", "sourceLang", "engine", "trigger", "llmProvider", "apiKey", "llmApiKey", "consent", "recentLangs", "disabledSites"];
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area === "session" && "htNetErr" in changes) { F.net = changes.htNetErr.newValue || null; update(); return; }
+  if (area !== "local" || !WATCH.some((k) => k in changes)) return;
+  F.s = await readSettings();
+  update();
+});
+
+// Отладка и проверки: нарисовать любое состояние. show(факты) — через derive(), render(модель) — как есть.
+window.HT_popup = {
+  facts: F,
+  derive,
+  view: () => last,
+  render: (v) => { frozen = true; return render(v); },
+  show: (f) => {
+    frozen = true;
+    const x = Object.assign({}, F, { now: Date.now() }, f, { s: Object.assign({}, F.s, f && f.s), keys: Object.assign({}, F.keys, f && f.keys) });
+    return render(derive(x));
+  },
+  live: () => { frozen = false; update(); },
+};

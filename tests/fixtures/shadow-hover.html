@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stub: shadow hover</title>
+<link rel="stylesheet" href="/src/content.css">
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; padding: 20px; }
+  p { margin: 0 0 24px; width: 600px; }
+  x-card, x-closed { display: block; width: 640px; margin: 0 0 24px; }
+</style>
+<script>
+  // Заглушка chrome.* для content.js (как в stub-basic.html). Перевод — "[RU] " + текст, запросы перевода —
+  // в window.__calls. ?store={...} — настройки поверх обычных (клавиша, способ показа). window.__hold = true — ответ
+  // ждёт window.__release(): видно, что идёт перевод.
+  const q = new URLSearchParams(location.search);
+  window.__calls = [];
+  window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", dwellMs: 250,
+    apiKey: "test:fx", htBuiltinApi: "Translator" in self, consent: { deepl: true, openai: true, anthropic: true } },
+    JSON.parse(q.get("store") || "{}"));
+  window.__onChanged = [];
+  window.__onMessage = [];
+  // Все shadow root (и закрытые: наш интерфейс, компонент сайта) — проверке видно, что внутри.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) { const out = Object.assign({}, defs, window.__store); setTimeout(() => cb(out), 0); },
+        set(obj) { setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      sendMessage(msg) {
+        if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        const res = { ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") };
+        if (window.__hold) return new Promise((done) => { window.__release = () => { window.__hold = false; done(res); }; });
+        return Promise.resolve(res);
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: obj[k] }; window.__store[k] = obj[k]; }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(type) { let r; for (const fn of window.__onMessage) fn({ type }, {}, (x) => { r = x; }); return r; }
+
+  // Веб-компоненты сайта. x-card — открытый root: рамка с отступами (пустое место внутри компонента), два строчных
+  // текста, вложенный компонент x-inner (свой открытый root) и поле ввода. x-closed — закрытый root; x-inner под .notranslate — запрет автора и на его root.
+  customElements.define("x-inner", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>:host { display: block; margin: 0 0 24px; } p { margin: 0; width: 560px; }</style>
+        <p id="n">Nested component text that should be translated alone.</p>`;
+    }
+  });
+  customElements.define("x-card", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>.box { padding: 40px 20px 20px; border: 1px solid #ccc; } p { margin: 0 0 24px; width: 560px; }</style>
+        <div class="box">
+          <p id="a">First line inside the component with plenty of plain words.</p>
+          <p id="b">Second line inside the same component, also long enough.</p>
+          <x-inner id="c2"></x-inner>
+          <input id="field" value="type here">
+        </div>`;
+    }
+  });
+  // Текст прямо в открытом root, без элемента-обёртки (Lit: html`Hello ${name}`). x-text — строчный хост (как у Lit по
+  // умолчанию) внутри <div>, со <style> в root. x-mixed — строчные элементы вперемешку с текстом и <slot>, через
+  // который показан light DOM хоста.
+  customElements.define("x-text", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>:host { color: #222; }</style>Loose text right inside the shadow root of a component.`;
+    }
+  });
+  customElements.define("x-mixed", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML = `<style>:host { display: block; width: 600px; margin: 0 0 24px; } b { font-weight: 700; }</style>Hello from the mixed component, <b id="mb">bold words inside</b> and <slot></slot> at the end of it.`;
+    }
+  });
+  customElements.define("x-closed", class extends HTMLElement {
+    constructor() {
+      super();
+      window.__closed = this.attachShadow({ mode: "closed" });
+      window.__closed.innerHTML = `<style>p { margin: 0; }</style><p id="z">Closed component text must never change at all.</p>`;
+    }
+  });
+</script>
+</head>
+<body>
+  <p id="doc">Plain document paragraph next to the components keeps working as before.</p>
+  <x-card id="c1"></x-card>
+  <x-closed id="c3"></x-closed>
+  <div class="notranslate"><x-inner id="c4"></x-inner></div>
+  <div id="w1" style="margin: 0 0 24px; width: 600px;"><x-text id="t1"></x-text></div>
+  <x-mixed id="m1"><span id="ml">light words shown through the slot</span></x-mixed>
+  <script src="/i18n-ru.js"></script><script src="/src/shared.js"></script>
+  <script src="/src/content.js"></script>
+</body>
+</html>
