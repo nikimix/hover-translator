@@ -6,7 +6,8 @@
 // Шаг 2 — подготовка и проба в одном месте. Состояние — data-stage у #step2:
 //   start        — «Скачать переводчик» + пара языков; абзац для пробы приглушён и выключен (translate="no");
 //   downloading  — полоса загрузки (с процентом, когда Chrome его сообщает; до того — бегущая);
-//   ready        — абзац обведён: «Наведите курсор на абзац и нажмите <клавиша>» + «Переводить наведением»;
+//   ready        — абзац обведён: «Наведите курсор на абзац и нажмите <клавиша>», «Ещё можно выделить слово…»
+//                  (та же клавиша — перевод выделенного в карточке) + «Переводить наведением»;
 //   ready-hover  — то же для наведения + «Вернуть <клавиша>»;
 //   success      — текст абзаца сменился (его перевёл content.js) → «Работает! Так же — на любом сайте»;
 //   failed       — загрузка не удалась → «Повторить»;
@@ -228,8 +229,11 @@ function render() {
     const hover = stage === "ready-hover";
     top.append(okLine());
     setTry("ready");
+    // С клавишей — ещё строка о выделенном: та же клавиша переводит его в карточке. Только до успеха: после него
+    // текст для пробы уже переведён, а клавиша над переведённым возвращает оригинал, а не переводит выделенное.
     bottom.append(h("div", null,
       h("p", { class: "w-cap" }, hover ? h("span", null, HT_t("wlTryDwell")) : withKey(HT_t("wlTryKey", KEY_MARK), keyName())),
+      hover ? null : h("p", { class: "w-cap muted", id: "trySel" }, HT_t("wlTrySel")),
       h("p", { class: "w-cap muted" },
         h("span", null, hover ? HT_t("wlIsHover") : HT_t("wlNoKey")),
         h("button", { type: "button", class: "link-btn", onclick: () => setTrigger(hover ? S.lastKey : "dwell") },

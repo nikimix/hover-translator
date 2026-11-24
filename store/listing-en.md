@@ -35,6 +35,8 @@ Hover Translator translates text right where it is. Point at a paragraph, headin
 
 It works right after installing: no account, no sign-up, no key. By default it uses the translator built into Google Chrome™, which runs on your computer, so what you read stays private.
 
+An unfamiliar word or phrase? Select it and do the same, or use the item with the extension’s icon in the right-click menu: the translation appears in a card next to the selection, and nothing else changes.
+
 HOW TO START
 1. Install the extension. A welcome tab opens.
 2. Choose the language you want and click “Download translator”. The browser downloads it once, for free, and you can try it right there.
@@ -60,7 +62,7 @@ DeepL and AI stay off until you select one, allow sending text to that service a
 The extension has no server of its own, no analytics and no ads. Its source code is open on GitHub.
 
 KEYBOARD SHORTCUTS
-• Shift (or Alt / Ctrl): translate the passage under the cursor; press again for the original
+• Shift (or Alt / Ctrl): translate the passage or selection under the cursor; press again for the original
 • Esc: show the original everywhere
 • Alt+Shift+O: turn translation on or off
 • Alt+Shift+G: translate the whole page
@@ -83,7 +85,7 @@ Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trad
 - third-party names are used only as compatibility (“uses your own OpenAI or Anthropic API key”), at most 4 brands
   (Google Chrome, DeepL, OpenAI, Anthropic), with the trademark notice at the end and “Google Chrome™” on first use;
 - no superlatives, no comparisons with other extensions, no ratings or testimonials;
-- every claim matches the code of version 1.0.0 (limits: 2,000 characters per block, 500 blocks per
+- every claim matches the code of version 1.1.0 (limits: 2,000 characters per block or selection, 500 blocks per
   “Translate page”, saved translations for 14 days, built-in translator needs Chrome 138+).
 
 ## Graphic assets

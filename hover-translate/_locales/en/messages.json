@@ -1504,6 +1504,9 @@
       }
     }
   },
+  "wlTrySel": {
+    "message": "You can also select a word or phrase and press the same key."
+  },
   "wlNoKey": {
     "message": "Rather not press a key?"
   },
@@ -2025,7 +2028,7 @@
     "message": "How to translate text"
   },
   "opTrigKeyD": {
-    "message": "Point at some text and press $key$. Press it again to bring back the original.",
+    "message": "Point at some text or a selection and press $key$. Press it again to bring back the original.",
     "placeholders": {
       "key": {
         "content": "$1"
@@ -2033,7 +2036,7 @@
     }
   },
   "opTrigDwellD": {
-    "message": "Rest the cursor on some text and it translates by itself. Move away sooner and nothing happens."
+    "message": "Rest the cursor on some text and it translates by itself. Move away sooner and nothing happens. For selected text, use the right-click menu."
   },
   "opTrigNone": {
     "message": "No key"
@@ -2091,7 +2094,7 @@
     "message": "How to show the translation"
   },
   "opDispD": {
-    "message": "“Translate page” always replaces the text in place."
+    "message": "“Translate page” always replaces the text in place, and selected text is always translated in a card."
   },
   "opDispReplace": {
     "message": "Instead of the text"

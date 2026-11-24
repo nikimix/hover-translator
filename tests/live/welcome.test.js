@@ -186,10 +186,11 @@ function page(tab) {
     assert.deepStrictEqual(await w.tryP(), { lang: "en", text: EN_TRY });
     assert.strictEqual(await w.text("#s2bottom .w-cap"), msg("ru", "wlTryKey", "Shift"));
     assert.strictEqual(await w.text("#s2bottom .w-cap .kbd"), "Shift");
+    assert.strictEqual(await w.text("#trySel"), msg("ru", "wlTrySel"));
     assert.strictEqual(await w.text("#s2bottom .link-btn"), "Переводить наведением");
     assert.strictEqual(await w.visible("#more"), true);
     await w.shots("welcome-ready");
-    ok("«Готово: английский → русский»: абзац для пробы обведён и без translate=\"no\", «Наведите курсор на текст для пробы и нажмите [Shift]», «Переводить наведением»");
+    ok("«Готово: английский → русский»: абзац для пробы обведён и без translate=\"no\", «Наведите курсор на текст для пробы и нажмите [Shift]», строка о выделенном, «Переводить наведением»");
 
     // ---- «Переводить наведением» ↔ «Вернуть Shift» ----
     await w.click("#s2bottom .link-btn");
@@ -197,6 +198,7 @@ function page(tab) {
     assert.strictEqual(await w.store("trigger"), "dwell");
     assert.strictEqual(await w.text("#s2bottom .w-cap"), msg("ru", "wlTryDwell"));
     assert.strictEqual(await w.text("#s2bottom .link-btn"), "Вернуть Shift");
+    assert.strictEqual(await w.ev("!!document.querySelector('#trySel')"), false, "без клавиши строки о выделенном нет");
     assert.strictEqual(await w.ev("document.activeElement.textContent"), "Вернуть Shift", "фокус остался на ссылке");
     assert.strictEqual(await w.text("#lead"), msg("ru", "wlLeadDwell"));
     await w.shots("welcome-ready-hover");
@@ -222,6 +224,7 @@ function page(tab) {
     assert.ok(/[а-яё]{3,}/i.test(tr.text), tr.text);
     assert.strictEqual(await w.ev("document.querySelector('#step2').classList.contains('done') && !!document.querySelector('#num2 svg')"), true, "шаг 2 отмечен ✓");
     assert.strictEqual(await w.text("#s2bottom .notice-t"), "Работает! Так же — на любом сайте");
+    assert.strictEqual(await w.ev("!!document.querySelector('#trySel')"), false, "после успеха строки о выделенном нет");
     assert.strictEqual(await w.text("#s2bottom .notice-d"), "Ещё раз Shift или Esc — вернётся оригинал. Для других языков Chrome скачает переводчик при первом переводе — понадобится щелчок по тексту.");
     assert.strictEqual(await w.ev("document.querySelectorAll('.ht-error').length"), 0);
     await until(() => w.ev("!document.querySelector('.ht-loading')"), 5000);
@@ -331,6 +334,7 @@ function page(tab) {
     assert.strictEqual(await ws.waitStage("ready", 5000), "ready");
     assert.strictEqual(await ws.text(".w-ok"), "Ready: Spanish → English");
     assert.strictEqual(await ws.text("#s2bottom .w-cap"), msg("en", "wlTryKey", "Shift"));
+    assert.strictEqual(await ws.text("#trySel"), msg("en", "wlTrySel"));
     const es = (await ws.tryP()).text;
     await ws.shiftOn("#try p:not([hidden])");
     assert.strictEqual(await ws.waitStage("success", 8000), "success");
