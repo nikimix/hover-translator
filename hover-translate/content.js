@@ -1928,12 +1928,17 @@
     const top = near && topLayerOf(near);
     if (!top) { (document.body || document.documentElement).appendChild(node); return; }
     // Умолчания [popover] (inset: 0, overflow: auto, фон Canvas) растянули бы хост на всё окно и срезали хвостик.
-    for (const [k, v] of [["right", "auto"], ["bottom", "auto"], ["overflow", "visible"], ["background", "transparent"]]) {
-      node.style.setProperty(k, v, "important");
+    // Сторону, от которой хост уже поставлен (уведомление — от правого края), не трогаем.
+    for (const [k, v] of [["right", "auto"], ["bottom", "auto"], ["left", "auto"], ["top", "auto"], ["overflow", "visible"], ["background", "transparent"]]) {
+      if (!node.style.getPropertyValue(k)) node.style.setProperty(k, v, "important");
     }
     node.setAttribute("popover", "manual");
     top.appendChild(node);
     try { node.showPopover(); } catch (e) { /* уже показан или Chrome без popover — останется на месте в окне сайта */ }
+  }
+  // Открытое модальное окно сайта (<dialog> через showModal) — верхнее из открытых — или null.
+  function siteModal() {
+    try { const all = document.querySelectorAll(":modal"); return all.length ? all[all.length - 1] : null; } catch (e) { return null; }
   }
   // Ближайший к el (или сам el) элемент в верхнем слое страницы или null. Идём по дереву отрисовки: через слот
   // компонента (текст из light DOM, показанный в его <dialog>) и через границу shadow root.
@@ -5845,7 +5850,7 @@
     s.setProperty("right", TOAST_EDGE + "px", "important");
     // Вверху справа (кружок утащили наверх — под ним).
     const atTop = () => {
-      s.removeProperty("bottom");
+      s.setProperty("bottom", "auto", "important");   // не removeProperty: у хоста в верхнем слое умолчание [popover] — inset: 0
       s.setProperty("top", TOAST_EDGE + "px", "important");
       let r = t.host.getBoundingClientRect();
       if (hr && cross(r, hr)) { s.setProperty("top", Math.round(hr.bottom + TOAST_GAP) + "px", "important"); r = t.host.getBoundingClientRect(); }
@@ -5854,7 +5859,7 @@
     // Внизу справа, над кружком, если он там. Нижний край окна — от самого уведомления: innerHeight
     // включает горизонтальную полосу прокрутки, а bottom у fixed отсчитывается от края без неё.
     const atLow = () => {
-      s.removeProperty("top");
+      s.setProperty("top", "auto", "important");
       s.setProperty("bottom", TOAST_EDGE + "px", "important");
       let r = t.host.getBoundingClientRect();
       if (hr && cross(r, hr)) {
@@ -5940,7 +5945,10 @@
     // Курсор на уведомлении — человек читает или тянется к кнопке: не убираем, пока он там.
     host.addEventListener("mouseenter", (ev) => { if (ev.isTrusted) { hovered = true; clearTimeout(timer); } });
     host.addEventListener("mouseleave", (ev) => { if (ev.isTrusted) { hovered = false; if (ms) arm(Math.min(ms, 3000)); } });
-    mountUi(host);
+    // Открыто модальное окно сайта — всё вне его inert и под ним: уведомление (и его кнопки — «Скачать», «Включить на
+    // этом сайте») кладём туда же, где карточка, — в верхний слой у окна (см. mountUi).
+    const near = o.anchor && o.anchor.nodeType === 1 && topLayerOf(o.anchor) ? o.anchor : siteModal();
+    mountUi(host, near);
     currentToast = t;
     placeToast();
     // Прозрачность анимируем на карточке, а не на хосте: у хоста opacity выставлен с !important,
