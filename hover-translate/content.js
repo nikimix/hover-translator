@@ -1323,9 +1323,11 @@
   // Блок определяем один раз по всему его тексту; свой язык узла — только если по блоку не определился.
   // Короткий блок (пункт меню, кнопка, подпись) — язык страницы (см. langOf).
   // opts.defer — см. chromeTranslate: куски, чья модель качается, приходят с wait и ждут её у вызывающего.
+  // opts.lang — обещание detectLang для всех кусков сразу (выделенное: язык по всему выделению, см. selLangOf).
   async function localResults(texts, primary, lines, opts) {
     const blocks = new Map();
     const blockLang = (i) => {
+      if (opts && opts.lang) return opts.lang;
       const line = lines && lines[i];
       if (!line || !line.nodes) return null;
       if (!blocks.has(line)) blocks.set(line, langOf(lineText(line), !(opts && opts.quiet)));
@@ -1946,6 +1948,7 @@
     undo: ["M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"],
     more: [{ circle: { cx: 12, cy: 12, r: 1 } }, { circle: { cx: 19, cy: 12, r: 1 } }, { circle: { cx: 5, cy: 12, r: 1 } }],
     search: [{ circle: { cx: 11, cy: 11, r: 8 } }, "m21 21-4.3-4.3"],
+    info: [{ circle: { cx: 12, cy: 12, r: 10 } }, "M12 16v-4", "M12 8h.01"],
   };
   function svgEl(tag, attrs) {
     const e = document.createElementNS(SVG_NS, tag);
@@ -3671,6 +3674,180 @@
     }
   }
 
+  // ---- перевод выделенного ----
+  // Выделили текст и чисто нажали клавишу-триггер с курсором над выделением (или выбрали пункт контекстного меню) —
+  // перевод выделенного всегда в карточке у выделения, в обоих способах показа: оригинал и выделение остаются на
+  // месте. Курсор не над выделением — клавиша переводит блок под курсором, как без выделения.
+  // Путь: selNow (снимок выделения) → selKey (клавиша) или selMenu (пункт меню) → selShow (перевод и карточка);
+  // нужна загрузка встроенного переводчика — selFail (отрывок запоминается, кнопка в уведомлении переводит его).
+  //
+  // Снимок выделения — selNow(x, y); null — выделения нет или оно не в счёт (нет буквы, в поле ввода или редакторе,
+  // целиком в наших окнах). x, y — точка в координатах окна (курсор или место правого щелчка), можно без неё:
+  //   range — Range выделения (в открытом shadow root — тоже Range, собранный по getComposedRanges);
+  //   parts — видимый текст по абзацам, без пустых (без текста для экранных дикторов и подсказок чтения <rt>):
+  //           каждый — отдельный кусок перевода, карточка показывает переводы через перевод строки;
+  //   text  — parts.join("\n"): длина (SEL_MAX) и язык;
+  //   rects — прямоугольники строк выделения в координатах окна, без пустых, по строкам;
+  //   line  — номер в rects строки у точки (x, y) или ближайшей к ней; −1 — точки нет (тогда — последняя строка);
+  //   el    — элемент, где начинается выделение: шрифт карточки и тёмный ли фон;
+  //   owner — блок, где начинается выделение (pickTarget), или null: язык короткого отрывка;
+  //   key   — отпечаток выделения: то же ли оно (повторное нажатие закрывает карточку, иное — переводит заново).
+  // Прямоугольники снимка устаревают при прокрутке: карточка берёт их заново из range.
+  const SEL_MAX = 2000;               // знаков выделенного в одном переводе (как блок под курсором)
+  const SEL_NEAR = 8;                 // запас вокруг строк выделения, в котором курсор считается над ним
+
+  // Снимок выделения этого фрейма или null (см. выше).
+  function selNow(x, y) {
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    const parts = String(sel.toString()).split(/\n+/).map((t) => t.trim()).filter(Boolean);
+    const text = parts.join("\n");
+    if (!hasLetter(text)) return null;
+    const rects = selLines(range);
+    if (!rects.length) return null;
+    const start = range.startContainer;
+    const el = start.nodeType === 1 ? start : start.parentElement;
+    if (!el) return null;
+    const line = x == null || y == null ? -1 : selLineAt(rects, x, y);
+    const key = text + "|" + Math.round(rects[0].left + scrollX) + "," + Math.round(rects[0].top + scrollY);
+    return { range, parts, text, rects, line, el, owner: pickTarget(el), key };
+  }
+  // Прямоугольники строк диапазона: getClientRects даёт по прямоугольнику на каждый строчный элемент — сливаем
+  // те, что лежат на одной строке (пересекаются по высоте больше чем наполовину), пустые отбрасываем.
+  function selLines(range) {
+    const out = [];
+    for (const r of Array.from(range.getClientRects()).sort((a, b) => a.top - b.top || a.left - b.left)) {
+      if (r.width < 1 || r.height < 1) continue;
+      const same = out.find((o) => Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > Math.min(o.height, r.height) / 2);
+      if (!same) { out.push(new DOMRect(r.left, r.top, r.width, r.height)); continue; }
+      const left = Math.min(same.left, r.left), top = Math.min(same.top, r.top);
+      const right = Math.max(same.right, r.right), bottom = Math.max(same.bottom, r.bottom);
+      Object.assign(same, { x: left, y: top, width: right - left, height: bottom - top });
+    }
+    return out;
+  }
+  // Номер строки (в rects) у точки или ближайшей к ней.
+  function selLineAt(rects, x, y) {
+    let best = 0, dist = Infinity;
+    rects.forEach((r, i) => {
+      const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
+      const d = dx * dx + dy * dy;
+      if (d < dist) { dist = d; best = i; }
+    });
+    return best;
+  }
+
+  // Курсор (x, y) над строками выделения (с запасом SEL_NEAR) или над его карточкой (selCardRect).
+  function selUnder(snap, x, y) {
+    const near = (r) => x > r.left - SEL_NEAR && x < r.right + SEL_NEAR && y > r.top - SEL_NEAR && y < r.bottom + SEL_NEAR;
+    const card = selCardRect();
+    return snap.rects.some(near) || (!!card && near(card));
+  }
+
+  // Клавишу-триггер отпустили (keyup, p — нажатие из modPress): true — нажатие разобрано как перевод выделенного
+  // (или закрытие его карточки), блок под курсором не переводить.
+  function selKey(p) {
+    if (!lastXY) return false;
+    const snap = selNow(lastXY.x, lastXY.y);
+    if (!snap || !selUnder(snap, lastXY.x, lastXY.y)) return false;
+    if (selCardKey() === snap.key) { selClose(); return true; }
+    if (snap.text.length > SEL_MAX) { selTooLong(snap); return true; }
+    selShow(snap, HT_BY_USER);
+    return true;
+  }
+
+  // Язык выделенного для встроенного переводчика: обещание detectLang для всех кусков (localResults, opts.lang)
+  // или null — каждый кусок сам.
+  function selLangOf(snap) { return null; }
+
+  // До перевода: выделенное уже на языке перевода — уведомление и true (переводить не нужно).
+  async function selSkip(snap) { return false; }
+
+  // Длиннее SEL_MAX — уведомление с числом знаков.
+  function selTooLong(snap) {
+    notice(HT_plural("csSelLongText", snap.text.length, [HT_num(SEL_MAX)]), 9000, { title: HT_t("csSelLongTitle"), icon: "info" });
+  }
+  // Выделенное (или ответ переводчика о нём) уже на языке перевода.
+  function selSame(lang) {
+    notice(HT_t("csSelSameText", HT_langLabel(HT_langBase(lang || settings.targetLang))), 6000, { title: HT_t("csNothingTitle"), icon: "ok" });
+  }
+
+  // Перевести снимок и показать карточку у выделения. by — HT_BY_USER (клавиша, меню, кнопка уведомления).
+  // Порядок: selBlocked → selSkip → selPulse (подсветка, пока идёт перевод) → перевод кусков (язык — selLangOf) →
+  // неудача: selFail, иначе showFail → всё уже на языке перевода: selSame → карточка.
+  async function selShow(snap, by) {
+    if (selBlocked()) return;
+    const gen = liveGen;
+    if (await selSkip(snap)) return;
+    if (gen !== liveGen || !active()) return;
+    selPulse(snap, true);
+    let out;
+    try { out = await translateItems(snap.parts, by, null, { lang: selLangOf(snap) }); } finally { selPulse(snap, false); }
+    if (gen !== liveGen || !active()) return;
+    if (!out.results) { if (!(await selFail(snap, out, by))) showFail(null, out); return; }
+    const res = out.results;
+    if (res.every((r) => r && r.ok && (!r.value || (r.src && isTargetLang(r.src))))) { selSame(res[0] && res[0].src); return; }
+    const src = (res.find((r) => r && r.src) || {}).src || null;
+    noteSrc(src);
+    // Карточка у элемента, где начинается выделение.
+    const owner = snap.el;
+    if (!owner.isConnected) return;
+    for (const o of Array.from(popovers.keys())) removePopover(o);
+    const st = { node: null };
+    popovers.set(owner, st);
+    showCard(owner, st, res.map((r) => (r && r.ok && r.value ? r.value : "")).join("\n"), src);
+  }
+
+  // Подсветка выделенного, пока идёт перевод (CSS Custom Highlight API, страница не меняется): on — пульс по
+  // snap.range (null — подсвечивать нечего), off — снять.
+  function selPulse(snap, on) {}
+
+  // Отпечаток выделения, чья карточка сейчас на экране (или ждёт перевода), "" — её нет.
+  function selCardKey() { return ""; }
+
+  // Закрыть карточку выделенного и снять подсветку, если они есть.
+  function selClose() {}
+
+  // Прямоугольник карточки выделенного в координатах окна или null — её нет.
+  function selCardRect() { return null; }
+  // Подпись карточки выделенного для экранного диктора.
+  function selCardLabel() { return HT_t("cardSelLabel"); }
+
+  // Перевод выделенного не вышел: нужна загрузка встроенного переводчика (out.kind === "download") — отрывок
+  // запоминается, а уведомление с кнопкой переводит его по щелчку (selDlNote). true — разобрано здесь; иначе
+  // вызывающий показывает обычную ошибку (showFail).
+  async function selFail(snap, out, by) { return false; }
+  // Уведомление о загрузке для выделенного. kind: "pair" — модели нет, "ask" — язык не из языков Chrome (разрешение
+  // на каждом сайте), "detector" — определение языка. what — пара языков («Испанский → русский») или название языка.
+  // run — что сделать по кнопке (у щелчка есть действие пользователя).
+  function selDlNote(kind, what, run) {
+    const act = (label) => [{ label, run, primary: true }];
+    if (kind === "ask") return { title: HT_t("csSelAskTitle"), text: HT_t("csSelAskText", what), icon: "pointer", actions: act(HT_t("csSelAskBtn")) };
+    if (kind === "detector") return { title: HT_t("csSelDetTitle"), text: HT_t("csSelDetText"), icon: "pointer", actions: act(HT_t("csSelDlBtn")) };
+    return { title: HT_t("csSelDlTitle"), text: HT_t("csSelDlText", what), icon: "pointer", actions: act(HT_t("csSelDlBtn")) };
+  }
+  // Можно ли переводить выделенное сейчас (как blocked для явного действия). Во встроенном окне чужого сайта, где
+  // встроенный переводчик запрещён, — не молчание, а уведомление (selFrameNote).
+  function selBlocked() { return blocked(false); }
+  function selFrameNote() {
+    notice(HT_t("csSelFrameText"), 12000, { title: HT_t("csSelFrameTitle"), icon: "err", kind: "err", actions: [settingsAct("translator", true)] });
+  }
+
+  // Пункт контекстного меню (сообщение translateSelection от background этому фрейму): перевести выделенное здесь,
+  // карточка — у места правого щелчка. msg.text — выделенный текст, как его видит Chrome.
+  function selMenu(msg) {
+    if (!active() || !alive()) return;
+    const snap = selNow();
+    if (snap) selShow(snap, HT_BY_USER);
+  }
+  // Сайт выключен — уведомление с кнопкой «Включить на этом сайте» (run — включить и перевести).
+  function selSiteOffNote(run) {
+    notice(HT_t("csSelSiteOffText"), 12000, { title: HT_t("csSiteOffTitle"), actions: [{ label: HT_t("csSelSiteOn"), run, primary: true }] });
+  }
+  // Выделено в поле ввода — такое пока не переводится.
+  function selFieldNote() { notice(HT_t("csSelField"), 5000); }
+
   // ---- события ----
   // Везде проверяем e.isTrusted: страница может сама разослать mouseover/keydown/wheel через
   // dispatchEvent и так запускать платные переводы за счёт ключа пользователя.
@@ -3853,6 +4030,7 @@
     // до отпускания: курсор ушёл в окно раньше, чем нажали (сообщение опоздало), или пока держали — тогда «чистым»
     // нажатие не признает фрейм под курсором.
     if (!cursorIn) { if (otherFrames()) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
+    if (selKey(p)) return;               // курсор над выделенным — переводится оно (см. «перевод выделенного»)
     if (p.field) { attrShiftUp(p.field); return; }
     if (!p.el || hoverEl !== p.el) return;
     upHere(p);
@@ -4101,6 +4279,7 @@
       else if (msg.type === "say") { say(msg); sendResponse(true); }
       else if (msg.type === "hoverFrame") { cursorAway(msg.from, msg.at); sendResponse(true); }
       else if (msg.type === "frameKey") { frameKey(msg.at); sendResponse(true); }
+      else if (msg.type === "translateSelection") { selMenu(msg); sendResponse(true); }
       else sendResponse(true); // подтверждаем получение
     });
   }
@@ -5031,7 +5210,7 @@
     t.card.classList.toggle("low", low);
   }
 
-  // Показать уведомление. o: { title (жирная строка), icon: "ok" | "err" | "pointer", text (под заголовком —
+  // Показать уведомление. o: { title (жирная строка), icon: "ok" | "err" | "pointer" | "info", text (под заголовком —
   // мельче и серым; без заголовка — основная строка), detail (ещё мельче: код ответа, текст сервиса),
   // progress: "empty" | "indet" | 0–100 (полоса 4 px), actions: [{ label, run, primary }], esc (подсказка
   // «или Esc» после кнопок), ms (0 — пока не закроют), kind: "err" (role=alert), anchor (элемент, который
@@ -5074,7 +5253,7 @@
       if (p.title) {
         const ic = p.icon === "ok" ? h("span", { class: "ok" }, icon("checkCircle", 16))
           : p.icon === "err" ? h("span", { class: "err" }, icon("alert", 16))
-            : p.icon === "pointer" ? icon("pointer", 16) : null;
+            : p.icon === "pointer" ? icon("pointer", 16) : p.icon === "info" ? icon("info", 16) : null;
         kids.push(h("p", { class: "t-t" }, ic, h("span", {}, p.title)));
         if (p.text) kids.push(h("p", { class: "t-d" }, p.text));
       } else if (p.text) kids.push(h("p", { class: "t-m" }, p.text));

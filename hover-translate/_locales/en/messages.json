@@ -808,6 +808,127 @@
   "csCopied": {
     "message": "Copied"
   },
+  "cardSelLabel": {
+    "message": "Translation of the selection"
+  },
+  "csSelLongTitle": {
+    "message": "The selection is too long"
+  },
+  "csSelLongText_one": {
+    "message": "$n$ character is selected, but up to $max$ can be translated. Select a shorter passage.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,641"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelLongText_few": {
+    "message": "$n$ characters are selected, but up to $max$ can be translated. Select a shorter passage.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,642"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelLongText_many": {
+    "message": "$n$ characters are selected, but up to $max$ can be translated. Select a shorter passage.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,640"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelLongText_other": {
+    "message": "$n$ characters are selected, but up to $max$ can be translated. Select a shorter passage.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,640.5"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelSameText": {
+    "message": "The selection is already in the target language ($lang$).",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "русский"
+      }
+    }
+  },
+  "csSelDlTitle": {
+    "message": "This pair needs a translator"
+  },
+  "csSelDlText": {
+    "message": "$what$. It downloads once, for free.",
+    "placeholders": {
+      "what": {
+        "content": "$1",
+        "example": "Spanish → English"
+      }
+    }
+  },
+  "csSelDetTitle": {
+    "message": "Language detection is needed"
+  },
+  "csSelDetText": {
+    "message": "Chrome downloads it once, for free."
+  },
+  "csSelDlBtn": {
+    "message": "Download"
+  },
+  "csSelAskTitle": {
+    "message": "Chrome asks you to confirm"
+  },
+  "csSelAskText": {
+    "message": "$lang$ isn’t among Chrome’s languages, so on each site translation starts with this button.",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "Spanish"
+      }
+    }
+  },
+  "csSelAskBtn": {
+    "message": "Translate"
+  },
+  "csSelFrameTitle": {
+    "message": "The built-in translator isn’t available here"
+  },
+  "csSelFrameText": {
+    "message": "This site doesn’t allow it inside an embedded frame. DeepL or AI can translate here — choose one in settings."
+  },
+  "csSelSiteOffText": {
+    "message": "Turn it on to translate the selection."
+  },
+  "csSelSiteOn": {
+    "message": "Turn on for this site"
+  },
+  "csSelField": {
+    "message": "Text selected in a field can’t be translated yet."
+  },
+  "ctxTranslate": {
+    "message": "Translate “%s”"
+  },
   "csFabAria": {
     "message": "$name$ — translation buttons",
     "placeholders": {
