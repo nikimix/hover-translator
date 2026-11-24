@@ -805,6 +805,7 @@
     cursorIn = false; framesSeen = true;
     hoverEl = null; lastOverTarget = null; clearTimeout(dwellTimer); dwellFor = null;
     hoverLost = true;
+    selByKeys = false;                  // мышь двигалась (см. «перевод выделенного»)
     for (const d of upWait) if (!(at > d.up)) d.away = true;   // пришёл туда раньше отпускания здесь
   }
   // Сообщение hoverFrame идёт через background и может опоздать (воркер просыпается, машина занята): курсор уже во
@@ -847,25 +848,29 @@
     }
     return false;
   }
-  function upHere(p) {
+  // run — что сделать здесь: перевести блок под курсором (toggle) или выделенное (selGo).
+  function upHere(p, run) {
     const wait = moveAt + FRAME_LAG - Date.now();
-    if (wait <= 0 || !frameNear()) { toggle(p.el); return; }
-    upWait.push({ el: p.el, at: p.at, up: Date.now(), away: false });
+    if (wait <= 0 || !frameNear()) { run(); return; }
+    upWait.push({ run, at: p.at, up: Date.now(), away: false });
     // по порядку: срок у следующего отпускания не раньше, чем у прежнего (moveAt только растёт)
     setTimeout(() => {
       const d = upWait.shift();
       if (!d || dead || !active() || settings.trigger === "dwell") return;
       if (d.away) send({ type: "frameKey", at: d.at }).catch(() => {});
-      else toggle(d.el);
+      else d.run();
     }, wait);
   }
-  // Клавишу-триггер отпустили в другом фрейме вкладки, а курсор над текстом здесь. at — когда её нажали: курсор с тех
-  // пор сменил элемент (нажали над одним, отпустили над другим) или модификатор крутил колесо — нажатие не «чистое»,
-  // как hoverEl !== p.el и modBusy в keyup. Поле ввода проверил фрейм с фокусом: клавиши шли в него.
+  // Клавишу-триггер отпустили в другом фрейме вкладки, а курсор здесь — над текстом или над выделением этого фрейма
+  // (selHit: выделение здесь остаётся и тогда, когда фокус ушёл щелчком в другой фрейм). at — когда её нажали: курсор
+  // с тех пор сменил элемент (нажали над одним, отпустили над другим) или модификатор крутил колесо — нажатие не
+  // «чистое», как hoverEl !== p.el и modBusy в keyup. Поле ввода проверил фрейм с фокусом: клавиши шли в него.
   function frameKey(at) {
     if (!active() || settings.trigger === "dwell" || !alive()) return;
-    if (!cursorIn || !hoverEl || !(at > 0) || hoverAt > at || modWheelUntil > at) return;
-    toggle(hoverEl);
+    if (!cursorIn || !(at > 0) || hoverAt > at || modWheelUntil > at) return;
+    const hit = selHit();
+    if (hit) selGo(hit);
+    else if (hoverEl) toggle(hoverEl);
   }
 
   // Запустить/снять перевод owner-а под курсором (по клавише-триггеру). Чистое нажатие-отпускание настоящей клавиши —
@@ -3743,21 +3748,99 @@
 
   // Курсор (x, y) над строками выделения (с запасом SEL_NEAR) или над его карточкой (selCardRect).
   function selUnder(snap, x, y) {
-    const near = (r) => x > r.left - SEL_NEAR && x < r.right + SEL_NEAR && y > r.top - SEL_NEAR && y < r.bottom + SEL_NEAR;
     const card = selCardRect();
-    return snap.rects.some(near) || (!!card && near(card));
+    return snap.rects.some((r) => selNear(r, x, y)) || (!!card && selNear(card, x, y));
+  }
+  function selNear(r, x, y) { return x > r.left - SEL_NEAR && x < r.right + SEL_NEAR && y > r.top - SEL_NEAR && y < r.bottom + SEL_NEAR; }
+
+  // Выделили с клавиатуры (Shift+стрелки, Ctrl+A), и мышь с тех пор не двигалась: клавиша-триггер переводит выделенное,
+  // где бы ни стоял курсор — человек смотрит на выделение, а не на мышь. Кто изменил выделение, selectionchange не
+  // говорит, поэтому смотрим, что было последним: клавиша (keydown) или мышь (нажатие кнопки, движение). Сбрасывают
+  // движение мыши здесь (mousemove), уход курсора в другой фрейм (cursorAway) и нажатие кнопки мыши (mousedown).
+  let selByKeys = false;
+  let keyLast = false;                // последнее действие пользователя — клавиша, а не мышь
+  let mouseHeld = false;              // кнопка мыши зажата: выделяют текст или тащат (режим задержки ждёт)
+  on(document, "selectionchange", (e) => { if (e.isTrusted) selByKeys = keyLast; });
+
+  // Выделение, которое переведёт клавиша-триггер сейчас, или null — клавиша для блока под курсором, как без выделения.
+  // В счёт: курсор над выделением (selUnder) или выделили с клавиатуры (selByKeys; курсор тогда может быть и в другом
+  // фрейме). Не в счёт: выделение задевает текст, переведённый на месте (клавиша, как прежде, вернёт оригинал
+  // абзаца), и выделение длиннее SEL_MAX, внутри которого целиком абзац под курсором (Ctrl+A) — клавиша для абзаца,
+  // а не уведомление «слишком длинный». Выделение покороче переводится целиком, даже если абзац в нём весь: тройной
+  // щелчок и протяжка через пару абзацев — тоже просьба о карточке. Карточка этого выделения на экране — в счёт
+  // всегда: клавиша её закроет.
+  function selHit() {
+    const xy = cursorIn ? lastXY : null;
+    if (!xy && !selByKeys) return null;
+    // выделили с клавиатуры — курсор не в счёт: карточка у последней строки выделения, а не у строки ближе к курсору
+    const snap = selByKeys ? selNow() : selNow(xy.x, xy.y);
+    if (!snap) return null;
+    if (!selByKeys && !selUnder(snap, xy.x, xy.y)) return null;
+    if (selCardKey() === snap.key) return snap;
+    if (selInLine(snap) || (snap.text.length > SEL_MAX && cursorIn && hoverEl && selCovers(snap, hoverEl))) return null;
+    return snap;
   }
 
-  // Клавишу-триггер отпустили (keyup, p — нажатие из modPress): true — нажатие разобрано как перевод выделенного
-  // (или закрытие его карточки), блок под курсором не переводить.
+  // Выделение задевает текст, переведённый на месте (строка из lines). Сверяем по нашим текстовым узлам, а не по
+  // блоку: после тройного щелчка конец выделения стоит в начале следующего блока, и Range.intersectsNode(блок) задел
+  // бы его без единой буквы.
+  function selInLine(snap) {
+    const r = snap.range;
+    if (!r) return false;
+    for (const line of lines) for (const n of line.nodes) if (n.isConnected && r.intersectsNode(n)) return true;
+    return false;
+  }
+
+  // Весь видимый текст блока el внутри выделения. По первому и последнему непустому текстовому узлу: границы выделения
+  // после тройного щелчка или Ctrl+A стоят не на самом блоке, а в тексте или между узлами. Блок в другом дереве
+  // (shadow root), чем выделение, — comparePoint бросает: не внутри.
+  function selCovers(snap, el) {
+    const r = snap.range;
+    if (!r) return false;
+    const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT,
+      { acceptNode: (n) => /\S/.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP });
+    const first = tw.nextNode();
+    if (!first) return false;
+    let last = first;
+    for (let n; (n = tw.nextNode());) last = n;
+    try {
+      return r.comparePoint(first, first.nodeValue.search(/\S/)) === 0 && r.comparePoint(last, last.nodeValue.trimEnd().length) === 0;
+    } catch (e) { return false; }
+  }
+
+  // Клавишу-триггер отпустили (keyup; p — нажатие из modPress, p.sel — отпечаток выделения, над которым нажали):
+  // true — нажатие разобрано здесь, блок под курсором не переводить. Как щелчок: нажали над выделением и отпустили над
+  // ним же — перевод (или закрытие его карточки); над выделением только нажали или только отпустили — ничего.
   function selKey(p) {
-    if (!lastXY) return false;
-    const snap = selNow(lastXY.x, lastXY.y);
-    if (!snap || !selUnder(snap, lastXY.x, lastXY.y)) return false;
-    if (selCardKey() === snap.key) { selClose(); return true; }
-    if (snap.text.length > SEL_MAX) { selTooLong(snap); return true; }
-    selShow(snap, HT_BY_USER);
+    const hit = selHit();
+    if (!p.sel && !hit) return false;
+    if (!hit || hit.key !== p.sel) return true;
+    // Выделили с клавиатуры — где курсор, не важно; иначе курсор мог только что уйти во встроенное окно (upHere).
+    if (selByKeys) selGo(hit); else upHere(p, () => selGo(hit));
     return true;
+  }
+  // Клавиша над выделением: та же карточка на экране — закрыть, длиннее SEL_MAX — уведомление, иначе перевод.
+  // Клавиша — явное действие: бюджет «по действию пользователя», как у блока (toggle).
+  function selGo(snap) {
+    if (selCardKey() === snap.key) selClose();
+    else if (snap.text.length > SEL_MAX) selTooLong(snap);
+    else selShow(snap, HT_BY_USER);
+  }
+
+  // Режим задержки: курсор (x, y) над выделенным в блоке el (с запасом SEL_NEAR) — абзац не переводим. Проверяется на
+  // каждом движении над выделением, поэтому без снимка (toString всей страницы после Ctrl+A) — только строки
+  // выделения в пределах el.
+  function selOver(el, x, y) {
+    const sel = document.getSelection();
+    if (!el || !sel || sel.isCollapsed || !sel.rangeCount) return false;
+    const r = sel.getRangeAt(0), sub = document.createRange();
+    try {
+      if (!r.intersectsNode(el)) return false;
+      sub.selectNodeContents(el);
+      if (r.compareBoundaryPoints(Range.START_TO_START, sub) > 0) sub.setStart(r.startContainer, r.startOffset);
+      if (r.compareBoundaryPoints(Range.END_TO_END, sub) < 0) sub.setEnd(r.endContainer, r.endOffset);
+    } catch (e) { return false; }
+    return selLines(sub).some((q) => selNear(q, x, y));
   }
 
   // Язык выделенного для встроенного переводчика: обещание detectLang для всех кусков (localResults, opts.lang)
@@ -3997,8 +4080,11 @@
   const DRIFT_PX = 16;
   let hoverLost = false;              // элемент под курсором сброшен: окно потеряло фокус или курсор ушёл в другой фрейм
   on(document, "mousemove", (e) => {
-    if (!e.isTrusted || !pointerMoved(e)) return;
+    if (!e.isTrusted) return;
+    mouseHeld = !!e.buttons;              // отпустили за окном — mouseup мог не дойти
+    if (!pointerMoved(e)) return;
     lastXY = { x: e.clientX, y: e.clientY };
+    keyLast = false; selByKeys = false;   // мышь двигалась: выделенное — снова только под курсором (selHit)
     moveAt = Date.now(); if (!cursorIn && !frameEl(evTarget(e))) cursorBack();
     // Окно теряло фокус (открыли окно расширения, Alt+Tab): «элемент под курсором» тогда сброшен, а
     // mouseover после возврата не приходит, если курсор остался на том же элементе. Без этого клавиша
@@ -4014,10 +4100,19 @@
     if (drift && !settleDrift(e)) return;
     const el = hoverEl;
     if (!el || dwellFor === el || el === edgeOwner || isBusy(el)) return;
+    // Кнопка мыши зажата (выделяют текст, тащат) или курсор над выделенным — абзац по задержке не переводим: выделенное
+    // в этом режиме переводит пункт меню, а замена текста сняла бы выделение. Таймер взведёт следующее движение —
+    // когда кнопку отпустят или курсор уйдёт с выделения (dwellFor не ставим).
+    if (e.buttons || selOver(el, e.clientX, e.clientY)) return;
     dwellFor = el;
     clearTimeout(dwellTimer);
     if (dwellSkip(el, evTarget(e))) return;
-    dwellTimer = setTimeout(() => { if (hoverEl === el && dwellFor === el) startHover(el, HT_BY_PAGE); }, HT_clampDwell(settings.dwellMs));
+    dwellTimer = setTimeout(() => {
+      if (hoverEl !== el || dwellFor !== el) return;
+      // за время задержки зажали кнопку или выделили под курсором (с клавиатуры, двойным щелчком) — ждём движения
+      if (mouseHeld || (lastXY && selOver(el, lastXY.x, lastXY.y))) { dwellFor = null; return; }
+      startHover(el, HT_BY_PAGE);
+    }, HT_clampDwell(settings.dwellMs));
   }, { capture: true, passive: true });
 
   // Курсор оказался вне переведённого абзаца без движения мыши: страница прокрутилась или абзац сам
@@ -4090,6 +4185,10 @@
   // от сочетания, набранного чуть медленнее таймера. Пока клавишу держат, ничего не переводится.
   on(document, "keydown", (e) => {
     if (!e.isTrusted) return;
+    keyLast = true;                       // выделение, сменившееся после этого, — с клавиатуры (selByKeys)
+    // Ctrl+A при уже выделенной странице выделения не меняет, и selectionchange нет — а выделили всё равно с клавиатуры
+    // (если сайт не забрал сочетание себе).
+    if (e.code === "KeyA" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) setTimeout(() => { if (!e.defaultPrevented) selByKeys = true; });
     if (e.repeat) return;                 // автоповтор зажатой клавиши — не новое нажатие
     modPress = null;                      // любая клавиша обрывает ожидаемое нажатие…
     if (e.key === "Escape") { escRestore(); return; }
@@ -4104,9 +4203,12 @@
     if (modBusy() || typingFocus()) return;
     const away = !cursorIn && otherFrames();
     const field = away ? null : attrShiftEl(lastOverTarget);   // поле или кнопка-<input>: их подсказка или надпись
-    if (!away && !hoverEl && !field) return;
+    // Выделение, которое переведёт клавиша (курсор над ним — и между абзацами, где блока под курсором нет, — или
+    // выделили с клавиатуры): при отпускании оно должно быть тем же (selKey), как элемент у блока.
+    const sel = selHit();
+    if (!away && !hoverEl && !field && !sel) return;
     // …а одиночный модификатор над текстом (здесь или в другом фрейме вкладки) начинает новое
-    modPress = { key: e.key, el: away ? null : hoverEl, field, at: Date.now() };
+    modPress = { key: e.key, el: away ? null : hoverEl, field, sel: sel ? sel.key : "", at: Date.now() };
   }, true);
 
   on(document, "keyup", (e) => {
@@ -4117,14 +4219,16 @@
     // hoverEl === p.el отсекает случай, когда за время нажатия курсор ушёл с элемента (в том числе
     // из окна) или под него при прокрутке приехал другой.
     if (!active() || settings.trigger === "dwell" || modBusy()) return;
+    // Курсор над выделенным или выделили с клавиатуры (тогда и с курсором в другом фрейме) — переводится оно, см.
+    // «перевод выделенного».
+    if (selKey(p)) return;
     // Курсор в другом фрейме вкладки — нажатие для него. И когда при нажатии курсор считался здесь, а hoverFrame пришло
     // до отпускания: курсор ушёл в окно раньше, чем нажали (сообщение опоздало), или пока держали — тогда «чистым»
     // нажатие не признает фрейм под курсором.
     if (!cursorIn) { if (otherFrames()) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
-    if (selKey(p)) return;               // курсор над выделенным — переводится оно (см. «перевод выделенного»)
     if (p.field) { attrShiftUp(p.field); return; }
     if (!p.el || hoverEl !== p.el) return;
-    upHere(p);
+    upHere(p, () => toggle(p.el));
   }, true);
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
@@ -4273,7 +4377,13 @@
     if (!TOP || document.querySelector("iframe, frame")) send({ type: "restoreTab" }).catch(() => {});
   }
 
-  on(window, "mousedown", (e) => { if (e.isTrusted) modPress = null; }, true);
+  // Кнопка мыши: обрывает ожидаемое нажатие клавиши (Shift+щелчок), выделение после неё — не с клавиатуры, а режим
+  // задержки ждёт отпускания (см. «перевод выделенного»).
+  on(window, "mousedown", (e) => {
+    if (!e.isTrusted) return;
+    modPress = null; keyLast = false; selByKeys = false; mouseHeld = true;
+  }, true);
+  on(window, "mouseup", (e) => { if (e.isTrusted) mouseHeld = !!e.buttons; }, true);
 
   // Щелчок мимо карточки закрывает её, мимо плавающей кнопки — её кнопки и панели. Щелчок внутри приходит с хостом в
   // target (закрытый shadow root наружу показывает только хост).
