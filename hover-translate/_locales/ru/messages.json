@@ -808,6 +808,127 @@
   "csCopied": {
     "message": "Скопировано"
   },
+  "cardSelLabel": {
+    "message": "Перевод выделенного"
+  },
+  "csSelLongTitle": {
+    "message": "Слишком длинный отрывок"
+  },
+  "csSelLongText_one": {
+    "message": "Выделен $n$ знак, а переводится до $max$. Выделите отрывок короче.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,641"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelLongText_few": {
+    "message": "Выделено $n$ знака, а переводится до $max$. Выделите отрывок короче.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,642"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelLongText_many": {
+    "message": "Выделено $n$ знаков, а переводится до $max$. Выделите отрывок короче.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,640"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelLongText_other": {
+    "message": "Выделено $n$ знака, а переводится до $max$. Выделите отрывок короче.",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "2,640.5"
+      },
+      "max": {
+        "content": "$2",
+        "example": "2,000"
+      }
+    }
+  },
+  "csSelSameText": {
+    "message": "Выделенное уже на языке перевода ($lang$).",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "русский"
+      }
+    }
+  },
+  "csSelDlTitle": {
+    "message": "Нужен переводчик для этой пары"
+  },
+  "csSelDlText": {
+    "message": "$what$. Скачивается один раз, бесплатно.",
+    "placeholders": {
+      "what": {
+        "content": "$1",
+        "example": "Spanish → English"
+      }
+    }
+  },
+  "csSelDetTitle": {
+    "message": "Нужно определение языка"
+  },
+  "csSelDetText": {
+    "message": "Chrome скачает его один раз, бесплатно."
+  },
+  "csSelDlBtn": {
+    "message": "Скачать"
+  },
+  "csSelAskTitle": {
+    "message": "Chrome просит подтвердить"
+  },
+  "csSelAskText": {
+    "message": "Языка «$lang$» нет в языках Chrome, поэтому на каждом сайте перевод начинается кнопкой.",
+    "placeholders": {
+      "lang": {
+        "content": "$1",
+        "example": "Spanish"
+      }
+    }
+  },
+  "csSelAskBtn": {
+    "message": "Перевести"
+  },
+  "csSelFrameTitle": {
+    "message": "Встроенный переводчик здесь недоступен"
+  },
+  "csSelFrameText": {
+    "message": "Сайт не разрешает его во встроенном окне. Здесь может переводить DeepL или ИИ — выберите в настройках."
+  },
+  "csSelSiteOffText": {
+    "message": "Включите его, чтобы переводить выделенное."
+  },
+  "csSelSiteOn": {
+    "message": "Включить на этом сайте"
+  },
+  "csSelField": {
+    "message": "Выделенное в поле ввода пока не переводится."
+  },
+  "ctxTranslate": {
+    "message": "Перевести «%s»"
+  },
   "csFabAria": {
     "message": "$name$ — кнопки перевода",
     "placeholders": {
@@ -1383,6 +1504,9 @@
       }
     }
   },
+  "wlTrySel": {
+    "message": "Ещё можно выделить слово или фразу и нажать ту же клавишу."
+  },
   "wlNoKey": {
     "message": "Без клавиши удобнее?"
   },
@@ -1904,7 +2028,7 @@
     "message": "Как переводить текст"
   },
   "opTrigKeyD": {
-    "message": "Наведите курсор на текст и нажмите $key$. Ещё раз — вернётся оригинал.",
+    "message": "Наведите курсор на текст или выделенное и нажмите $key$. Ещё раз — вернётся оригинал.",
     "placeholders": {
       "key": {
         "content": "$1"
@@ -1912,7 +2036,7 @@
     }
   },
   "opTrigDwellD": {
-    "message": "Задержите курсор на тексте — он переведётся сам. Уведёте курсор раньше — ничего не случится."
+    "message": "Задержите курсор на тексте — он переведётся сам. Уведёте курсор раньше — ничего не случится. Выделенное — через меню правой кнопки мыши."
   },
   "opTrigNone": {
     "message": "Без клавиши"
@@ -1970,7 +2094,7 @@
     "message": "Как показывать перевод"
   },
   "opDispD": {
-    "message": "«Перевести страницу» всегда заменяет текст на месте."
+    "message": "«Перевести страницу» всегда заменяет текст на месте, а выделенное — всегда в карточке."
   },
   "opDispReplace": {
     "message": "Вместо текста"

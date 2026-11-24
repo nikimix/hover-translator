@@ -17,6 +17,9 @@ with your own key.
 ## Features
 
 - Translation in place, or in a card next to the text.
+- **Selected text**: select a word, a phrase or a few sentences and press the same key with the cursor over the
+  selection, or right-click it → **Translate “…”**. The translation appears in a card next to the selection; the
+  page and the selection stay as they were.
 - **Translate page**: what’s on screen first, the rest as you scroll; then switch between **Original** and
   **Translation** in one click.
 - Choose how to trigger it: Shift, Alt, Ctrl, or no key at all — rest the cursor on the text (links, buttons and menus
@@ -46,7 +49,8 @@ use DeepL or AI with your own key.
 ## How to use
 
 1. Point at some text and press and release **Shift** — it’s translated in place. Press again to bring back the
-   original.
+   original. To translate only part of the text, select it and press **Shift** with the cursor over the selection, or
+   right-click it → **Translate “…”** (in the “No key” mode, this menu item is the way to translate a selection).
 2. **Esc** brings back the original everywhere on the page.
 3. Click the extension icon for a small window: translation on or off (**All sites**), the language and recently
    used ones, **Translate page**, “Translate on example.com” for the current site, showing or hiding the floating button.
@@ -56,7 +60,7 @@ use DeepL or AI with your own key.
 
 | Shortcut | What it does |
 |---|---|
-| Shift (or Alt / Ctrl, as chosen) | Translate the text under the cursor; press again for the original |
+| Shift (or Alt / Ctrl, as chosen) | Translate the text under the cursor, or the selection if the cursor is over it (in a card); press again for the original |
 | Esc | Show the original everywhere on the page |
 | Alt+Shift+O (Mac: Ctrl+Shift+O) | Turn translation on or off |
 | Alt+Shift+G (Mac: Ctrl+Shift+G) | Translate the page |
@@ -75,9 +79,9 @@ Shortcuts can be changed at `chrome://extensions/shortcuts`.
 DeepL and AI are connected on the settings page in three steps — **Consent → Key → Done**; the extension switches
 to them only at “Done”, and until then the built-in translator keeps working.
 
-Limitations: extensions can’t run on `chrome://` pages, the Chrome Web Store and some embedded frames; blocks longer
-than 2,000 characters are skipped; “Translate page” covers up to 500 blocks at once and doesn’t pick up content that
-loads later.
+Limitations: extensions can’t run on `chrome://` pages, the Chrome Web Store and some embedded frames; blocks and
+selections longer than 2,000 characters aren’t translated; text selected in input fields and editors isn’t
+translated yet; “Translate page” covers up to 500 blocks at once.
 
 ## Privacy
 
@@ -89,6 +93,8 @@ loads later.
   14 days; settings page → **Data** → **Delete** removes them at once.
 - When you click the icon, the window reads the current tab’s address (the `activeTab` permission) only to tell
   whether translation can work there or the tab needs reloading. The address isn’t stored or sent.
+- The `contextMenus` permission adds **Translate “…”** to the right-click menu when you select text. The selected
+  text is translated like any other: by the built-in translator on your computer or by the service you chose.
 - No server of our own, no analytics, no ads.
 
 Full details: [privacy policy](https://nikimix.github.io/hover-translator/privacy.html)
@@ -99,8 +105,8 @@ Full details: [privacy policy](https://nikimix.github.io/hover-translator/privac
 ```
 hover-translate/        the extension itself (Manifest V3, no build step) — this folder goes into the store package
   manifest.json
-  background.js         service worker: requests to DeepL / OpenAI / Anthropic, saved translations, limits, badge, shortcuts
-  content.js            on every page: finds the text under the cursor, replaces it, card, floating button, notices
+  background.js         service worker: requests to DeepL / OpenAI / Anthropic, saved translations, limits, badge, shortcuts, menu item
+  content.js            on every page: finds the text under the cursor or the selection, replaces it, card, floating button, notices
   shared.js             tables shared by all parts: languages, translators, default settings, consent, texts
   builtin.js            built-in translator status and download (no markup; used by the window, settings and welcome page)
   popup.html/.js/.css   the extension window (toolbar icon)
