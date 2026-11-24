@@ -74,7 +74,8 @@ const P2 = "Another paragraph with plain English text for the sweep test.";
     };
     const selText = () => ev("String(getSelection())");
     const menu = (text) => ev(`sendCmd({ type: "translateSelection", text: ${JSON.stringify(text)} })`);
-    const cardText = () => ev("(() => { const r = cards()[0]; return r ? r.querySelector('.c-text').textContent : null; })()");
+    // Текст карточки: куски перевода — отдельными абзацами карточки, через перевод строки.
+    const cardText = () => ev("(() => { const r = cards()[0]; if (!r) return null; const t = r.querySelector('.c-text'); const ps = t.querySelectorAll('p'); return ps.length ? Array.from(ps, (p) => p.textContent).join('\\n') : t.textContent; })()");
     const cardBox = () => ev("(() => { const r = cards()[0]; if (!r) return null; const b = r.querySelector('.tcard').getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right }; })()");
     // Карточка у строки line: над ней или под ней с зазором до 50 px.
     const nearLine = async (line, what) => {

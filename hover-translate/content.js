@@ -36,6 +36,10 @@
   // расходились — именно на этом и держалась «осиротевшая карточка» (владельца убрали из Set,
   // а узел и запись состояния остались).
   const popovers = new Map();
+  // Ключ карточки выделенного в popovers (см. «перевод выделенного»): не элемент страницы — она не занимает блок, где
+  // начинается выделение (его по-прежнему можно перевести наведением и клавишей), а её запись хранит снимок (st.snap).
+  const SEL_POP = Object.freeze({ sel: true });
+  let selPressIn = false;             // последнее нажатие кнопки мыши — в карточке выделенного (выделяют её текст)
   // owner -> таймер снятия красной подсветки ошибки. Сам текст ошибки на элемент страницы не
   // пишем (в title его прочитал бы скрипт сайта) — он только в нашем уведомлении в shadow root.
   const errors = new WeakMap();
@@ -1710,6 +1714,13 @@
       margin-top: 4px; padding-right: 8px; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain;
       overflow-wrap: anywhere;
     }
+    /* карточка выделенного: куски перевода — абзацами через пустую строку, как в выделенном */
+    .c-sel .c-text > p + p { margin-top: 1lh; }
+    /* только для экранного диктора: живая область с переводом */
+    .sr {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap;
+    }
 
     /* плавающая кнопка: кружок 44 у края окна, над ним (или под ним) капсула с кнопками. Цвета — по фону сайта, как у
        уведомлений: светлый — белое и рамка #c9ced5, тёмный (.dk) — #2a2d33 и рамка rgba(255,255,255,.4); акцент — #2563eb
@@ -1908,8 +1919,31 @@
     return { host, root };
   }
 
-  // Смонтировать наше окно на страницу.
-  function mountUi(node) { (document.body || document.documentElement).appendChild(node); }
+  // Смонтировать наше окно на страницу. near — элемент, у которого окно показано (карточка выделенного). Если он в
+  // верхнем слое (модальное <dialog> через showModal, всплывающее окно popover, полноэкранный элемент), окно в <body>
+  // легло бы под этот слой, а у модального окна сайта ещё и стало бы inert: не нажать кнопку, не выделить текст. Тогда
+  // хост кладём в сам этот элемент и показываем как popover="manual": он уходит в верхний слой поверх окна сайта и
+  // остаётся его потомком (не inert), а координаты у верхнего слоя — от окна браузера, даже если у окна сайта transform.
+  function mountUi(node, near) {
+    const top = near && topLayerOf(near);
+    if (!top) { (document.body || document.documentElement).appendChild(node); return; }
+    // Умолчания [popover] (inset: 0, overflow: auto, фон Canvas) растянули бы хост на всё окно и срезали хвостик.
+    for (const [k, v] of [["right", "auto"], ["bottom", "auto"], ["overflow", "visible"], ["background", "transparent"]]) {
+      node.style.setProperty(k, v, "important");
+    }
+    node.setAttribute("popover", "manual");
+    top.appendChild(node);
+    try { node.showPopover(); } catch (e) { /* уже показан или Chrome без popover — останется на месте в окне сайта */ }
+  }
+  // Ближайший к el (или сам el) элемент в верхнем слое страницы или null. Идём по дереву отрисовки: через слот
+  // компонента (текст из light DOM, показанный в его <dialog>) и через границу shadow root.
+  const TOP_LAYER = ":modal, :popover-open, :fullscreen";
+  function topLayerOf(el) {
+    for (let n = el; n && n.nodeType === 1; n = n.assignedSlot || n.parentElement || (n.parentNode && n.parentNode.host) || null) {
+      try { if (n.matches(TOP_LAYER)) return n; } catch (e) { return null; }
+    }
+    return null;
+  }
 
   // Слои: карточка < плавающая кнопка с кнопками < уведомление. Раньше панель и тост стояли на 2147483647, а
   // карточка — на 2147483646, поэтому карточка накрывала панель смены языка.
@@ -2010,13 +2044,14 @@
     popPending = false;
     for (const [owner, st] of Array.from(popovers)) {
       if (!st.node) continue;               // перевод ещё идёт — карточки пока нет
+      if (st.snap) { selReposition(st); continue; }   // карточка выделенного: якорь — строка выделения
       if (owner.isConnected) {
         const r = owner.getBoundingClientRect();
         if (st.anchor && (Math.abs(r.top - st.anchor.top) > popScrollLimit() || Math.abs(r.left - st.anchor.left) > popScrollLimit())) {
           removePopover(owner, st.node);
           continue;
         }
-        positionPopover(st, owner);
+        positionPopover(st, r);
         continue;
       }
       // Владелец отвалился (SPA перерисовала DOM) — снимаем и САМ узел карточки. Раньше здесь
@@ -2046,23 +2081,29 @@
   // Под абзацем: над ним карточка закрывала бы строку, которую только что прочитали. Над абзацем —
   // только если снизу не помещается, а если не помещается нигде — где места больше, в пределах окна.
   // POP_GAP — от края абзаца до карточки: обводка (отступ 6 + 2) и хвостик.
+  // Карточка выделенного (st.snap) встаёт так же, но у строки выделения r (под курсором), а над — над ru, верхней
+  // видимой строкой выделения, чтобы не закрыть выделенное выше якоря. Обводки нет — только хвостик (SEL_GAP); текст
+  // карточки — под началом строки (у текста отступ 16), хвостик — к середине строки.
   const POP_GAP = 22;
-  function positionPopover(st, el) {
-    const node = st.node, card = st.card;
-    const r = el.getBoundingClientRect();
+  const SEL_GAP = 10;
+  function positionPopover(st, r, ru) {
+    const node = st.node, card = st.card, sel = !!st.snap;
+    ru = ru || r;
     const vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight;
     const w = node.offsetWidth, hgt = node.offsetHeight;
-    const below = vh - r.bottom - POP_GAP - 8, above = r.top - POP_GAP - 8;
+    const gap = sel ? SEL_GAP : POP_GAP;
+    const below = vh - r.bottom - gap - 8, above = ru.top - gap - 8;
     const up = !(hgt <= below || below >= above);
-    let top = up ? r.top - POP_GAP - hgt : r.bottom + POP_GAP;
+    const a = up ? ru : r;
+    let top = up ? a.top - gap - hgt : a.bottom + gap;
     const clamped = Math.max(8, Math.min(top, vh - hgt - 8));
-    const left = Math.max(8, Math.min(r.left, vw - w - 8));
+    const left = Math.max(8, Math.min(sel ? a.left - 16 : a.left, vw - w - 8));
     node.style.setProperty("left", left + "px", "important");
     node.style.setProperty("top", clamped + "px", "important");
     // Хвостик смотрит на абзац; карточку пришлось прижать к краю окна и она легла на абзац — без хвостика.
     card.classList.toggle("up", up);
     card.classList.toggle("flat", Math.abs(clamped - top) > 4);
-    const caret = Math.max(16, Math.min(r.left - left + 28, w - 28));
+    const caret = Math.max(16, Math.min(sel ? a.left + a.width / 2 - 6 - left : a.left - left + 28, w - 28));
     st.caret.style.setProperty("left", Math.round(caret) + "px");
   }
 
@@ -2124,7 +2165,7 @@
     mountUi(host);
     Object.assign(st, { node: host, card, caret, anchor: { top: r.top, left: r.left }, ring: ringOn(owner, dark) });
     ensurePopScroll();
-    positionPopover(st, owner);
+    positionPopover(st, owner.getBoundingClientRect());
   }
 
   // Копировать перевод: Clipboard API (нужен защищённый адрес), иначе — выделением в своём поле.
@@ -2184,6 +2225,9 @@
     };
   }
 
+  // Владелец карточки ещё на странице: у карточки выделенного — элемент, где начинается выделение.
+  function popAlive(owner, st) { return st && st.snap ? st.snap.el.isConnected : owner.isConnected; }
+
   function removePopover(owner, node) {
     const st = popovers.get(owner);
     const n = node || (st && st.node);
@@ -2192,6 +2236,7 @@
     if (!node || !st || st.node === node) {
       popovers.delete(owner);
       if (st && st.ring) { restoreStyle(owner, st.ring); st.ring = null; }
+      if (st && st.snap) selPulse(st.snap, false);   // закрыли, пока шёл перевод выделенного, — подсветку снять сразу
     }
     if (popCloseOwner === owner) popCloseCancel();
   }
@@ -2675,7 +2720,7 @@
   const sweepTimer = setInterval(() => {
     for (const line of Array.from(lines)) if (!line.owner.isConnected) restoreLine(line);
     restoreAttrs(true);
-    for (const owner of Array.from(popovers.keys())) if (!owner.isConnected) removePopover(owner);
+    for (const [owner, st] of Array.from(popovers)) if (!popAlive(owner, st)) removePopover(owner);
     for (const root of pageRoots) if (!root.isConnected) pageRoots.delete(root);   // root ушедших компонентов
   }, 30000);
 
@@ -4131,28 +4176,119 @@
 
   // Перевести снимок и показать карточку у выделения. by — HT_BY_USER (клавиша, меню, кнопка уведомления).
   // Порядок: selBlocked → selSkip → selPulse (подсветка, пока идёт перевод) → перевод кусков (язык — selLangOf) →
-  // неудача: selFail, иначе showFail → всё уже на языке перевода: selSame → карточка.
+  // неудача: selFail, иначе showFail → всё уже на языке перевода: selSame → карточка (selCardShow).
   async function selShow(snap, by) {
     if (selBlocked()) return;
     const gen = liveGen;
     if (await selSkip(snap)) return;
     if (gen !== liveGen || !active()) return;
-    selPulse(snap, true);
-    let out;
-    try { out = await translateItems(snap.parts, by, null, { lang: selLangOf(snap) }); } finally { selPulse(snap, false); }
-    if (gen !== liveGen || !active()) return;
-    if (!out.results) { if (!(await selFail(snap, out, by))) showFail(null, out); return; }
-    const res = out.results;
-    if (res.every((r) => r && r.ok && (!r.value || (r.src && isTargetLang(r.src))))) { selSame(res[0] && res[0].src); return; }
-    const src = (res.find((r) => r && r.src) || {}).src || null;
-    noteSrc(src);
-    // Карточка у элемента, где начинается выделение.
-    const owner = snap.el;
-    if (!owner.isConnected) return;
+    // Одна карточка за раз: новая закрывает прежние — и абзаца, и выделенного (и те, что ещё ждут перевода). Запись
+    // ставим сразу, как у абзаца: пока идёт перевод, та же клавиша над тем же выделением (selCardKey), Esc, щелчок
+    // мимо и новое выделение снимают и ожидание — пришедший перевод тогда не показывается.
     for (const o of Array.from(popovers.keys())) removePopover(o);
-    const st = { node: null };
-    popovers.set(owner, st);
-    showCard(owner, st, res.map((r) => (r && r.ok && r.value ? r.value : "")).join("\n"), src);
+    const st = { node: null, snap, key: snap.key };
+    popovers.set(SEL_POP, st);
+    try {
+      selPulse(snap, true);
+      let out;
+      try { out = await translateItems(snap.parts, by, null, { lang: selLangOf(snap) }); } finally { selPulse(snap, false); }
+      if (gen !== liveGen || !active() || popovers.get(SEL_POP) !== st) return;
+      if (!out.results) { removePopover(SEL_POP); if (!(await selFail(snap, out, by))) showFail(null, out); return; }
+      const res = out.results;
+      if (res.every((r) => r && r.ok && (!r.value || (r.src && isTargetLang(r.src))))) { removePopover(SEL_POP); selSame(res[0] && res[0].src); return; }
+      const src = (res.find((r) => r && r.src) || {}).src || null;
+      noteSrc(src);
+      const texts = res.map((r) => (r && r.ok && r.value ? r.value.trim() : "")).filter(Boolean);
+      if (texts.length && snap.el.isConnected) selCardShow(st, texts, src);
+    } finally {
+      // Не дождались (отмена, сбой, переводить нечего): ожидание без карточки не должно висеть.
+      if (!st.node && popovers.get(SEL_POP) === st) removePopover(SEL_POP);
+    }
+  }
+
+  // Карточка выделенного с готовым переводом — та же, что у абзаца (tcard: хвостик, язык, «Копировать», «Закрыть»,
+  // шрифт — как у выделенного текста, cardFont) и с тем же размещением (positionPopover), но якорь — строка
+  // выделения (selAnchor), а ширина — по переводу, от 280 до 480 px: слово — в узкой карточке, несколько фраз — в
+  // широкой. Уход курсора её не закрывает и в режиме задержки: перевод выделенного читают, отведя мышь.
+  // texts — куски перевода по абзацам выделенного.
+  function selCardShow(st, texts, src) {
+    const snap = st.snap;
+    // Range снимка — копия: выделение страницы потом меняется (выделили текст в самой карточке), а карточка остаётся
+    // у переведённого. Строка-якорь — под курсором, а без него (меню без точки) — последняя.
+    const range = snap.range && typeof snap.range.cloneRange === "function" ? snap.range.cloneRange() : null;
+    const line = snap.line >= 0 && snap.line < snap.rects.length ? snap.line : snap.rects.length - 1;
+    Object.assign(st, { range, line, rect: snap.rects[line], layer: topLayerOf(snap.el) });
+    const at = selAnchor(st);
+    if (!at) return;
+    const { host, root } = makeUiHost(Z_POPOVER);
+    const vw = document.documentElement.clientWidth || innerWidth;
+    host.style.setProperty("min-width", Math.min(280, vw - 16) + "px", "important");
+    host.style.setProperty("max-width", Math.min(480, vw - 16) + "px", "important");
+    const dark = bgOf(snap.el).dark;
+    const value = texts.join("\n\n");
+    const caret = h("span", { class: "caret", "aria-hidden": "true" });
+    const lang = settings.showLangBadge && src && !isTargetLang(src) ? pairText(src, settings.targetLang) : "";
+    const copyBtn = uiButton("c-btn", { title: HT_t("csCopy"), "aria-label": HT_t("csCopy") }, [icon("copy", 16)], () => copyText(value, copyBtn));
+    const closeBtn = uiButton("c-btn", { title: HT_t("csCloseTip"), "aria-label": HT_t("cardCloseAria") }, [icon("x", 16)], () => removePopover(SEL_POP, host));
+    // Экранному диктору перевод отдаёт живая область (.sr). Текст в неё — чуть позже, когда она уже в дереве
+    // доступности: появление области вместе с текстом диктор не зачитывает. Видимый текст от диктора скрыт — не
+    // читать дважды.
+    const text = h("div", { class: "c-text", "aria-hidden": "true" }, ...texts.map((t) => h("p", null, t)));
+    const say = h("p", { class: "sr", role: "status" });
+    cardFont(snap.el, text);
+    const card = h("div", { class: "ui tcard c-sel" + (dark ? " dk" : ""), role: "dialog", "aria-label": selCardLabel() },
+      caret, h("div", { class: "c-top" }, h("span", { class: "c-lang" }, lang), copyBtn, closeBtn), text, say);
+    root.appendChild(card);
+    mountUi(host, snap.el);
+    Object.assign(st, { node: host, card, caret, anchor: { top: at.r.top, left: at.r.left, sx: scrollX, sy: scrollY } });
+    ensurePopScroll();
+    positionPopover(st, at.r, at.ru);
+    setTimeout(() => { say.textContent = texts.join("\n"); }, 100);
+  }
+
+  // Где карточка выделенного, в координатах окна: { r — строка-якорь, ru — над чем встать, если под якорем места
+  // нет: верхняя видимая строка выделения до якоря } или null — якоря больше нет (текст убрали, окно сайта, где
+  // выделяли, закрылось). Прямоугольники берём заново из Range: они сдвигаются при прокрутке. Без Range (снимок из
+  // пункта меню, когда выделение уже сняли) якорь неподвижен — прямоугольник из снимка.
+  function selAnchor(st) {
+    if (!st.snap.el.isConnected) return null;
+    if (st.layer && !(st.layer.isConnected && st.layer.matches(TOP_LAYER))) return null;
+    if (!st.range) return { r: st.rect, ru: st.rect };
+    const lines = selLines(st.range);
+    if (!lines.length) return null;
+    const i = Math.min(st.line, lines.length - 1);
+    let k = i;
+    while (k > 0 && lines[k - 1].top >= 0) k--;
+    return { r: lines[i], ru: lines[k] };
+  }
+  // Прокрутка: как у карточки абзаца — строка сдвинулась больше чем на popScrollLimit, закрываем, иначе карточка едет
+  // за ней. Без Range сдвиг меряем прокруткой окна.
+  function selReposition(st) {
+    const at = selAnchor(st);
+    const dx = at && st.range ? at.r.left - st.anchor.left : st.anchor.sx - scrollX;
+    const dy = at && st.range ? at.r.top - st.anchor.top : st.anchor.sy - scrollY;
+    if (!at || Math.abs(dx) > popScrollLimit() || Math.abs(dy) > popScrollLimit()) { removePopover(SEL_POP, st.node); return; }
+    positionPopover(st, at.r, at.ru);
+  }
+
+  // Нажатие кнопки мыши (pointerdown): в карточке выделенного ли (выделяют её текст, жмут её кнопки).
+  function selPress(target) {
+    const st = popovers.get(SEL_POP);
+    selPressIn = !!st && !!st.node && st.node === target;
+  }
+  // Выделение сменилось не щелчком (Shift+стрелки, Ctrl+A, страница) — карточка прежнего выделения ни к чему:
+  // закрываем, как щелчок мимо. Не в счёт: выделение в самой карточке (последнее нажатие мыши было в ней — тогда и
+  // выделение страницы снято) и снятое выделение без нового.
+  on(document, "selectionchange", (e) => {
+    if (!e.isTrusted || selPressIn || !popovers.has(SEL_POP)) return;
+    const snap = selNow();
+    if (snap && snap.key !== selCardKey()) selClose();
+  });
+
+  // Цвета карточки выделенного — по фону под выделенным, сейчас (сайт сменил тему).
+  function selRetheme() {
+    const st = popovers.get(SEL_POP);
+    if (st && st.card) st.card.classList.toggle("dk", bgOf(st.snap.el).dark);
   }
 
   // Подсветка выделенного, пока идёт перевод (CSS Custom Highlight API, страница не меняется): on — пульс по
@@ -4202,13 +4338,19 @@
   }
 
   // Отпечаток выделения, чья карточка сейчас на экране (или ждёт перевода), "" — её нет.
-  function selCardKey() { return ""; }
+  function selCardKey() {
+    const st = popovers.get(SEL_POP);
+    return st ? st.key : "";
+  }
 
-  // Закрыть карточку выделенного и снять подсветку, если они есть.
-  function selClose() {}
+  // Закрыть карточку выделенного и снять подсветку, если они есть (подсветку снимает removePopover).
+  function selClose() { if (popovers.has(SEL_POP)) removePopover(SEL_POP); }
 
   // Прямоугольник карточки выделенного в координатах окна или null — её нет.
-  function selCardRect() { return null; }
+  function selCardRect() {
+    const st = popovers.get(SEL_POP);
+    return st && st.node && st.node.isConnected ? st.node.getBoundingClientRect() : null;
+  }
   // Подпись карточки выделенного для экранного диктора.
   function selCardLabel() { return HT_t("cardSelLabel"); }
 
@@ -4669,6 +4811,9 @@
     // Показаны кнопки кружка — Esc скрывает только их; фокус был у нас — возвращается на кружок (кнопки,
     // показанные наведением, фокус со страницы не забирают).
     if (menuOpen()) { closeMenu(focusInFab()); return; }
+    // Открыта карточка выделенного (или её перевод ещё идёт) — Esc закрывает только её, как панель у кружка: переводы
+    // на странице остаются. Сам Esc сайт тоже слышит: окно, в котором выделяли, закроет он.
+    if (popovers.has(SEL_POP)) { selClose(); return; }
     if (typingFocus()) return;
     // Esc закрывает и уведомление расширения на странице (раньше оно висело до таймера или ✕).
     if (currentToast) currentToast.close();
@@ -4702,6 +4847,7 @@
   on(window, "pointerdown", (e) => {
     if (!e.isTrusted) return;
     if (menuOpen() && e.target !== fab.host) closeMenu(false);
+    selPress(e.target);
     if (!popovers.size) return;
     for (const st of popovers.values()) if (st.node === e.target) return;
     for (const owner of Array.from(popovers.keys())) removePopover(owner);
@@ -5559,15 +5705,18 @@
     if (dead) return;
     themeFab();
     if (currentToast) currentToast.retheme();
+    selRetheme();
     if (late) {
       clearTimeout(themeLate);
-      themeLate = setTimeout(() => { if (fab || currentToast) rethemeUi(false); }, 600);
+      themeLate = setTimeout(() => { if (themedUi()) rethemeUi(false); }, 600);
     }
   }
+  // Что из нашего на экране перекрашивается вслед за сайтом: кружок, уведомление, карточка выделенного.
+  function themedUi() { return !!(fab || currentToast || popovers.has(SEL_POP)); }
   // Переход дольше 600 мс — ещё раз, когда фон <html> или <body> доехал.
   on(document, "transitionend", (e) => {
     if (e.propertyName === "background-color" && (e.target === document.body || e.target === document.documentElement)
-      && (fab || currentToast)) rethemeUi(false);
+      && themedUi()) rethemeUi(false);
   });
   // Сайт следует теме системы — свои цвета вслед за ним.
   try {
@@ -5579,7 +5728,7 @@
   let themeTimer = 0;
   const themeObs = new MutationObserver(() => {
     if (dead) { themeObs.disconnect(); return; }
-    if (themeTimer || !(fab || currentToast)) return;
+    if (themeTimer || !themedUi()) return;
     themeTimer = setTimeout(() => {
       themeTimer = 0;
       rethemeUi(true);
@@ -5623,7 +5772,7 @@
     if (fab && !fab.host.isConnected) { mountUi(fab.host); themeFab(); placeFab(); }
     if (currentToast && currentToast.alive() && !currentToast.host.isConnected) { mountUi(currentToast.host); placeToast(); }
     for (const [owner, st] of Array.from(popovers)) {
-      if (st.node && !st.node.isConnected) { if (owner.isConnected) mountUi(st.node); else removePopover(owner); }
+      if (st.node && !st.node.isConnected) { if (popAlive(owner, st)) mountUi(st.node, st.snap && st.snap.el); else removePopover(owner); }
     }
   });
   bodyWatch.observe(document.documentElement, { childList: true });
