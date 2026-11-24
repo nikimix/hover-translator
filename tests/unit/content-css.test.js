@@ -1,7 +1,7 @@
 // Правила для элементов страницы — в двух местах: content.css (подключён к документу как CSS контент-скрипта) и
 // константа PAGE_CSS в content.js (её лист подключается к открытым shadow root сайта, куда CSS документа не
 // доходит). Здесь, без браузера, проверяется, что это одни и те же правила: без комментариев и с точностью до
-// пробелов тексты совпадают, и в них есть оба наших состояния — «идёт перевод» и «не перевелось».
+// пробелов тексты совпадают, и в них есть наши состояния — «идёт перевод», «не перевелось» и подсветка выделенного.
 const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
@@ -36,9 +36,11 @@ ok(`PAGE_CSS совпадает с content.css (без комментариев 
 
 // ---- 3. оба состояния на месте ----
 for (const sel of [".ht-loading{", ".ht-loading.ht-loading-dark{", "@keyframes ht-pulse{", "@keyframes ht-pulse-still{",
-  "@media (prefers-reduced-motion:reduce){", ".ht-error{", ".ht-error::after{", ".ht-error.ht-error-dark::after{"]) {
+  "@media (prefers-reduced-motion:reduce){", ".ht-error{", ".ht-error::after{", ".ht-error.ht-error-dark::after{",
+  "::highlight(ht-sel-0){", "::highlight(ht-sel-1){", "::highlight(ht-sel-2){",
+  "::highlight(ht-sel-dark-0){", "::highlight(ht-sel-dark-1){", "::highlight(ht-sel-dark-2){"]) {
   assert.ok(norm(css).includes(sel), "в правилах нет " + sel);
 }
-ok("в правилах есть «идёт перевод» (с тёмным вариантом и без движения) и «не перевелось» (с «!» и тёмным вариантом)");
+ok("в правилах есть «идёт перевод» (с тёмным вариантом и без движения), «не перевелось» (с «!» и тёмным вариантом) и подсветка выделенного (ступени пульса, светлые и тёмные)");
 
 console.log(`\nВсе проверки пройдены: ${pass}`);

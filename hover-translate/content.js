@@ -2134,7 +2134,10 @@
       btn.title = HT_t("csCopied");
       setTimeout(() => { btn.replaceChildren(icon("copy", 16)); btn.title = HT_t("csCopy"); }, 1500);
     };
+    // Выделение у страницы одно на весь документ: ta.select() забирает его в наше поле, и выделенный человеком текст
+    // (он только что переведён и ещё нужен) пропадал бы. Запоминаем его до копирования и возвращаем после.
     const legacy = () => {
+      const keep = pageSelKeep();
       const root = btn.getRootNode();
       const ta = h("textarea", { "aria-hidden": "true", style: "position:fixed;left:-9999px;top:0;opacity:0" });
       ta.value = value;
@@ -2144,10 +2147,41 @@
       try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
       ta.remove();
       btn.focus();
+      if (keep) keep();
       if (ok) done();
     };
     if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(value).then(done, legacy);
     else legacy();
+  }
+
+  // Запомнить выделение страницы → функция, которая его вернёт, или null — возвращать нечего (выделения нет или оно в
+  // наших окнах). Концы — по getComposedRanges: getRangeAt в Chrome сводит выделение внутри shadow root к точке у
+  // хоста (и isCollapsed там true — смотрим type), а настоящие концы отдаёт только для названных root, — открытые root
+  // находим от концов вглубь (у закрытых, в том числе наших, shadowRoot снаружи — null). Направление (выделяли справа
+  // налево) сохраняется.
+  function pageSelKeep() {
+    const sel = document.getSelection();
+    if (!sel || sel.type !== "Range" || !sel.rangeCount || typeof sel.getComposedRanges !== "function") return null;
+    const roots = [];
+    let r = null;
+    for (let depth = 0; depth < 8; depth++) {
+      r = sel.getComposedRanges({ shadowRoots: roots })[0];
+      if (!r) return null;
+      // Конец, сведённый к хосту, — это (родитель, номер хоста) или (родитель, номер хоста + 1).
+      const kids = [[r.startContainer, r.startOffset], [r.endContainer, r.endOffset]]
+        .flatMap(([n, o]) => [n.childNodes[o], n.childNodes[o - 1]]).filter((k) => k && k.nodeType === 1);
+      if (kids.some(isOurUi)) return null;
+      const more = kids.map((k) => k.shadowRoot).filter((x) => x && !roots.includes(x));
+      if (!more.length) break;
+      roots.push(...more);
+    }
+    const back = sel.direction === "backward";
+    const { startContainer: sn, startOffset: so, endContainer: en, endOffset: eo } = r;
+    return () => {
+      try {
+        if (back) sel.setBaseAndExtent(en, eo, sn, so); else sel.setBaseAndExtent(sn, so, en, eo);
+      } catch (e) { /* узлы выделения страница уже убрала — возвращать некуда */ }
+    };
   }
 
   function removePopover(owner, node) {
@@ -2368,6 +2402,18 @@
     @keyframes ht-pulse-still {
       to { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
     }
+    ::highlight(ht-sel-0), ::highlight(ht-sel-1), ::highlight(ht-sel-2) {
+      background-color: rgba(37, 99, 235, 0.30);
+    }
+    ::highlight(ht-sel-0) { text-decoration: line-through 1.2em rgba(255, 255, 255, 0.35); }
+    ::highlight(ht-sel-1) { text-decoration: line-through 1.2em rgba(255, 255, 255, 0.22); }
+    ::highlight(ht-sel-2) { text-decoration: line-through 1.2em rgba(255, 255, 255, 0.10); }
+    ::highlight(ht-sel-dark-0), ::highlight(ht-sel-dark-1), ::highlight(ht-sel-dark-2) {
+      background-color: rgba(120, 160, 255, 0.28);
+    }
+    ::highlight(ht-sel-dark-0) { text-decoration: line-through 1.2em rgba(120, 160, 255, 0.50); }
+    ::highlight(ht-sel-dark-1) { text-decoration: line-through 1.2em rgba(120, 160, 255, 0.35); }
+    ::highlight(ht-sel-dark-2) { text-decoration: line-through 1.2em rgba(120, 160, 255, 0.20); }
     .ht-error {
       background-color: rgba(215, 40, 40, 0.1) !important;
       box-shadow: 0 0 0 3px rgba(215, 40, 40, 0.1) !important;
@@ -2463,6 +2509,7 @@
   // «Стоп» и возврат оригинала: у отменённых переводов пульс снимаем сразу, а не когда придёт (и будет
   // отброшен) ответ — на медленной сети это до тайм-аута сервиса. pageOnly — только перевод страницы.
   function loadingOffCancelled(pageOnly) {
+    if (!pageOnly) selPulse(null, false);
     for (const el of pageAll(".ht-loading")) {
       const line = lineByOwner.get(el);
       if (!pageOnly || (line && line.page)) loadingOff(el);
@@ -3886,8 +3933,50 @@
   }
 
   // Подсветка выделенного, пока идёт перевод (CSS Custom Highlight API, страница не меняется): on — пульс по
-  // snap.range (null — подсвечивать нечего), off — снять.
-  function selPulse(snap, on) {}
+  // snap.range (null — подсвечивать нечего), off — снять подсветку этого снимка (snap null — любую).
+  // Правила ::highlight(ht-sel-*) — в content.css (почему полосой, а не фоном — там). Анимацию подсветки Chrome не
+  // проигрывает (проверено в Chrome 157), поэтому пульс — сменой имени по таймеру: ступени 0 → 1 → 2 → 1 по
+  // SEL_PULSE_MS дают те же 1,2 с, что у абзаца; при prefers-reduced-motion — ровная ступень 0. Начинается, как у
+  // абзаца, через 0,15 с: перевод из сохранённых приходит сразу и мигать не должен. Реестр CSS.highlights у документа
+  // один на все миры: подсветка из мира расширения рисуется, а страница видит её в своём CSS.highlights, — имена с
+  // приставкой ht-, чужие не трогаем.
+  // Off только для своего снимка: перевод прежнего выделения, пришедший после нового, чужой пульс не снимает.
+  const SEL_PULSE_MS = 300;
+  const SEL_STEPS = [0, 1, 2, 1];
+  let selHl = null;                   // { snap, hl, name, timer } — подсветка, которая сейчас идёт
+  function selPulse(snap, on) {
+    if (!on) {
+      if (!selHl || (snap && selHl.snap !== snap)) return;
+      clearTimeout(selHl.timer);
+      if (selHl.name && CSS.highlights.get(selHl.name) === selHl.hl) CSS.highlights.delete(selHl.name);
+      selHl = null;
+      return;
+    }
+    selPulse(null, false);
+    const range = snap && snap.range;
+    if (!range || typeof Highlight !== "function" || !window.CSS || !CSS.highlights) return;
+    // Выделение в открытом shadow root: правила документа на элементы root не действуют (в Chrome 157 подсветка там
+    // бывает видна по наследованию от хоста, но на это не полагаемся) — лист с ними подключаем к root, как для
+    // подложки абзаца.
+    for (const n of [range.startContainer, range.endContainer]) {
+      const el = n.nodeType === 1 ? n : n.parentElement;
+      if (el) styleRootOf(el);
+    }
+    const base = snap.el && bgOf(snap.el).dark ? "ht-sel-dark-" : "ht-sel-";
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const st = { snap, hl: new Highlight(range), name: "", timer: 0 };
+    let i = 0;
+    const step = () => {
+      if (selHl !== st) return;
+      const name = base + SEL_STEPS[i++ % SEL_STEPS.length];
+      if (st.name) CSS.highlights.delete(st.name);
+      CSS.highlights.set(name, st.hl);
+      st.name = name;
+      if (!still) st.timer = setTimeout(step, SEL_PULSE_MS);
+    };
+    st.timer = setTimeout(step, 150);
+    selHl = st;
+  }
 
   // Отпечаток выделения, чья карточка сейчас на экране (или ждёт перевода), "" — её нет.
   function selCardKey() { return ""; }
