@@ -1218,14 +1218,17 @@
   //   • модели нет на компьютере — щелчок запускает загрузку, она нужна один раз для всех сайтов;
   //   • пара с языком не из языков браузера — на каждом новом сайте (см. hiddenLang);
   //   • детектор языка первые секунды после запуска Chrome тоже отвечает «downloadable», хотя модель есть.
-  // Возвращает неудачу с готовым уведомлением (note): заголовок, строка и пустая полоса загрузки.
+  // Возвращает неудачу с готовым уведомлением (note): заголовок, строка и пустая полоса загрузки, — и с тем, что
+  // нужно (need: state, пара src/tgt — пустая у детектора, hidden — язык не из языков браузера): у выделенного
+  // щелчок по тексту снял бы выделение, поэтому там своё уведомление с кнопкой (см. selFail).
   function needDownload(state, src, tgt) {
     const key = src ? src + ">" + tgt : "detector";
-    const fail = (note) => ({ ok: false, kind: "download", key, error: note.text, note });
+    const hidden = src ? hiddenLang(src, tgt) : "";
+    const need = { state, src: src || "", tgt: tgt || "", hidden };
+    const fail = (note) => ({ ok: false, kind: "download", key, error: note.text, note, need });
     if (state === "downloading") {
       return fail({ title: HT_t("csDlWaitTitle"), text: HT_t("csDlWaitText", src ? pairText(src, tgt) : HT_t("dlDetectorName")), progress: "indet" });
     }
-    const hidden = src ? hiddenLang(src, tgt) : "";
     const text = hidden ? HT_t("csClickSite", HT_langLabel(hidden)) : HT_t(src ? "csClickPair" : "csClickDetector");
     return fail({ title: HT_t("csClickTitle"), icon: "pointer", text, progress: "empty" });
   }
@@ -1346,7 +1349,7 @@
     const real = results.filter((r) => !(r && (r.bare || r.skip)));
     if (!real.length || real.some((r) => r && r.ok)) return { results };
     const dl = results.find((r) => r && r.kind === "download");
-    if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key, note: dl.note };
+    if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key, note: dl.note, need: dl.need };
     if (primary && primary.code !== "no-key" && primary.code !== "no-consent") return Object.assign({ results: null }, primary);
     return Object.assign({ results: null }, failOf(results.find((r) => r && r.error)));
   }
@@ -3817,19 +3820,48 @@
   // Перевод выделенного не вышел: нужна загрузка встроенного переводчика (out.kind === "download") — отрывок
   // запоминается, а уведомление с кнопкой переводит его по щелчку (selDlNote). true — разобрано здесь; иначе
   // вызывающий показывает обычную ошибку (showFail).
-  async function selFail(snap, out, by) { return false; }
+  // У абзаца в таком случае просим щёлкнуть по тексту и повторяем перевод после щелчка (showFail, retryOnClick),
+  // но щелчок по тексту снял бы выделение, а следующий щелчок по странице перевёл бы абзац под курсором, а не
+  // выделенное. Одиночный Shift действием пользователя Chrome не считает — поэтому кнопка: у щелчка по ней это
+  // действие есть, и загрузка пойдёт с ходом в уведомлении (downloadNotice). retryOnClick не трогаем, а
+  // downloadTold не глушит: выделенное просят перевести явно — уведомление на каждую просьбу.
+  async function selFail(snap, out, by) {
+    const need = out.need;
+    if (out.kind !== "download" || !need) return false;
+    const anchor = snap.owner || snap.el;
+    // Модель уже качается (её начала другая вкладка или окно расширения): кнопке нечего запускать — прежнее
+    // уведомление «Переводчик ещё скачивается».
+    if (need.state === "downloading") {
+      const n = out.note || { text: out.error };
+      notice(n.text, 15000, Object.assign({ anchor }, n));
+      return true;
+    }
+    const kind = !need.src ? "detector" : need.hidden ? "ask" : "pair";
+    const what = kind === "ask" ? HT_langLabel(need.hidden) : kind === "pair" ? pairText(need.src, need.tgt) : "";
+    // Кнопка переводит запомненный снимок: выделение к щелчку могло смениться или пропасть, а Range снимка живой.
+    const run = () => { if (active() && alive()) selShow(snap, HT_BY_USER); };
+    const n = selDlNote(kind, what, run);
+    notice(n.text, 15000, Object.assign({ anchor }, n));
+    return true;
+  }
   // Уведомление о загрузке для выделенного. kind: "pair" — модели нет, "ask" — язык не из языков Chrome (разрешение
   // на каждом сайте), "detector" — определение языка. what — пара языков («Испанский → русский») или название языка.
-  // run — что сделать по кнопке (у щелчка есть действие пользователя).
+  // run — что сделать по кнопке (у щелчка есть действие пользователя). Без значка-курсора у заголовка: он значит
+  // «щёлкните по тексту», а здесь щёлкают по кнопке.
   function selDlNote(kind, what, run) {
     const act = (label) => [{ label, run, primary: true }];
-    if (kind === "ask") return { title: HT_t("csSelAskTitle"), text: HT_t("csSelAskText", what), icon: "pointer", actions: act(HT_t("csSelAskBtn")) };
-    if (kind === "detector") return { title: HT_t("csSelDetTitle"), text: HT_t("csSelDetText"), icon: "pointer", actions: act(HT_t("csSelDlBtn")) };
-    return { title: HT_t("csSelDlTitle"), text: HT_t("csSelDlText", what), icon: "pointer", actions: act(HT_t("csSelDlBtn")) };
+    if (kind === "ask") return { title: HT_t("csSelAskTitle"), text: HT_t("csSelAskText", what), actions: act(HT_t("csSelAskBtn")) };
+    if (kind === "detector") return { title: HT_t("csSelDetTitle"), text: HT_t("csSelDetText"), actions: act(HT_t("csSelDlBtn")) };
+    return { title: HT_t("csSelDlTitle"), text: HT_t("csSelDlText", what), actions: act(HT_t("csSelDlBtn")) };
   }
   // Можно ли переводить выделенное сейчас (как blocked для явного действия). Во встроенном окне чужого сайта, где
   // встроенный переводчик запрещён, — не молчание, а уведомление (selFrameNote).
-  function selBlocked() { return blocked(false); }
+  // blocked() там молчит: при наведении это не поломка, о которой стоит рассказывать, а выделенное просят перевести
+  // явно — без объяснения кажется, что клавиша не работает.
+  function selBlocked() {
+    if (BUILTIN === "frame" && problem() && !HT_engineProblem(settings.engine, netState(), true)) { selFrameNote(); return true; }
+    return blocked(false);
+  }
   function selFrameNote() {
     notice(HT_t("csSelFrameText"), 12000, { title: HT_t("csSelFrameTitle"), icon: "err", kind: "err", actions: [settingsAct("translator", true)] });
   }
