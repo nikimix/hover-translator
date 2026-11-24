@@ -3752,21 +3752,204 @@
   const SEL_NEAR = 8;                 // запас вокруг строк выделения, в котором курсор считается над ним
 
   // Снимок выделения этого фрейма или null (см. выше).
+  // Выделенное в поле ввода (input, textarea) в document.getSelection не видно вовсе, а в редакторе (contenteditable,
+  // designMode) — видно, но это текст человека, а не сайта: фокус в поле или редакторе, конец выделения в редакторе —
+  // не в счёт. Текст берём не из sel.toString(): тот отдаёт и текст для экранных дикторов, и подсказки чтения <rt>,
+  // и даже текст из закрытых shadow root (в том числе наших окон), а переносы у него — свои.
   function selNow(x, y) {
     const sel = document.getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
-    const range = sel.getRangeAt(0);
-    const parts = String(sel.toString()).split(/\n+/).map((t) => t.trim()).filter(Boolean);
+    if (!sel || !sel.rangeCount || typingFocus() || document.designMode === "on") return null;
+    const got = selRange(sel);
+    if (!got || selEditable(got.sc) || selEditable(got.ec)) return null;
+    const { parts, el } = selText(got);
     const text = parts.join("\n");
-    if (!hasLetter(text)) return null;
+    if (!el || !hasLetter(text)) return null;
+    const range = got.range;
     const rects = selLines(range);
     if (!rects.length) return null;
-    const start = range.startContainer;
-    const el = start.nodeType === 1 ? start : start.parentElement;
-    if (!el) return null;
     const line = x == null || y == null ? -1 : selLineAt(rects, x, y);
     const key = text + "|" + Math.round(rects[0].left + scrollX) + "," + Math.round(rects[0].top + scrollY);
     return { range, parts, text, rects, line, el, owner: pickTarget(el), key };
+  }
+
+  // Концы выделения { sc, so, ec, eo } и Range для снимка — или null (выделения нет).
+  // В Chrome выделение внутри shadow root снаружи выглядит схлопнутым у хоста (isCollapsed, getRangeAt(0) — пустой
+  // диапазон перед ним), а sel.toString() при этом отдаёт текст. Настоящие концы даёт getComposedRanges (Chrome 137+),
+  // и только в тех открытых root, что ему назвали: без них конец поднимается к хосту (до него — начало, после — конец).
+  // Поэтому root называем по одному: конец стоит у хоста с открытым root — добавляем его root и спрашиваем снова
+  // (компонент в компоненте — ещё раз). Закрытые root (сайта и наши) не назвать: выделение в них — пустой диапазон
+  // вокруг хоста, текста в нём нет (selText), и снимка нет. До Chrome 137 выделение в компоненте — пустое.
+  function selRange(sel) {
+    if (!sel.getComposedRanges) {
+      if (sel.isCollapsed) return null;
+      const r = sel.getRangeAt(0);
+      return { sc: r.startContainer, so: r.startOffset, ec: r.endContainer, eo: r.endOffset, range: r.cloneRange() };
+    }
+    let roots = [], r = null;
+    for (let i = 0; i < 16; i++) {
+      try { r = sel.getComposedRanges({ shadowRoots: roots })[0]; } catch (e) { return null; }
+      if (!r) return null;
+      const more = [r.startContainer.childNodes[r.startOffset], r.endContainer.childNodes[r.endOffset - 1]]
+        .map((n) => n && n.nodeType === 1 && !isOurUi(n) && n.shadowRoot).filter((s) => s && !roots.includes(s));
+      if (!more.length) break;
+      roots = roots.concat(more);
+    }
+    if (r.collapsed) return null;
+    const got = { sc: r.startContainer, so: r.startOffset, ec: r.endContainer, eo: r.endOffset };
+    // Range живёт в одном дереве: концы в разных (из компонента на страницу) он схлопнул бы. Для строк и подсветки
+    // поднимаем конец из глубокого дерева к его хосту в общем дереве — строки тогда берут компонент целиком.
+    let { sc, so, ec, eo } = got;
+    const trees = (n) => { const out = []; for (let t = n.getRootNode(); t; t = t.host ? t.host.getRootNode() : null) out.push(t); return out; };
+    const common = trees(sc).find((t) => trees(ec).includes(t));
+    if (!common) return null;
+    const at = (h) => Array.prototype.indexOf.call(h.parentNode.childNodes, h);
+    while (sc.getRootNode() !== common) { const h = sc.getRootNode().host; so = at(h); sc = h.parentNode; }
+    while (ec.getRootNode() !== common) { const h = ec.getRootNode().host; eo = at(h) + 1; ec = h.parentNode; }
+    try {
+      got.range = document.createRange();
+      got.range.setStart(sc, so);
+      got.range.setEnd(ec, eo);
+    } catch (e) { return null; }
+    return got;
+  }
+
+  // Конец выделения в редакторе (contenteditable): его текст пишет человек.
+  function selEditable(n) {
+    const el = n.nodeType === 1 ? n : n.nodeType === 11 ? n.host : n.parentElement;
+    return !!el && el.isContentEditable;
+  }
+
+  // Плоское дерево — как его рисует Chrome: у хоста с открытым root — содержимое root (light DOM показан через
+  // <slot>), у <slot> — назначенные ему узлы (или его запасное содержимое). Наши окна — пусто.
+  function selKids(n) {
+    if (n.nodeType !== 1) return n.childNodes;
+    if (isOurUi(n)) return [];
+    if (n.shadowRoot) return n.shadowRoot.childNodes;
+    if (n.tagName === "SLOT" && n.getRootNode() instanceof ShadowRoot) {
+      const a = n.assignedNodes();
+      if (a.length) return a;
+    }
+    return n.childNodes;
+  }
+  // Родитель в плоском дереве (элемент): слот, куда узел назначен, или хост для верхнего уровня root.
+  function selUp(n) {
+    if (n.assignedSlot) return n.assignedSlot;
+    const p = n.parentNode;
+    return p && p.nodeType === 11 ? p.host || null : p && p.nodeType === 1 ? p : null;
+  }
+
+  // Видимый текст между концами выделения по абзацам → { parts, el } (el — элемент первого видимого текста).
+  // Обход плоского дерева от общего предка концов: так концы могут лежать в разных деревьях, а компонент с открытым
+  // root посреди выделения отдаёт свой текст. Состояние: 0 — до начала, 1 — внутри, 2 — после конца. Невидимое
+  // обходим тоже (конец выделения бывает и в <rt>), но текст его не берём.
+  // Абзацы — как на экране: граница блока (вычисленный display, а не тег: <span> во flex-строке — блок, <div>
+  // с display: inline — нет), <br>, перевод строки там, где пробелы не схлопываются (white-space: pre…).
+  function selText({ sc, so, ec, eo }) {
+    const chain = new Set();
+    for (let n = sc; n; n = n.nodeType === 11 ? n.host : selUp(n)) chain.add(n);
+    let root = ec;
+    while (root && !chain.has(root)) root = root.nodeType === 11 ? root.host : selUp(root);
+    if (!root) return { parts: [], el: null };
+    if (root.nodeType === 11) root = root.host;
+    const kid = (c, o) => (c.nodeType === 3 ? null : c.childNodes[o] || null);
+    const host = (c) => (c.nodeType === 11 ? c.host : c);
+    const sAt = kid(sc, so), eAt = kid(ec, eo);
+    const sAfter = sc.nodeType !== 3 && !sAt ? host(sc) : null;
+    const eAfter = ec.nodeType !== 3 && !eAt ? host(ec) : null;
+    const memo = { quiet: new Map(), vis: new Map() };
+    const parts = [""];
+    let state = 0, el = null;
+    const cut = () => { if (state === 1 && parts[parts.length - 1]) parts.push(""); };
+    const add = (s) => { parts[parts.length - 1] += s; };
+    const walk = (n) => {
+      if (state === 2) return;
+      if (n === eAt) { state = 2; return; }
+      if (n === sAt) state = 1;
+      if (n.nodeType === 3) {
+        if (n === sc) state = 1;
+        if (state !== 1) return;
+        const s = n.nodeValue.slice(n === sc ? so : 0, n === ec ? eo : undefined);
+        const p = selUp(n);
+        if (s && p && selShown(p, memo)) {
+          if (!el && s.trim()) el = n.parentElement || p;   // назначенный слоту текст — у своего родителя, а не у <slot>
+          if (selPre(p)) s.split("\n").forEach((line, i) => { if (i) cut(); add(line); });
+          else add(s);
+        }
+        if (n === ec) state = 2;
+        return;
+      }
+      if (n.nodeType !== 1) return;
+      if (n.tagName === "BR") { if (state === 1 && selShown(n, memo)) cut(); return; }
+      // Строчные (inline, inline-block…), display: contents и ruby строку не рвут; скрытый блок — тоже.
+      let is = null;   // блок ли — считаем раз, при входе или при выходе
+      const block = () => {
+        if (state !== 1) return false;
+        if (is === null) is = selShown(n, memo) && !/^(inline|contents|ruby|none)/.test(getComputedStyle(n).display);
+        return is;
+      };
+      if (block()) cut();
+      for (const k of Array.from(selKids(n))) walk(k);
+      if (block()) cut();
+      if (n === sAfter && state === 0) state = 1;
+      if (n === eAfter) state = 2;
+    };
+    walk(root);
+    return { parts: parts.map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean), el };
+  }
+
+  // Видим ли текст элемента (с его предками в плоском дереве): не скрыт (display, visibility, нулевая прозрачность),
+  // не подсказка чтения над иероглифами (<rt>, <rp>), не текст только для экранных дикторов, не наше окно.
+  const SEL_QUIET = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|TEXTAREA|SELECT|OPTION|DATALIST|RT|RP|TITLE|DESC)$/i;
+  function selShown(el, memo) { return !selQuiet(el, memo) && selVisible(el, memo); }
+  function selQuiet(el, memo) {
+    if (!el || el.nodeType !== 1) return false;
+    let v = memo.quiet.get(el);
+    if (v === undefined) {
+      v = SEL_QUIET.test(el.tagName) || isOurUi(el) || srOnly(el) || selQuiet(selUp(el), memo);
+      memo.quiet.set(el, v);
+    }
+    return v;
+  }
+  // checkVisibility смотрит и предков, но у display: contents (<slot>, обёртки) своей коробки нет, и он всегда
+  // «не видим» — такой элемент видим, если видим его родитель и сам он не visibility: hidden.
+  function selVisible(el, memo) {
+    let v = memo.vis.get(el);
+    if (v !== undefined) return v;
+    const cs = getComputedStyle(el);
+    if (cs.display === "contents") {
+      const up = selUp(el);
+      v = cs.visibility === "visible" && (!up || selVisible(up, memo));
+    } else if (el.checkVisibility) {
+      v = el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+    } else {
+      v = cs.visibility === "visible" && el.getClientRects().length > 0;
+    }
+    memo.vis.set(el, v);
+    return v;
+  }
+  // Текст только для экранных дикторов: на экране его нет, а в выделение он попадает. Типичные приёмы (.sr-only,
+  // .visually-hidden): обрезка clip: rect(0 0 0 0) или clip-path: inset(50%), коробка 1×1 px с overflow: hidden,
+  // вынос за левый или верхний край страницы (left: -10000px).
+  function srOnly(el) {
+    const cs = getComputedStyle(el);
+    const out = cs.position === "absolute" || cs.position === "fixed";
+    if (out && cs.clip.startsWith("rect(")) {
+      const [t, r, b, l] = cs.clip.slice(5).split(/[\s,]+/).map(parseFloat);
+      if (r - l <= 1 && b - t <= 1) return true;
+    }
+    const inset = /^inset\(\s*([\d.]+)%/.exec(cs.clipPath);
+    if (inset && +inset[1] >= 50) return true;
+    if (!out && !/hidden|clip/.test(cs.overflow)) return false;
+    const box = el.getBoundingClientRect();
+    if (/hidden|clip/.test(cs.overflow) && box.width <= 1 && box.height <= 1) return true;
+    return out && (box.right + scrollX <= 0 || box.bottom + scrollY <= 0);
+  }
+  // Переводы строк здесь не схлопываются (white-space: pre, pre-wrap, pre-line, break-spaces): перевод строки —
+  // граница строки на экране. white-space-collapse: preserve-spaces их схлопывает (в пробел).
+  function selPre(el) {
+    const cs = getComputedStyle(el);
+    const c = cs.whiteSpaceCollapse;
+    return c ? /^(preserve|preserve-breaks|break-spaces)$/.test(c) : /^pre|break-spaces/.test(cs.whiteSpace);
   }
   // Прямоугольники строк диапазона: getClientRects даёт по прямоугольнику на каждый строчный элемент — сливаем
   // те, что лежат на одной строке (пересекаются по высоте больше чем наполовину), пустые отбрасываем.
@@ -3890,12 +4073,52 @@
     return selLines(sub).some((q) => selNear(q, x, y));
   }
 
-  // Язык выделенного для встроенного переводчика: обещание detectLang для всех кусков (localResults, opts.lang)
-  // или null — каждый кусок сам.
-  function selLangOf(snap) { return null; }
+  // Язык выделенного для встроенного переводчика: обещание detectLang для всех кусков сразу (localResults, opts.lang);
+  // не определился ({}) — каждый кусок сам (chromeTranslate).
+  // Язык — по самому выделенному; короткий отрывок (shortText: на таком детектор Chrome уверенно ошибается) — по его
+  // абзацу (snap.owner), как блок под курсором: короткий абзац — язык страницы (langOf). Отрывок на другой
+  // письменности, чем абзац (русская цитата в английском тексте, японское слово в пояснении), — по нему самому:
+  // язык абзаца и страницы для него заведомо не тот, а письменность сужает выбор детектору.
+  // Обещание ленивое: DeepL и ИИ определяют язык сами, и детектор (а то и его загрузка) нужен, только если перевод
+  // дойдёт до встроенного переводчика (выбран он или DeepL уступил ему при сбое).
+  function selLangOf(snap) {
+    let p = null;
+    const run = () => {
+      const src = selLangSrc(snap);
+      return src.own ? langOf(src.text) : detectLang(src.text, true);
+    };
+    return { then: (ok, bad) => (p || (p = run())).then(ok, bad) };
+  }
+  // По какому тексту судить о языке выделенного: { text, own } — own: текст абзаца вместо короткого отрывка.
+  // Язык, выбранный в настройках, — сам по себе (detectLang, isAlreadyTarget).
+  function selLangSrc(snap) {
+    if (!snap.owner || !shortText(snap.text)) return { text: snap.text, own: false };
+    const own = ownerText(snap.owner).replace(/\s+/g, " ").trim();
+    return own && scriptOf(own) === scriptOf(snap.text) ? { text: own, own: true } : { text: snap.text, own: false };
+  }
+  // Письменность текста — та, чьих букв в нём больше всего (номер в SCRIPTS; −1 — ни одной из них). Иероглифы и
+  // японские азбуки — одна: японский текст пишется ими вперемешку.
+  const SCRIPTS = [/\p{sc=Latin}/u, /\p{sc=Cyrillic}/u, /\p{sc=Greek}/u, /\p{sc=Arabic}/u, /\p{sc=Hebrew}/u,
+    /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Bopomofo}]/u, /\p{sc=Hangul}/u, /\p{sc=Thai}/u,
+    /\p{sc=Devanagari}/u, /\p{sc=Armenian}/u, /\p{sc=Georgian}/u];
+  function scriptOf(s) {
+    const n = SCRIPTS.map(() => 0);
+    for (const c of String(s).match(/\p{L}/gu) || []) {
+      const i = SCRIPTS.findIndex((re) => re.test(c));
+      if (i >= 0) n[i]++;
+    }
+    const max = Math.max(...n);
+    return max ? n.indexOf(max) : -1;
+  }
 
-  // До перевода: выделенное уже на языке перевода — уведомление и true (переводить не нужно).
-  async function selSkip(snap) { return false; }
+  // До перевода: выделенное уже на языке перевода — уведомление и true (переводить не нужно). О языке судим так же,
+  // как selLangOf, но только уже скачанным детектором (isAlreadyTarget): не уверен — переводим, а там, если
+  // переводчик скажет то же, уведомит selShow.
+  async function selSkip(snap) {
+    if (!(await isAlreadyTarget(selLangSrc(snap).text))) return false;
+    selSame(null);
+    return true;
+  }
 
   // Длиннее SEL_MAX — уведомление с числом знаков.
   function selTooLong(snap) {

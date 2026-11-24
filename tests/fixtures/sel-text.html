@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>stub: selection text</title>
+<link rel="stylesheet" href="/src/content.css">
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; padding: 20px; }
+  p, .blk { margin: 0 0 16px; width: 640px; }
+  /* типичные «только для экранных дикторов» */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .vh { position: absolute; clip-path: inset(50%); white-space: nowrap; }
+  .gone { display: none; }
+  .ghost { visibility: hidden; }
+  .off { position: absolute; left: -10000px; top: auto; }
+  #flexrow { display: flex; gap: 24px; }
+  #lines span { display: block; }
+</style>
+<script>
+  // Заглушка chrome.* для content.js — как в stub.html, только нужное проверкам выделенного (page/sel-text.test.js).
+  // background отвечает «[RU] текст» (язык — targetLang запроса). Встроенный переводчик — подделка: модели уже есть,
+  // __created — с какой пары языков он создавался, __detected — что спрашивали у детектора (см. fakeLang).
+  // ?nocomposed=1 — Chrome до 137: без Selection.getComposedRanges.
+  const q = new URLSearchParams(location.search);
+  if (q.get("nocomposed")) delete Selection.prototype.getComposedRanges;
+  window.__calls = [];
+  window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", apiKey: "k:fx",
+    consent: { deepl: true, openai: true, anthropic: true } }, JSON.parse(q.get("store") || "{}"));
+  window.__onChanged = [];
+  window.__onMessage = [];
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) {
+          const out = Object.assign({}, typeof defs === "object" && !Array.isArray(defs) ? defs : {}, JSON.parse(JSON.stringify(window.__store)));
+          if (cb) { setTimeout(() => cb(out), 0); return undefined; }
+          return Promise.resolve(out);
+        },
+        set(obj) { setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      getManifest: () => ({ name: "Cursor Translate" }),
+      sendMessage(msg) {
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        if (msg.type === "noticeOnce") return Promise.resolve({ ok: true, show: true });
+        if (msg.type === "shortcut") return Promise.resolve("");
+        if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
+        return Promise.resolve({ ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "en") });
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: JSON.parse(JSON.stringify(obj[k])) }; window.__store[k] = JSON.parse(JSON.stringify(obj[k])); }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
+  window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+  window.__created = [];
+  window.__detected = [];
+  window.Translator = {
+    async availability() { return "available"; },
+    async create(o) { window.__created.push(o.sourceLanguage + ">" + o.targetLanguage); return { translate: async (t) => "[" + o.sourceLanguage + "] " + t }; },
+  };
+  window.LanguageDetector = {
+    async availability() { return "available"; },
+    async create() {
+      return { detect: async (t) => { window.__detected.push(t); return [{ detectedLanguage: fakeLang(t), confidence: 0.99 }]; } };
+    },
+  };
+  // Язык по большинству букв: кириллица — ru, иероглифы и кана — ja; латиница — de, если хотя бы четверть слов —
+  // служебные немецкие или с умлаутом, иначе en (вся страница — en, хотя в ней есть и немецкий абзац).
+  function fakeLang(t) {
+    const n = (re) => (t.match(re) || []).length;
+    const cyr = n(/[а-яё]/gi), cjk = n(/[぀-ヿ一-鿿]/g), lat = n(/[a-zäöüß]/gi);
+    if (cyr > lat && cyr >= cjk) return "ru";
+    if (cjk > lat) return "ja";
+    const words = t.split(/\s+/).filter(Boolean);
+    const de = words.filter((w) => /[äöüß]|^(und|der|die|das|ist)$/i.test(w)).length;
+    return de >= 2 && de * 4 >= words.length ? "de" : "en";
+  }
+  // Наши уведомления и карточки живут в закрытых shadow root — запоминаем root при создании.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? c.querySelector(".t-b").textContent : null; }).filter(Boolean);
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
+  (function tick() { requestAnimationFrame(tick); })();
+</script>
+</head>
+<body>
+  <p id="sr">Press the green button<span class="sr-only"> to open the hidden menu</span> to continue with your order.</p>
+  <p id="hid">Visible words here<span class="vh"> clipped by path</span><span class="gone"> not displayed</span><span class="ghost"> invisible text</span><span class="off"> far off screen</span> and the end of line.</p>
+  <p id="ruby">The word <ruby>漢<rp>(</rp><rt>kan</rt><rp>)</rp>字<rp>(</rp><rt>ji</rt><rp>)</rp></ruby> means Chinese characters in Japanese writing.</p>
+  <div id="multi" class="blk">
+    <p id="m1">First paragraph of the selected passage is here.</p>
+    <p id="m2">Second paragraph follows it<br>and has a line break inside.</p>
+    <ul><li id="m3">A list item that ends the passage.</li></ul>
+  </div>
+  <p id="poem" style="white-space: pre-line">Roses are red in the garden,
+violets are blue near the fence.</p>
+  <div id="flexrow" class="blk"><span id="fa">Left column text</span><span id="fb">Right column text</span></div>
+  <p id="mixed">This English sentence quotes <i id="quote">большое спасибо</i> from a Russian letter in the middle.</p>
+  <p id="enShort">Our team writes <b id="enWord">good code</b> for every customer in the whole wide world.</p>
+  <p id="dePara">Das Wetter ist heute schön und die Übersetzung der Seite ist fertig.</p>
+  <p id="ruPara">Мы пишем хороший код для каждого клиента на всём белом свете и всегда отвечаем на письма.</p>
+  <p id="ruLong">Этот абзац целиком написан по-русски и достаточно длинный, чтобы язык определялся уверенно.</p>
+  <x-card id="comp" class="blk"></x-card>
+  <x-lock id="lock" class="blk"></x-lock>
+  <p class="blk"><input id="field" value="Text typed into the search field"> <textarea id="area">Some words inside a textarea box</textarea></p>
+  <div id="editor" contenteditable="true" class="blk">Editable notes written by the visitor of the page.</div>
+  <p id="digits">12345 67890 000</p>
+  <p id="tail">Last paragraph at the bottom of the test page.</p>
+  <script>
+    customElements.define("x-card", class extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: "open" }).innerHTML =
+          "<style>p { margin: 0 0 8px; }</style><p id='c1'>Text inside an open web component shadow root.</p><p id='c2'>Second line of the component.</p>";
+      }
+    });
+    customElements.define("x-lock", class extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: "closed" }).innerHTML = "<p>Text inside a closed web component root here.</p>";
+      }
+    });
+    for (const src of ["/i18n-ru.js", "/src/shared.js", "/src/content.js"]) { const s = document.createElement("script"); s.src = src; s.async = false; document.body.appendChild(s); }
+  </script>
+</body>
+</html>
