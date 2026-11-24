@@ -3834,12 +3834,71 @@
     notice(HT_t("csSelFrameText"), 12000, { title: HT_t("csSelFrameTitle"), icon: "err", kind: "err", actions: [settingsAct("translator", true)] });
   }
 
-  // Пункт контекстного меню (сообщение translateSelection от background этому фрейму): перевести выделенное здесь,
-  // карточка — у места правого щелчка. msg.text — выделенный текст, как его видит Chrome.
+  // Пункт контекстного меню (сообщение translateSelection от background тому фрейму, где выделено): перевести
+  // выделенное здесь в любом режиме (клавиша или «Без клавиши», замена или карточка) — всегда карточкой у места
+  // правого щелчка. msg.text — выделенный текст, как его видит Chrome: пока открыто меню, страница могла снять
+  // выделение (своим обработчиком) — тогда переводим его, без подсветки, карточка — там же. Выделено в поле ввода или
+  // редакторе — такое пока не переводится (selFieldNote); сайт выключен — уведомление с кнопкой «Включить на этом
+  // сайте» (selSiteOffNote), по ней перевод показывается сразу. Перевод выключен везде — пункта в меню нет.
+  let selMenuAt = null;              // последний правый щелчок здесь: { x, y } в координатах окна, ours — по нашему окну
+  on(window, "contextmenu", (e) => {
+    if (e.isTrusted) selMenuAt = { x: e.clientX, y: e.clientY, ours: isOurUi(e.target) };
+  }, true);
   function selMenu(msg) {
-    if (!active() || !alive()) return;
-    const snap = selNow();
-    if (snap) selShow(snap, HT_BY_USER);
+    if (!alive() || !loaded || !settings.enabled) return;
+    if (selInInput()) { selFieldNote(); return; }
+    const at = selMenuAt;
+    let snap = at ? selNow(at.x, at.y) : selNow();
+    if (!snap) {
+      // Выделение на странице есть, но не в счёт: в редакторе — уведомление, иначе (нет буквы, в наших окнах) — молчим.
+      const sel = document.getSelection();
+      if (sel && !sel.isCollapsed) {
+        const n = sel.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+        if (el && el.isContentEditable) selFieldNote();
+        return;
+      }
+      if (at && at.ours) return;             // выделили в нашей карточке или уведомлении — это уже перевод
+      snap = selFromText(msg && msg.text, at);
+      if (!snap) return;
+    }
+    if (!siteOff) { selMenuGo(snap); return; }
+    // Кнопка уведомления включает сайт сразу, не дожидаясь ответа хранилища (перевод проверяет active()), и
+    // переводит тот же снимок.
+    selSiteOffNote(() => {
+      if (!alive() || !settings.enabled) return;
+      if (siteOff) { siteOff = false; siteChanged(); setSiteOff(false).catch(() => {}); }
+      selMenuGo(snap);
+    });
+  }
+  function selMenuGo(snap) {
+    if (snap.text.length > SEL_MAX) selTooLong(snap);
+    else selShow(snap, HT_BY_USER);
+  }
+  // Выделено в поле ввода: его выделение в document.getSelection не видно, а поле — в фокусе с выделенным внутри
+  // (у полей без selectionStart, как email, выделения не узнать — раз пункт выбран, оно там).
+  function selInInput() {
+    let a = document.activeElement;
+    while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+    if (!a || (a.localName !== "input" && a.localName !== "textarea")) return false;
+    let from = null, to = null;
+    try { from = a.selectionStart; to = a.selectionEnd; } catch (e) { /* у поля нет выделения текста */ }
+    return from == null || from !== to;
+  }
+  // Снимок из текста, присланного Chrome (выделения на странице уже нет): range — null, строка — высотой со строку
+  // текста под местом щелчка (без него — середина окна), элемент — под этим местом (шрифт карточки, тёмный ли фон).
+  function selFromText(text, at) {
+    const parts = String(text || "").split(/\n+/).map((t) => t.trim()).filter(Boolean);
+    const joined = parts.join("\n");
+    if (!hasLetter(joined)) return null;
+    const x = at ? at.x : innerWidth / 2, y = at ? at.y : innerHeight / 2;
+    const under = document.elementFromPoint(x, y);
+    const el = under && under !== document.documentElement && !isOurUi(under) ? under : document.body;
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.25;
+    const rect = new DOMRect(x, y - lh / 2, 1, lh);
+    const key = joined + "|" + Math.round(rect.left + scrollX) + "," + Math.round(rect.top + scrollY);
+    return { range: null, parts, text: joined, rects: [rect], line: 0, el, owner: pickTarget(el), key };
   }
   // Сайт выключен — уведомление с кнопкой «Включить на этом сайте» (run — включить и перевести).
   function selSiteOffNote(run) {
