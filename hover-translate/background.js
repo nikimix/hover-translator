@@ -6,7 +6,8 @@
 // Кэширует переводы: L1 (память) + L2 (storage.session) + L3 (storage.local, TTL).
 // Считает статистику расхода, ограничивает расход ключа и отвечает content-скрипту и popup.
 // Показывает на значке, что перевод выключен или не может работать; при установке открывает
-// страницу приветствия. Обрабатывает горячие клавиши (chrome.commands).
+// страницу приветствия. Обрабатывает горячие клавиши (chrome.commands) и пункт контекстного меню
+// «Перевести «…»».
 
 importScripts("shared.js"); // общие таблицы языков, движков и настроек (HT_*)
 
@@ -1190,6 +1191,74 @@ chrome.commands?.onCommand?.addListener?.(async (command, tab) => {
     toTab(tabId, { type: "translatePage", via: "command", keys: await shortcutOf("toggle-enabled") }, 0);
   }
 });
+
+// ---- пункт контекстного меню «Перевести «…»» ----
+// Один пункт у выделенного текста на обычных страницах; выбор — сообщение translateSelection тому фрейму вкладки,
+// где выделено (content.js переводит и показывает карточку у места правого щелчка). Скрипта во вкладке нет
+// (открыта до установки или обновления) — окно расширения с кнопкой «Обновить вкладку».
+const MENU_ID = "ht-translate-selection";
+function menuTitle() { return HT_t("ctxTranslate"); }   // %s Chrome заменяет выделенным текстом
+// Только обычные страницы: на служебных страницах Chrome, страницах расширений и about:blank content-скрипта нет.
+const MENU_PAGES = ["http://*/*", "https://*/*", "file:///*"];
+
+// Пункт хранится в Chrome между запусками, но создаём его заново при установке, обновлении и старте браузера:
+// так у него всегда текущее название (язык Chrome могли сменить) и видимость. Повторный create с тем же id —
+// ошибка, поэтому сначала removeAll; запуски — по очереди, чтобы два одновременных события (обновление Chrome
+// приходит и onInstalled, и onStartup) не создали пункт дважды.
+let menuJob = Promise.resolve();
+function setupMenu() {
+  menuJob = menuJob.then(async () => {
+    if (!chrome.contextMenus) return;
+    let enabled = HT_DEFAULTS.enabled;
+    try { ({ enabled } = await chrome.storage.local.get({ enabled })); } catch (e) { /* хранилище молчит — виден */ }
+    await menuCall("removeAll");
+    await menuCall("create", { id: MENU_ID, title: menuTitle(), contexts: ["selection"], documentUrlPatterns: MENU_PAGES,
+      visible: enabled !== false });
+  });
+  return menuJob;
+}
+// Вызов chrome.contextMenus с колбэком (обещания у него — только с Chrome 123): true — без ошибки.
+function menuCall(name, ...args) {
+  return new Promise((done) => {
+    try { chrome.contextMenus[name](...args, () => done(!chrome.runtime.lastError)); } catch (e) { done(false); }
+  });
+}
+chrome.runtime.onInstalled?.addListener?.(setupMenu);
+chrome.runtime.onStartup?.addListener?.(setupMenu);
+
+// Перевод выключен везде — пункта нет: он ничего бы не сделал. Пункта не оказалось (update не нашёл) — создаём.
+chrome.storage.onChanged?.addListener?.((changes, area) => {
+  if (area !== "local" || !changes.enabled || !chrome.contextMenus) return;
+  const visible = changes.enabled.newValue !== false;
+  menuJob = menuJob.then(async () => { if (!(await menuCall("update", MENU_ID, { visible }))) setupMenu(); });
+});
+
+// Выбор пункта: перевести выделенное в том фрейме, где оно сделано. Ответа нет — во вкладке не работает наш скрипт
+// (вкладку открыли до установки или обновления расширения, после обновления прежний скрипт сообщений не получает).
+chrome.contextMenus?.onClicked?.addListener?.((info, tab) => {
+  if (!info || info.menuItemId !== MENU_ID || !tab || !(tab.id >= 0)) return;
+  const frameId = Number.isInteger(info.frameId) && info.frameId >= 0 ? info.frameId : 0;
+  chrome.tabs.sendMessage(tab.id, { type: "translateSelection", text: String(info.selectionText || "") }, { frameId })
+    .catch(() => menuNoScript(tab));
+});
+// Окно расширения само покажет «Обновить вкладку». Открыть его из кода можно с Chrome 127; в более старом (или если
+// Chrome отказал) — «!» на значке этой вкладки с подсказкой. После перезагрузки вкладки Chrome сам снимает со значка
+// то, что задано для неё.
+async function menuNoScript(tab) {
+  const a = chrome.action;
+  if (!a) return;
+  try {
+    if (typeof a.openPopup !== "function") throw new Error("no openPopup");
+    await (tab.windowId != null ? a.openPopup({ windowId: tab.windowId }) : a.openPopup());
+    return;
+  } catch (e) { /* значок ниже */ }
+  if (!a.setBadgeText) return;
+  try {
+    await a.setBadgeBackgroundColor({ tabId: tab.id, color: BADGE_PROBLEM_COLOR });
+    await a.setBadgeText({ tabId: tab.id, text: "!" });
+    await a.setTitle({ tabId: tab.id, title: HT_t("badgeProblem", [HT_t("extShortName"), HT_t("ppReload")]) });
+  } catch (e) { /* вкладку закрыли */ }
+}
 
 // «Открыть настройки» (уведомление на странице, окно расширения): страница настроек во вкладке. Если она уже
 // открыта, Chrome переключает на неё. focus — к чему её прокрутить и где поставить фокус (см. options.js):

@@ -33,7 +33,7 @@
   <a class="lang" href="privacy-ru.html" hreflang="ru" lang="ru">По-русски</a>
   <h1>Privacy Policy</h1>
   <p class="meta">Hover Translator — Translate Text In Place (browser extension for Google Chrome™)<br>
-    Last updated: November 18, 2026 (version 1.0.0)</p>
+    Last updated: November 24, 2026 (version 1.1.0)</p>
 
   <div class="summary">
     <ul>
@@ -48,11 +48,12 @@
   <p>The extension’s script runs on the pages you open so it can find the text under your cursor. It translates only when you ask:</p>
   <ul>
     <li>you point at some text and press the key you chose (Shift by default, or Alt or Ctrl);</li>
+    <li>you select some text and press the same key with the cursor over it, or choose <strong>Translate “…”</strong> in the right-click menu — only the selected text is translated;</li>
     <li>you chose “No key” and rest the cursor on some text;</li>
     <li>you click “Translate page” or press its shortcut — the text on screen is translated, and the rest as you scroll to it;</li>
     <li>you change the language or the translator while translations are shown — text that is already translated is translated again with the new settings.</li>
   </ul>
-  <p>The script looks at the page only on your computer, to find the text to translate. It doesn’t record your mouse movements, key presses or the pages you visit.</p>
+  <p>The script looks at the page only on your computer, to find the text to translate. It doesn’t record your mouse movements, key presses, what you select or the pages you visit.</p>
   <p>Text that Chrome’s built-in language detection recognizes as already being in your language is skipped. The detection runs on your computer.</p>
   <p>On sites where you turned translation off (“Translate on &lt;site&gt;” in the extension window, or “Turn off on &lt;site&gt;” under ⋯ next to the floating button), the extension doesn’t translate anything, even if you click “Translate page”.</p>
 
@@ -116,6 +117,7 @@
     <li><strong>Storage</strong> — to keep settings, keys and saved translations on your computer.</li>
     <li><strong>Alarms</strong> — to remove expired saved translations on a schedule.</li>
     <li><strong>The current tab, when you click the extension icon</strong> (<code>activeTab</code>) — the extension window reads the address of the tab you are looking at, only to tell you whether translation can work there (it can’t on Chrome’s own pages and in the Chrome Web Store) or whether the tab was opened before the extension was installed and needs reloading. The address isn’t stored and isn’t sent anywhere. The extension doesn’t read other tabs, page titles or your browsing history.</li>
+    <li><strong>Context menu</strong> (<code>contextMenus</code>) — to add <strong>Translate “…”</strong> to the right-click menu when you select text. The selected text is translated like any other: by the built-in translator on your computer or by the service you chose, after your consent. Nothing else about the click is stored or sent.</li>
     <li><strong>Keyboard shortcuts</strong> — to turn translation on or off and to translate the page.</li>
   </ul>
 

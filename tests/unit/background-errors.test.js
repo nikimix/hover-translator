@@ -514,9 +514,9 @@ const ok = (name) => { pass++; console.log("  ok  " + name); };
         if (plat === "default") assert.ok(!/^Alt\+Shift\+[ABCINPRTWXZ]$/.test(k), "занято Chrome: " + k);
       }
     }
-    assert.deepStrictEqual(manifest.permissions, ["storage", "alarms", "activeTab"], "разрешения: activeTab — адрес вкладки для окна, без tabs и хостов");
+    assert.deepStrictEqual(manifest.permissions, ["storage", "alarms", "activeTab", "contextMenus"], "разрешения: activeTab — адрес вкладки для окна, contextMenus — пункт «Перевести «…»», без tabs и хостов");
     assert.deepStrictEqual(manifest.options_ui, { page: "options.html", open_in_tab: true });
-    ok("горячие клавиши: вкл/выкл пишет enabled и говорит на странице (верхний фрейм), «перевести страницу» — верхнему фрейму; manifest по правилам chrome.commands; разрешения storage, alarms, activeTab; настройки — options_ui во вкладке");
+    ok("горячие клавиши: вкл/выкл пишет enabled и говорит на странице (верхний фрейм), «перевести страницу» — верхнему фрейму; manifest по правилам chrome.commands; разрешения storage, alarms, activeTab, contextMenus; настройки — options_ui во вкладке");
   }
 
   // ---- «Открыть настройки», Esc во всех фреймах, значок выключенного сайта, noticeOnce ----

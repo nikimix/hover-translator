@@ -31,9 +31,11 @@ reasonable second choice, but translators are usually listed under Tools.
 Plain text: the store doesn’t render Markdown. Copy everything inside the block.
 
 ```text
-Hover Translator translates text right where it is. Point at a paragraph, heading, list item or table cell and press Shift: the words are replaced with their translation, while links, bold text and the layout stay as they were. Press again to see the original, or Esc to restore the whole page.
+Hover Translator translates text right where it is. Point at a paragraph, heading, list item or table cell and press Shift: the words are replaced with their translation, while links, bold text and the layout stay as they were. Press again to see the original, or Esc to undo everything.
 
 It works right after installing: no account, no sign-up, no key. By default it uses the translator built into Google Chrome™, which runs on your computer, so what you read stays private.
+
+An unfamiliar word or phrase? Select it and do the same, or use the item with the extension’s icon in the right-click menu: the translation appears in a card next to the selection, and nothing else changes.
 
 HOW TO START
 1. Install the extension. A welcome tab opens.
@@ -43,10 +45,11 @@ Tabs that were open before installing need to be reloaded.
 
 FEATURES
 • Inline translation in place, or in a card next to the text if you’d like to keep the original visible.
-• Page translator: “Translate page” handles what’s on screen first and the rest as you scroll down. Stop it at any time, then switch between Original and Translation in one click.
+• Page translator: “Translate page” handles what’s on screen first and the rest as you scroll down. Whatever the site loads later (a feed, comments, a new section without reloading) is translated as well. Stop it at any time, then switch between Original and Translation in one click.
+• Input hints and button labels: point at an empty field without clicking it and press the trigger. Tooltips and image descriptions are translated along with the rest.
 • Hover mode: just rest the cursor on a sentence, no keypress needed (links, buttons and menus are skipped). You can also choose Alt or Ctrl as the trigger.
 • A compact toolbar window for everyday actions, and a separate settings tab for the rest.
-• A floating button to switch languages without opening the settings.
+• A floating button to translate the page or switch languages without opening the settings.
 • Turn it off on a particular site, such as your email or bank.
 • A list of names and terms to keep as they are (DeepL and AI only).
 • 121 target languages; each service supports its own set.
@@ -60,7 +63,7 @@ DeepL and AI stay off until you select one, allow sending text to that service a
 The extension has no server of its own, no analytics and no ads. Its source code is open on GitHub.
 
 KEYBOARD SHORTCUTS
-• Shift (or Alt / Ctrl): translate the passage under the cursor; press again for the original
+• Shift (or Alt / Ctrl): translate the passage or selection under the cursor; press again for the original
 • Esc: show the original everywhere
 • Alt+Shift+O: turn translation on or off
 • Alt+Shift+G: translate the whole page
@@ -70,20 +73,20 @@ LIMITATIONS
 • The built-in translator needs Chrome 138 or newer on a computer and may be missing in other Chromium-based browsers. Without it, connect one of the other services with your key.
 • Extensions can’t run on the browser’s own settings pages, the Chrome Web Store and some embedded frames.
 • Blocks longer than 2,000 characters are skipped.
-• “Translate page” covers up to 500 blocks at once, and content that loads later isn’t picked up automatically: just point at it.
+• “Translate page” covers up to 500 blocks at once.
 
 Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trademarks of their respective owners. This extension is not affiliated with or endorsed by them.
 ```
 
-3363 characters. Checked against the store rules:
+3794 characters. Checked against the store rules:
 
-- no word other than “the/and/to…” appears more than 5 times (Shift, Alt, page, key, Chrome, text, translator,
-  original, own — 5 each);
+- no word other than “the/and/to…” appears more than 5 times (Shift, Alt, page, key, Chrome, text, translate,
+  translator, translation, original, own, press — 5 each);
 - the keywords appear naturally, once or twice: hover, translator, in place, inline, page translator, free, private;
 - third-party names are used only as compatibility (“uses your own OpenAI or Anthropic API key”), at most 4 brands
   (Google Chrome, DeepL, OpenAI, Anthropic), with the trademark notice at the end and “Google Chrome™” on first use;
 - no superlatives, no comparisons with other extensions, no ratings or testimonials;
-- every claim matches the code of version 1.0.0 (limits: 2,000 characters per block, 500 blocks per
+- every claim matches the code of version 1.1.0 (limits: 2,000 characters per block or selection, 500 blocks per
   “Translate page”, saved translations for 14 days, built-in translator needs Chrome 138+).
 
 ## Graphic assets

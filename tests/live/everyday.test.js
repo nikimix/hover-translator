@@ -2,7 +2,8 @@
 // встроенный переводчик (модели качаются из сети), страница по HTTP (fixtures/live.html, свой сервер lib/server.js).
 // Окно расширения — как настоящее, нажатием на значок (CDP Extensions.triggerAction, activeTab).
 // Проверяет: сочетания клавиш (Chrome назначил; страница настроек и окно их показывают); Shift и Esc на сайте;
-// карточку (под абзацем, пара языков, обводка абзаца, ✕, щелчок мимо, Esc); горячие клавиши (перевести страницу →
+// карточку (под абзацем, пара языков, обводка абзаца, ✕, щелчок мимо, Esc); перевод выделенного (Shift над выделенным
+// словом — карточка под строкой, сообщение пункта меню); горячие клавиши (перевести страницу →
 // «Страница переведена» + «Показать оригинал», повторно — оригинал; вкл/выкл → «off» на значке и уведомления);
 // перевод страницы из окна: «Перевожу… N из M» по видимым абзацам, «Стоп» без отката,
 // «Переведено N абзацев · Показать оригинал», сегмент «Оригинал | Перевод» без повторных запросов, смена языка на
@@ -170,6 +171,37 @@ async function shortcutsFresh(srvBase) {
     await esc();
     await store({ displayMode: "replace", showLangBadge: true }); await sleep(200);
     ok("карточка вживую: под абзацем, пара «" + pairEnRu + "» (без неё, когда выключено в настройках), абзац обведён 2 px и не тронут; ✕ (настоящий щелчок), щелчок мимо и Esc закрывают, обводка снимается");
+
+    // ---- перевод выделенного: Shift над выделенным словом и сообщение пункта меню ----
+    {
+      const wb = await web.ev(`(() => { const n = document.querySelector('#p1').firstChild, i = n.nodeValue.indexOf('brown');
+        const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 5); const q = r.getBoundingClientRect();
+        return { x: Math.round(q.left + q.width / 2), y: Math.round(q.top + q.height / 2), b: q.bottom }; })()`);
+      await web.mouse("mouseMoved", wb.x - 2, wb.y); await sleep(40); await web.mouse("mouseMoved", wb.x, wb.y); await sleep(40);
+      for (const clickCount of [1, 2]) {
+        await web.mouse("mousePressed", wb.x, wb.y, { button: "left", buttons: 1, clickCount });
+        await web.mouse("mouseReleased", wb.x, wb.y, { button: "left", buttons: 0, clickCount });
+      }
+      await sleep(150);
+      assert.strictEqual(await web.ev("String(getSelection())"), "brown", "двойной щелчок выделил слово");
+      await tapShift();
+      const sc = await until(async () => { const x = await cardBox(); return x && x.texts.some((t) => /[а-яё]{3}/i.test(t) && !t.includes("→")) ? x : null; }, 15000);
+      assert.ok(sc, "карточка с переводом выделенного: " + JSON.stringify(await cardBox()));
+      assert.ok(sc.top >= wb.b && sc.top - wb.b < 24, "карточка под строкой слова: " + JSON.stringify(sc) + " / " + wb.b);
+      assert.ok(!(await ru("#p1")), "абзац не заменён (режим замены)");
+      assert.strictEqual(await web.ev("String(getSelection())"), "brown", "выделение на месте");
+      await web.shot("live-selection.png", { clip: { x: 0, y: 0, width: 720, height: 260, scale: 1 } });
+      await esc();
+      assert.strictEqual(await cardBox(), null, "Esc закрыл карточку выделенного");
+      // Пункт меню: разрешение есть, а сообщение, которое шлёт его обработчик, переводит выделенное в этой вкладке.
+      assert.strictEqual(await sw.ev("chrome.permissions.contains({ permissions: ['contextMenus'] })"), true, "разрешение contextMenus");
+      await sw.ev(`chrome.tabs.sendMessage(${webTabId}, { type: "translateSelection", text: "brown" }, { frameId: 0 }).then(() => true)`);
+      const mc = await until(async () => { const x = await cardBox(); return x && x.texts.some((t) => /[а-яё]{3}/i.test(t) && !t.includes("→")) ? x : null; }, 15000);
+      assert.ok(mc, "карточка по сообщению пункта меню");
+      await esc();
+      await web.click(900, 700); await sleep(150);
+      ok("перевод выделенного вживую: двойной щелчок по слову и Shift — карточка с переводом встроенного под строкой слова, абзац и выделение на месте, Esc закрывает; разрешение contextMenus есть, сообщение пункта меню переводит выделенное карточкой");
+    }
 
     // ---- горячие клавиши (путь chrome.commands.onCommand) ----
     await away();

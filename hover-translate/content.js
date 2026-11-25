@@ -36,6 +36,10 @@
   // расходились — именно на этом и держалась «осиротевшая карточка» (владельца убрали из Set,
   // а узел и запись состояния остались).
   const popovers = new Map();
+  // Ключ карточки выделенного в popovers (см. «перевод выделенного»): не элемент страницы — она не занимает блок, где
+  // начинается выделение (его по-прежнему можно перевести наведением и клавишей), а её запись хранит снимок (st.snap).
+  const SEL_POP = Object.freeze({ sel: true });
+  let selPressIn = false;             // последнее нажатие кнопки мыши — в карточке выделенного (выделяют её текст)
   // owner -> таймер снятия красной подсветки ошибки. Сам текст ошибки на элемент страницы не
   // пишем (в title его прочитал бы скрипт сайта) — он только в нашем уведомлении в shadow root.
   const errors = new WeakMap();
@@ -805,6 +809,7 @@
     cursorIn = false; framesSeen = true;
     hoverEl = null; lastOverTarget = null; clearTimeout(dwellTimer); dwellFor = null;
     hoverLost = true;
+    selByKeys = false;                  // мышь двигалась (см. «перевод выделенного»)
     for (const d of upWait) if (!(at > d.up)) d.away = true;   // пришёл туда раньше отпускания здесь
   }
   // Сообщение hoverFrame идёт через background и может опоздать (воркер просыпается, машина занята): курсор уже во
@@ -847,25 +852,29 @@
     }
     return false;
   }
-  function upHere(p) {
+  // run — что сделать здесь: перевести блок под курсором (toggle) или выделенное (selGo).
+  function upHere(p, run) {
     const wait = moveAt + FRAME_LAG - Date.now();
-    if (wait <= 0 || !frameNear()) { toggle(p.el); return; }
-    upWait.push({ el: p.el, at: p.at, up: Date.now(), away: false });
+    if (wait <= 0 || !frameNear()) { run(); return; }
+    upWait.push({ run, at: p.at, up: Date.now(), away: false });
     // по порядку: срок у следующего отпускания не раньше, чем у прежнего (moveAt только растёт)
     setTimeout(() => {
       const d = upWait.shift();
       if (!d || dead || !active() || settings.trigger === "dwell") return;
       if (d.away) send({ type: "frameKey", at: d.at }).catch(() => {});
-      else toggle(d.el);
+      else d.run();
     }, wait);
   }
-  // Клавишу-триггер отпустили в другом фрейме вкладки, а курсор над текстом здесь. at — когда её нажали: курсор с тех
-  // пор сменил элемент (нажали над одним, отпустили над другим) или модификатор крутил колесо — нажатие не «чистое»,
-  // как hoverEl !== p.el и modBusy в keyup. Поле ввода проверил фрейм с фокусом: клавиши шли в него.
+  // Клавишу-триггер отпустили в другом фрейме вкладки, а курсор здесь — над текстом или над выделением этого фрейма
+  // (selHit: выделение здесь остаётся и тогда, когда фокус ушёл щелчком в другой фрейм). at — когда её нажали: курсор
+  // с тех пор сменил элемент (нажали над одним, отпустили над другим) или модификатор крутил колесо — нажатие не
+  // «чистое», как hoverEl !== p.el и modBusy в keyup. Поле ввода проверил фрейм с фокусом: клавиши шли в него.
   function frameKey(at) {
     if (!active() || settings.trigger === "dwell" || !alive()) return;
-    if (!cursorIn || !hoverEl || !(at > 0) || hoverAt > at || modWheelUntil > at) return;
-    toggle(hoverEl);
+    if (!cursorIn || !(at > 0) || hoverAt > at || modWheelUntil > at) return;
+    const hit = selHit();
+    if (hit) selGo(hit);
+    else if (hoverEl) toggle(hoverEl);
   }
 
   // Запустить/снять перевод owner-а под курсором (по клавише-триггеру). Чистое нажатие-отпускание настоящей клавиши —
@@ -1218,14 +1227,17 @@
   //   • модели нет на компьютере — щелчок запускает загрузку, она нужна один раз для всех сайтов;
   //   • пара с языком не из языков браузера — на каждом новом сайте (см. hiddenLang);
   //   • детектор языка первые секунды после запуска Chrome тоже отвечает «downloadable», хотя модель есть.
-  // Возвращает неудачу с готовым уведомлением (note): заголовок, строка и пустая полоса загрузки.
+  // Возвращает неудачу с готовым уведомлением (note): заголовок, строка и пустая полоса загрузки, — и с тем, что
+  // нужно (need: state, пара src/tgt — пустая у детектора, hidden — язык не из языков браузера): у выделенного
+  // щелчок по тексту снял бы выделение, поэтому там своё уведомление с кнопкой (см. selFail).
   function needDownload(state, src, tgt) {
     const key = src ? src + ">" + tgt : "detector";
-    const fail = (note) => ({ ok: false, kind: "download", key, error: note.text, note });
+    const hidden = src ? hiddenLang(src, tgt) : "";
+    const need = { state, src: src || "", tgt: tgt || "", hidden };
+    const fail = (note) => ({ ok: false, kind: "download", key, error: note.text, note, need });
     if (state === "downloading") {
       return fail({ title: HT_t("csDlWaitTitle"), text: HT_t("csDlWaitText", src ? pairText(src, tgt) : HT_t("dlDetectorName")), progress: "indet" });
     }
-    const hidden = src ? hiddenLang(src, tgt) : "";
     const text = hidden ? HT_t("csClickSite", HT_langLabel(hidden)) : HT_t(src ? "csClickPair" : "csClickDetector");
     return fail({ title: HT_t("csClickTitle"), icon: "pointer", text, progress: "empty" });
   }
@@ -1323,9 +1335,11 @@
   // Блок определяем один раз по всему его тексту; свой язык узла — только если по блоку не определился.
   // Короткий блок (пункт меню, кнопка, подпись) — язык страницы (см. langOf).
   // opts.defer — см. chromeTranslate: куски, чья модель качается, приходят с wait и ждут её у вызывающего.
+  // opts.lang — обещание detectLang для всех кусков сразу (выделенное: язык по всему выделению, см. selLangOf).
   async function localResults(texts, primary, lines, opts) {
     const blocks = new Map();
     const blockLang = (i) => {
+      if (opts && opts.lang) return opts.lang;
       const line = lines && lines[i];
       if (!line || !line.nodes) return null;
       if (!blocks.has(line)) blocks.set(line, langOf(lineText(line), !(opts && opts.quiet)));
@@ -1344,7 +1358,7 @@
     const real = results.filter((r) => !(r && (r.bare || r.skip)));
     if (!real.length || real.some((r) => r && r.ok)) return { results };
     const dl = results.find((r) => r && r.kind === "download");
-    if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key, note: dl.note };
+    if (dl) return { results: null, error: dl.error, kind: "download", key: dl.key, note: dl.note, need: dl.need };
     if (primary && primary.code !== "no-key" && primary.code !== "no-consent") return Object.assign({ results: null }, primary);
     return Object.assign({ results: null }, failOf(results.find((r) => r && r.error)));
   }
@@ -1700,6 +1714,13 @@
       margin-top: 4px; padding-right: 8px; max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain;
       overflow-wrap: anywhere;
     }
+    /* карточка выделенного: куски перевода — абзацами через пустую строку, как в выделенном */
+    .c-sel .c-text > p + p { margin-top: 1lh; }
+    /* только для экранного диктора: живая область с переводом */
+    .sr {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap;
+    }
 
     /* плавающая кнопка: кружок 44 у края окна, над ним (или под ним) капсула с кнопками. Цвета — по фону сайта, как у
        уведомлений: светлый — белое и рамка #c9ced5, тёмный (.dk) — #2a2d33 и рамка rgba(255,255,255,.4); акцент — #2563eb
@@ -1898,8 +1919,36 @@
     return { host, root };
   }
 
-  // Смонтировать наше окно на страницу.
-  function mountUi(node) { (document.body || document.documentElement).appendChild(node); }
+  // Смонтировать наше окно на страницу. near — элемент, у которого окно показано (карточка выделенного). Если он в
+  // верхнем слое (модальное <dialog> через showModal, всплывающее окно popover, полноэкранный элемент), окно в <body>
+  // легло бы под этот слой, а у модального окна сайта ещё и стало бы inert: не нажать кнопку, не выделить текст. Тогда
+  // хост кладём в сам этот элемент и показываем как popover="manual": он уходит в верхний слой поверх окна сайта и
+  // остаётся его потомком (не inert), а координаты у верхнего слоя — от окна браузера, даже если у окна сайта transform.
+  function mountUi(node, near) {
+    const top = near && topLayerOf(near);
+    if (!top) { (document.body || document.documentElement).appendChild(node); return; }
+    // Умолчания [popover] (inset: 0, overflow: auto, фон Canvas) растянули бы хост на всё окно и срезали хвостик.
+    // Сторону, от которой хост уже поставлен (уведомление — от правого края), не трогаем.
+    for (const [k, v] of [["right", "auto"], ["bottom", "auto"], ["left", "auto"], ["top", "auto"], ["overflow", "visible"], ["background", "transparent"]]) {
+      if (!node.style.getPropertyValue(k)) node.style.setProperty(k, v, "important");
+    }
+    node.setAttribute("popover", "manual");
+    top.appendChild(node);
+    try { node.showPopover(); } catch (e) { /* уже показан или Chrome без popover — останется на месте в окне сайта */ }
+  }
+  // Открытое модальное окно сайта (<dialog> через showModal) — верхнее из открытых — или null.
+  function siteModal() {
+    try { const all = document.querySelectorAll(":modal"); return all.length ? all[all.length - 1] : null; } catch (e) { return null; }
+  }
+  // Ближайший к el (или сам el) элемент в верхнем слое страницы или null. Идём по дереву отрисовки: через слот
+  // компонента (текст из light DOM, показанный в его <dialog>) и через границу shadow root.
+  const TOP_LAYER = ":modal, :popover-open, :fullscreen";
+  function topLayerOf(el) {
+    for (let n = el; n && n.nodeType === 1; n = n.assignedSlot || n.parentElement || (n.parentNode && n.parentNode.host) || null) {
+      try { if (n.matches(TOP_LAYER)) return n; } catch (e) { return null; }
+    }
+    return null;
+  }
 
   // Слои: карточка < плавающая кнопка с кнопками < уведомление. Раньше панель и тост стояли на 2147483647, а
   // карточка — на 2147483646, поэтому карточка накрывала панель смены языка.
@@ -1946,6 +1995,7 @@
     undo: ["M9 14 4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"],
     more: [{ circle: { cx: 12, cy: 12, r: 1 } }, { circle: { cx: 19, cy: 12, r: 1 } }, { circle: { cx: 5, cy: 12, r: 1 } }],
     search: [{ circle: { cx: 11, cy: 11, r: 8 } }, "m21 21-4.3-4.3"],
+    info: [{ circle: { cx: 12, cy: 12, r: 10 } }, "M12 16v-4", "M12 8h.01"],
   };
   function svgEl(tag, attrs) {
     const e = document.createElementNS(SVG_NS, tag);
@@ -1999,13 +2049,14 @@
     popPending = false;
     for (const [owner, st] of Array.from(popovers)) {
       if (!st.node) continue;               // перевод ещё идёт — карточки пока нет
+      if (st.snap) { selReposition(st); continue; }   // карточка выделенного: якорь — строка выделения
       if (owner.isConnected) {
         const r = owner.getBoundingClientRect();
         if (st.anchor && (Math.abs(r.top - st.anchor.top) > popScrollLimit() || Math.abs(r.left - st.anchor.left) > popScrollLimit())) {
           removePopover(owner, st.node);
           continue;
         }
-        positionPopover(st, owner);
+        positionPopover(st, r);
         continue;
       }
       // Владелец отвалился (SPA перерисовала DOM) — снимаем и САМ узел карточки. Раньше здесь
@@ -2035,23 +2086,29 @@
   // Под абзацем: над ним карточка закрывала бы строку, которую только что прочитали. Над абзацем —
   // только если снизу не помещается, а если не помещается нигде — где места больше, в пределах окна.
   // POP_GAP — от края абзаца до карточки: обводка (отступ 6 + 2) и хвостик.
+  // Карточка выделенного (st.snap) встаёт так же, но у строки выделения r (под курсором), а над — над ru, верхней
+  // видимой строкой выделения, чтобы не закрыть выделенное выше якоря. Обводки нет — только хвостик (SEL_GAP); текст
+  // карточки — под началом строки (у текста отступ 16), хвостик — к середине строки.
   const POP_GAP = 22;
-  function positionPopover(st, el) {
-    const node = st.node, card = st.card;
-    const r = el.getBoundingClientRect();
+  const SEL_GAP = 10;
+  function positionPopover(st, r, ru) {
+    const node = st.node, card = st.card, sel = !!st.snap;
+    ru = ru || r;
     const vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight;
     const w = node.offsetWidth, hgt = node.offsetHeight;
-    const below = vh - r.bottom - POP_GAP - 8, above = r.top - POP_GAP - 8;
+    const gap = sel ? SEL_GAP : POP_GAP;
+    const below = vh - r.bottom - gap - 8, above = ru.top - gap - 8;
     const up = !(hgt <= below || below >= above);
-    let top = up ? r.top - POP_GAP - hgt : r.bottom + POP_GAP;
+    const a = up ? ru : r;
+    let top = up ? a.top - gap - hgt : a.bottom + gap;
     const clamped = Math.max(8, Math.min(top, vh - hgt - 8));
-    const left = Math.max(8, Math.min(r.left, vw - w - 8));
+    const left = Math.max(8, Math.min(sel ? a.left - 16 : a.left, vw - w - 8));
     node.style.setProperty("left", left + "px", "important");
     node.style.setProperty("top", clamped + "px", "important");
     // Хвостик смотрит на абзац; карточку пришлось прижать к краю окна и она легла на абзац — без хвостика.
     card.classList.toggle("up", up);
     card.classList.toggle("flat", Math.abs(clamped - top) > 4);
-    const caret = Math.max(16, Math.min(r.left - left + 28, w - 28));
+    const caret = Math.max(16, Math.min(sel ? a.left + a.width / 2 - 6 - left : a.left - left + 28, w - 28));
     st.caret.style.setProperty("left", Math.round(caret) + "px");
   }
 
@@ -2113,7 +2170,7 @@
     mountUi(host);
     Object.assign(st, { node: host, card, caret, anchor: { top: r.top, left: r.left }, ring: ringOn(owner, dark) });
     ensurePopScroll();
-    positionPopover(st, owner);
+    positionPopover(st, owner.getBoundingClientRect());
   }
 
   // Копировать перевод: Clipboard API (нужен защищённый адрес), иначе — выделением в своём поле.
@@ -2123,7 +2180,10 @@
       btn.title = HT_t("csCopied");
       setTimeout(() => { btn.replaceChildren(icon("copy", 16)); btn.title = HT_t("csCopy"); }, 1500);
     };
+    // Выделение у страницы одно на весь документ: ta.select() забирает его в наше поле, и выделенный человеком текст
+    // (он только что переведён и ещё нужен) пропадал бы. Запоминаем его до копирования и возвращаем после.
     const legacy = () => {
+      const keep = pageSelKeep();
       const root = btn.getRootNode();
       const ta = h("textarea", { "aria-hidden": "true", style: "position:fixed;left:-9999px;top:0;opacity:0" });
       ta.value = value;
@@ -2133,11 +2193,45 @@
       try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
       ta.remove();
       btn.focus();
+      if (keep) keep();
       if (ok) done();
     };
     if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(value).then(done, legacy);
     else legacy();
   }
+
+  // Запомнить выделение страницы → функция, которая его вернёт, или null — возвращать нечего (выделения нет или оно в
+  // наших окнах). Концы — по getComposedRanges: getRangeAt в Chrome сводит выделение внутри shadow root к точке у
+  // хоста (и isCollapsed там true — смотрим type), а настоящие концы отдаёт только для названных root, — открытые root
+  // находим от концов вглубь (у закрытых, в том числе наших, shadowRoot снаружи — null). Направление (выделяли справа
+  // налево) сохраняется.
+  function pageSelKeep() {
+    const sel = document.getSelection();
+    if (!sel || sel.type !== "Range" || !sel.rangeCount || typeof sel.getComposedRanges !== "function") return null;
+    const roots = [];
+    let r = null;
+    for (let depth = 0; depth < 8; depth++) {
+      r = sel.getComposedRanges({ shadowRoots: roots })[0];
+      if (!r) return null;
+      // Конец, сведённый к хосту, — это (родитель, номер хоста) или (родитель, номер хоста + 1).
+      const kids = [[r.startContainer, r.startOffset], [r.endContainer, r.endOffset]]
+        .flatMap(([n, o]) => [n.childNodes[o], n.childNodes[o - 1]]).filter((k) => k && k.nodeType === 1);
+      if (kids.some(isOurUi)) return null;
+      const more = kids.map((k) => k.shadowRoot).filter((x) => x && !roots.includes(x));
+      if (!more.length) break;
+      roots.push(...more);
+    }
+    const back = sel.direction === "backward";
+    const { startContainer: sn, startOffset: so, endContainer: en, endOffset: eo } = r;
+    return () => {
+      try {
+        if (back) sel.setBaseAndExtent(en, eo, sn, so); else sel.setBaseAndExtent(sn, so, en, eo);
+      } catch (e) { /* узлы выделения страница уже убрала — возвращать некуда */ }
+    };
+  }
+
+  // Владелец карточки ещё на странице: у карточки выделенного — элемент, где начинается выделение.
+  function popAlive(owner, st) { return st && st.snap ? st.snap.el.isConnected : owner.isConnected; }
 
   function removePopover(owner, node) {
     const st = popovers.get(owner);
@@ -2147,6 +2241,7 @@
     if (!node || !st || st.node === node) {
       popovers.delete(owner);
       if (st && st.ring) { restoreStyle(owner, st.ring); st.ring = null; }
+      if (st && st.snap) selPulse(st.snap, false);   // закрыли, пока шёл перевод выделенного, — подсветку снять сразу
     }
     if (popCloseOwner === owner) popCloseCancel();
   }
@@ -2357,6 +2452,18 @@
     @keyframes ht-pulse-still {
       to { background-color: var(--ht-ld); box-shadow: 0 0 0 3px var(--ht-ld); }
     }
+    ::highlight(ht-sel-0), ::highlight(ht-sel-1), ::highlight(ht-sel-2) {
+      background-color: rgba(37, 99, 235, 0.30);
+    }
+    ::highlight(ht-sel-0) { text-decoration: line-through 1.2em rgba(255, 255, 255, 0.35); }
+    ::highlight(ht-sel-1) { text-decoration: line-through 1.2em rgba(255, 255, 255, 0.22); }
+    ::highlight(ht-sel-2) { text-decoration: line-through 1.2em rgba(255, 255, 255, 0.10); }
+    ::highlight(ht-sel-dark-0), ::highlight(ht-sel-dark-1), ::highlight(ht-sel-dark-2) {
+      background-color: rgba(120, 160, 255, 0.28);
+    }
+    ::highlight(ht-sel-dark-0) { text-decoration: line-through 1.2em rgba(120, 160, 255, 0.50); }
+    ::highlight(ht-sel-dark-1) { text-decoration: line-through 1.2em rgba(120, 160, 255, 0.35); }
+    ::highlight(ht-sel-dark-2) { text-decoration: line-through 1.2em rgba(120, 160, 255, 0.20); }
     .ht-error {
       background-color: rgba(215, 40, 40, 0.1) !important;
       box-shadow: 0 0 0 3px rgba(215, 40, 40, 0.1) !important;
@@ -2452,6 +2559,7 @@
   // «Стоп» и возврат оригинала: у отменённых переводов пульс снимаем сразу, а не когда придёт (и будет
   // отброшен) ответ — на медленной сети это до тайм-аута сервиса. pageOnly — только перевод страницы.
   function loadingOffCancelled(pageOnly) {
+    if (!pageOnly) selPulse(null, false);
     for (const el of pageAll(".ht-loading")) {
       const line = lineByOwner.get(el);
       if (!pageOnly || (line && line.page)) loadingOff(el);
@@ -2617,7 +2725,7 @@
   const sweepTimer = setInterval(() => {
     for (const line of Array.from(lines)) if (!line.owner.isConnected) restoreLine(line);
     restoreAttrs(true);
-    for (const owner of Array.from(popovers.keys())) if (!owner.isConnected) removePopover(owner);
+    for (const [owner, st] of Array.from(popovers)) if (!popAlive(owner, st)) removePopover(owner);
     for (const root of pageRoots) if (!root.isConnected) pageRoots.delete(root);   // root ушедших компонентов
   }, 30000);
 
@@ -3671,6 +3779,708 @@
     }
   }
 
+  // ---- перевод выделенного ----
+  // Выделили текст и чисто нажали клавишу-триггер с курсором над выделением (или выбрали пункт контекстного меню) —
+  // перевод выделенного всегда в карточке у выделения, в обоих способах показа: оригинал и выделение остаются на
+  // месте. Курсор не над выделением — клавиша переводит блок под курсором, как без выделения.
+  // Путь: selNow (снимок выделения) → selKey (клавиша) или selMenu (пункт меню) → selShow (перевод и карточка);
+  // нужна загрузка встроенного переводчика — selFail (отрывок запоминается, кнопка в уведомлении переводит его).
+  //
+  // Снимок выделения — selNow(x, y); null — выделения нет или оно не в счёт (нет буквы, в поле ввода или редакторе,
+  // целиком в наших окнах). x, y — точка в координатах окна (курсор или место правого щелчка), можно без неё:
+  //   range — Range выделения (в открытом shadow root — тоже Range, собранный по getComposedRanges);
+  //   parts — видимый текст по абзацам, без пустых (без текста для экранных дикторов и подсказок чтения <rt>):
+  //           каждый — отдельный кусок перевода, карточка показывает переводы через перевод строки;
+  //   text  — parts.join("\n"): длина (SEL_MAX) и язык;
+  //   rects — прямоугольники строк выделения в координатах окна, без пустых, по строкам;
+  //   line  — номер в rects строки у точки (x, y) или ближайшей к ней; −1 — точки нет (тогда — последняя строка);
+  //   el    — элемент, где начинается выделение: шрифт карточки и тёмный ли фон;
+  //   owner — блок, где начинается выделение (pickTarget), или null: язык короткого отрывка;
+  //   key   — отпечаток выделения: то же ли оно (повторное нажатие закрывает карточку, иное — переводит заново).
+  // Прямоугольники снимка устаревают при прокрутке: карточка берёт их заново из range.
+  const SEL_MAX = 2000;               // знаков выделенного в одном переводе (как блок под курсором)
+  const SEL_NEAR = 8;                 // запас вокруг строк выделения, в котором курсор считается над ним
+
+  // Снимок выделения этого фрейма или null (см. выше).
+  // Выделенное в поле ввода (input, textarea) в document.getSelection не видно вовсе, а в редакторе (contenteditable,
+  // designMode) — видно, но это текст человека, а не сайта: фокус в поле или редакторе, конец выделения в редакторе —
+  // не в счёт. Текст берём не из sel.toString(): тот отдаёт и текст для экранных дикторов, и подсказки чтения <rt>,
+  // и даже текст из закрытых shadow root (в том числе наших окон), а переносы у него — свои.
+  function selNow(x, y) {
+    const sel = document.getSelection();
+    if (!sel || !sel.rangeCount || typingFocus() || document.designMode === "on") return null;
+    const got = selRange(sel);
+    if (!got || selEditable(got.sc) || selEditable(got.ec)) return null;
+    const { parts, el } = selText(got);
+    const text = parts.join("\n");
+    if (!el || !hasLetter(text)) return null;
+    const range = got.range;
+    const rects = selLines(range);
+    if (!rects.length) return null;
+    const line = x == null || y == null ? -1 : selLineAt(rects, x, y);
+    const key = text + "|" + Math.round(rects[0].left + scrollX) + "," + Math.round(rects[0].top + scrollY);
+    return { range, parts, text, rects, line, el, owner: pickTarget(el), key };
+  }
+
+  // Концы выделения { sc, so, ec, eo } и Range для снимка — или null (выделения нет).
+  // В Chrome выделение внутри shadow root снаружи выглядит схлопнутым у хоста (isCollapsed, getRangeAt(0) — пустой
+  // диапазон перед ним), а sel.toString() при этом отдаёт текст. Настоящие концы даёт getComposedRanges (Chrome 137+),
+  // и только в тех открытых root, что ему назвали: без них конец поднимается к хосту (до него — начало, после — конец).
+  // Поэтому root называем по одному: конец стоит у хоста с открытым root — добавляем его root и спрашиваем снова
+  // (компонент в компоненте — ещё раз). Закрытые root (сайта и наши) не назвать: выделение в них — пустой диапазон
+  // вокруг хоста, текста в нём нет (selText), и снимка нет. До Chrome 137 выделение в компоненте — пустое.
+  function selRange(sel) {
+    if (!sel.getComposedRanges) {
+      if (sel.isCollapsed) return null;
+      const r = sel.getRangeAt(0);
+      return { sc: r.startContainer, so: r.startOffset, ec: r.endContainer, eo: r.endOffset, range: r.cloneRange() };
+    }
+    let roots = [], r = null;
+    for (let i = 0; i < 16; i++) {
+      try { r = sel.getComposedRanges({ shadowRoots: roots })[0]; } catch (e) { return null; }
+      if (!r) return null;
+      const more = [r.startContainer.childNodes[r.startOffset], r.endContainer.childNodes[r.endOffset - 1]]
+        .map((n) => n && n.nodeType === 1 && !isOurUi(n) && n.shadowRoot).filter((s) => s && !roots.includes(s));
+      if (!more.length) break;
+      roots = roots.concat(more);
+    }
+    if (r.collapsed) return null;
+    const got = { sc: r.startContainer, so: r.startOffset, ec: r.endContainer, eo: r.endOffset };
+    // Range живёт в одном дереве: концы в разных (из компонента на страницу) он схлопнул бы. Для строк и подсветки
+    // поднимаем конец из глубокого дерева к его хосту в общем дереве — строки тогда берут компонент целиком.
+    let { sc, so, ec, eo } = got;
+    const trees = (n) => { const out = []; for (let t = n.getRootNode(); t; t = t.host ? t.host.getRootNode() : null) out.push(t); return out; };
+    const common = trees(sc).find((t) => trees(ec).includes(t));
+    if (!common) return null;
+    const at = (h) => Array.prototype.indexOf.call(h.parentNode.childNodes, h);
+    while (sc.getRootNode() !== common) { const h = sc.getRootNode().host; so = at(h); sc = h.parentNode; }
+    while (ec.getRootNode() !== common) { const h = ec.getRootNode().host; eo = at(h) + 1; ec = h.parentNode; }
+    try {
+      got.range = document.createRange();
+      got.range.setStart(sc, so);
+      got.range.setEnd(ec, eo);
+    } catch (e) { return null; }
+    return got;
+  }
+
+  // Конец выделения в редакторе (contenteditable): его текст пишет человек.
+  function selEditable(n) {
+    const el = n.nodeType === 1 ? n : n.nodeType === 11 ? n.host : n.parentElement;
+    return !!el && el.isContentEditable;
+  }
+
+  // Плоское дерево — как его рисует Chrome: у хоста с открытым root — содержимое root (light DOM показан через
+  // <slot>), у <slot> — назначенные ему узлы (или его запасное содержимое). Наши окна — пусто.
+  function selKids(n) {
+    if (n.nodeType !== 1) return n.childNodes;
+    if (isOurUi(n)) return [];
+    if (n.shadowRoot) return n.shadowRoot.childNodes;
+    if (n.tagName === "SLOT" && n.getRootNode() instanceof ShadowRoot) {
+      const a = n.assignedNodes();
+      if (a.length) return a;
+    }
+    return n.childNodes;
+  }
+  // Родитель в плоском дереве (элемент): слот, куда узел назначен, или хост для верхнего уровня root.
+  function selUp(n) {
+    if (n.assignedSlot) return n.assignedSlot;
+    const p = n.parentNode;
+    return p && p.nodeType === 11 ? p.host || null : p && p.nodeType === 1 ? p : null;
+  }
+
+  // Видимый текст между концами выделения по абзацам → { parts, el } (el — элемент первого видимого текста).
+  // Обход плоского дерева от общего предка концов: так концы могут лежать в разных деревьях, а компонент с открытым
+  // root посреди выделения отдаёт свой текст. Состояние: 0 — до начала, 1 — внутри, 2 — после конца. Невидимое
+  // обходим тоже (конец выделения бывает и в <rt>), но текст его не берём.
+  // Абзацы — как на экране: граница блока (вычисленный display, а не тег: <span> во flex-строке — блок, <div>
+  // с display: inline — нет), <br>, перевод строки там, где пробелы не схлопываются (white-space: pre…).
+  function selText({ sc, so, ec, eo }) {
+    const chain = new Set();
+    for (let n = sc; n; n = n.nodeType === 11 ? n.host : selUp(n)) chain.add(n);
+    let root = ec;
+    while (root && !chain.has(root)) root = root.nodeType === 11 ? root.host : selUp(root);
+    if (!root) return { parts: [], el: null };
+    if (root.nodeType === 11) root = root.host;
+    const kid = (c, o) => (c.nodeType === 3 ? null : c.childNodes[o] || null);
+    const host = (c) => (c.nodeType === 11 ? c.host : c);
+    const sAt = kid(sc, so), eAt = kid(ec, eo);
+    const sAfter = sc.nodeType !== 3 && !sAt ? host(sc) : null;
+    const eAfter = ec.nodeType !== 3 && !eAt ? host(ec) : null;
+    const memo = { quiet: new Map(), vis: new Map() };
+    const parts = [""];
+    let state = 0, el = null;
+    const cut = () => { if (state === 1 && parts[parts.length - 1]) parts.push(""); };
+    const add = (s) => { parts[parts.length - 1] += s; };
+    const walk = (n) => {
+      if (state === 2) return;
+      if (n === eAt) { state = 2; return; }
+      if (n === sAt) state = 1;
+      if (n.nodeType === 3) {
+        if (n === sc) state = 1;
+        if (state !== 1) return;
+        const s = n.nodeValue.slice(n === sc ? so : 0, n === ec ? eo : undefined);
+        const p = selUp(n);
+        if (s && p && selShown(p, memo)) {
+          if (!el && s.trim()) el = n.parentElement || p;   // назначенный слоту текст — у своего родителя, а не у <slot>
+          if (selPre(p)) s.split("\n").forEach((line, i) => { if (i) cut(); add(line); });
+          else add(s);
+        }
+        if (n === ec) state = 2;
+        return;
+      }
+      if (n.nodeType !== 1) return;
+      if (n.tagName === "BR") { if (state === 1 && selShown(n, memo)) cut(); return; }
+      // Строчные (inline, inline-block…), display: contents и ruby строку не рвут; скрытый блок — тоже.
+      let is = null;   // блок ли — считаем раз, при входе или при выходе
+      const block = () => {
+        if (state !== 1) return false;
+        if (is === null) is = selShown(n, memo) && !/^(inline|contents|ruby|none)/.test(getComputedStyle(n).display);
+        return is;
+      };
+      if (block()) cut();
+      for (const k of Array.from(selKids(n))) walk(k);
+      if (block()) cut();
+      if (n === sAfter && state === 0) state = 1;
+      if (n === eAfter) state = 2;
+    };
+    walk(root);
+    return { parts: parts.map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean), el };
+  }
+
+  // Видим ли текст элемента (с его предками в плоском дереве): не скрыт (display, visibility, нулевая прозрачность),
+  // не подсказка чтения над иероглифами (<rt>, <rp>), не текст только для экранных дикторов, не наше окно.
+  const SEL_QUIET = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|TEXTAREA|SELECT|OPTION|DATALIST|RT|RP|TITLE|DESC)$/i;
+  function selShown(el, memo) { return !selQuiet(el, memo) && selVisible(el, memo); }
+  function selQuiet(el, memo) {
+    if (!el || el.nodeType !== 1) return false;
+    let v = memo.quiet.get(el);
+    if (v === undefined) {
+      v = SEL_QUIET.test(el.tagName) || isOurUi(el) || srOnly(el) || selQuiet(selUp(el), memo);
+      memo.quiet.set(el, v);
+    }
+    return v;
+  }
+  // checkVisibility смотрит и предков, но у display: contents (<slot>, обёртки) своей коробки нет, и он всегда
+  // «не видим» — такой элемент видим, если видим его родитель и сам он не visibility: hidden.
+  function selVisible(el, memo) {
+    let v = memo.vis.get(el);
+    if (v !== undefined) return v;
+    const cs = getComputedStyle(el);
+    if (cs.display === "contents") {
+      const up = selUp(el);
+      v = cs.visibility === "visible" && (!up || selVisible(up, memo));
+    } else if (el.checkVisibility) {
+      v = el.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+    } else {
+      v = cs.visibility === "visible" && el.getClientRects().length > 0;
+    }
+    memo.vis.set(el, v);
+    return v;
+  }
+  // Текст только для экранных дикторов: на экране его нет, а в выделение он попадает. Типичные приёмы (.sr-only,
+  // .visually-hidden): обрезка clip: rect(0 0 0 0) или clip-path: inset(50%), коробка 1×1 px с overflow: hidden,
+  // вынос за левый или верхний край страницы (left: -10000px).
+  function srOnly(el) {
+    const cs = getComputedStyle(el);
+    const out = cs.position === "absolute" || cs.position === "fixed";
+    if (out && cs.clip.startsWith("rect(")) {
+      const [t, r, b, l] = cs.clip.slice(5).split(/[\s,]+/).map(parseFloat);
+      if (r - l <= 1 && b - t <= 1) return true;
+    }
+    const inset = /^inset\(\s*([\d.]+)%/.exec(cs.clipPath);
+    if (inset && +inset[1] >= 50) return true;
+    if (!out && !/hidden|clip/.test(cs.overflow)) return false;
+    const box = el.getBoundingClientRect();
+    if (/hidden|clip/.test(cs.overflow) && box.width <= 1 && box.height <= 1) return true;
+    return out && (box.right + scrollX <= 0 || box.bottom + scrollY <= 0);
+  }
+  // Переводы строк здесь не схлопываются (white-space: pre, pre-wrap, pre-line, break-spaces): перевод строки —
+  // граница строки на экране. white-space-collapse: preserve-spaces их схлопывает (в пробел).
+  function selPre(el) {
+    const cs = getComputedStyle(el);
+    const c = cs.whiteSpaceCollapse;
+    return c ? /^(preserve|preserve-breaks|break-spaces)$/.test(c) : /^pre|break-spaces/.test(cs.whiteSpace);
+  }
+  // Прямоугольники строк диапазона: getClientRects даёт по прямоугольнику на каждый строчный элемент — сливаем
+  // те, что лежат на одной строке (пересекаются по высоте больше чем наполовину), пустые отбрасываем.
+  function selLines(range) {
+    const out = [];
+    for (const r of Array.from(range.getClientRects()).sort((a, b) => a.top - b.top || a.left - b.left)) {
+      if (r.width < 1 || r.height < 1) continue;
+      const same = out.find((o) => Math.min(o.bottom, r.bottom) - Math.max(o.top, r.top) > Math.min(o.height, r.height) / 2);
+      if (!same) { out.push(new DOMRect(r.left, r.top, r.width, r.height)); continue; }
+      const left = Math.min(same.left, r.left), top = Math.min(same.top, r.top);
+      const right = Math.max(same.right, r.right), bottom = Math.max(same.bottom, r.bottom);
+      Object.assign(same, { x: left, y: top, width: right - left, height: bottom - top });
+    }
+    return out;
+  }
+  // Номер строки (в rects) у точки или ближайшей к ней.
+  function selLineAt(rects, x, y) {
+    let best = 0, dist = Infinity;
+    rects.forEach((r, i) => {
+      const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
+      const d = dx * dx + dy * dy;
+      if (d < dist) { dist = d; best = i; }
+    });
+    return best;
+  }
+
+  // Курсор (x, y) над строками выделения (с запасом SEL_NEAR) или над его карточкой (selCardRect).
+  function selUnder(snap, x, y) {
+    const card = selCardRect();
+    return snap.rects.some((r) => selNear(r, x, y)) || (!!card && selNear(card, x, y));
+  }
+  function selNear(r, x, y) { return x > r.left - SEL_NEAR && x < r.right + SEL_NEAR && y > r.top - SEL_NEAR && y < r.bottom + SEL_NEAR; }
+
+  // Выделили с клавиатуры (Shift+стрелки, Ctrl+A), и мышь с тех пор не двигалась: клавиша-триггер переводит выделенное,
+  // где бы ни стоял курсор — человек смотрит на выделение, а не на мышь. Кто изменил выделение, selectionchange не
+  // говорит, поэтому смотрим, что было последним: клавиша (keydown) или мышь (нажатие кнопки, движение). Сбрасывают
+  // движение мыши здесь (mousemove), уход курсора в другой фрейм (cursorAway) и нажатие кнопки мыши (mousedown).
+  let selByKeys = false;
+  let keyLast = false;                // последнее действие пользователя — клавиша, а не мышь
+  let mouseHeld = false;              // кнопка мыши зажата: выделяют текст или тащат (режим задержки ждёт)
+  on(document, "selectionchange", (e) => { if (e.isTrusted) selByKeys = keyLast; });
+
+  // Выделение, которое переведёт клавиша-триггер сейчас, или null — клавиша для блока под курсором, как без выделения.
+  // В счёт: курсор над выделением (selUnder) или выделили с клавиатуры (selByKeys; курсор тогда может быть и в другом
+  // фрейме). Не в счёт: выделение задевает текст, переведённый на месте (клавиша, как прежде, вернёт оригинал
+  // абзаца), и выделение длиннее SEL_MAX, внутри которого целиком абзац под курсором (Ctrl+A) — клавиша для абзаца,
+  // а не уведомление «слишком длинный». Выделение покороче переводится целиком, даже если абзац в нём весь: тройной
+  // щелчок и протяжка через пару абзацев — тоже просьба о карточке. Карточка этого выделения на экране — в счёт
+  // всегда: клавиша её закроет.
+  function selHit() {
+    const xy = cursorIn ? lastXY : null;
+    if (!xy && !selByKeys) return null;
+    // выделили с клавиатуры — курсор не в счёт: карточка у последней строки выделения, а не у строки ближе к курсору
+    const snap = selByKeys ? selNow() : selNow(xy.x, xy.y);
+    if (!snap) return null;
+    if (!selByKeys && !selUnder(snap, xy.x, xy.y)) return null;
+    if (selCardKey() === snap.key) return snap;
+    if (selInLine(snap) || (snap.text.length > SEL_MAX && cursorIn && hoverEl && selCovers(snap, hoverEl))) return null;
+    return snap;
+  }
+
+  // Выделение задевает текст, переведённый на месте (строка из lines). Сверяем по нашим текстовым узлам, а не по
+  // блоку: после тройного щелчка конец выделения стоит в начале следующего блока, и Range.intersectsNode(блок) задел
+  // бы его без единой буквы.
+  function selInLine(snap) {
+    const r = snap.range;
+    if (!r) return false;
+    for (const line of lines) for (const n of line.nodes) if (n.isConnected && r.intersectsNode(n)) return true;
+    return false;
+  }
+
+  // Весь видимый текст блока el внутри выделения. По первому и последнему непустому текстовому узлу: границы выделения
+  // после тройного щелчка или Ctrl+A стоят не на самом блоке, а в тексте или между узлами. Блок в другом дереве
+  // (shadow root), чем выделение, — comparePoint бросает: не внутри.
+  function selCovers(snap, el) {
+    const r = snap.range;
+    if (!r) return false;
+    const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT,
+      { acceptNode: (n) => /\S/.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP });
+    const first = tw.nextNode();
+    if (!first) return false;
+    let last = first;
+    for (let n; (n = tw.nextNode());) last = n;
+    try {
+      return r.comparePoint(first, first.nodeValue.search(/\S/)) === 0 && r.comparePoint(last, last.nodeValue.trimEnd().length) === 0;
+    } catch (e) { return false; }
+  }
+
+  // Клавишу-триггер отпустили (keyup; p — нажатие из modPress, p.sel — отпечаток выделения, над которым нажали):
+  // true — нажатие разобрано здесь, блок под курсором не переводить. Как щелчок: нажали над выделением и отпустили над
+  // ним же — перевод (или закрытие его карточки); над выделением только нажали или только отпустили — ничего.
+  function selKey(p) {
+    const hit = selHit();
+    if (!p.sel && !hit) return false;
+    if (!hit || hit.key !== p.sel) return true;
+    // Выделили с клавиатуры — где курсор, не важно; иначе курсор мог только что уйти во встроенное окно (upHere).
+    if (selByKeys) selGo(hit); else upHere(p, () => selGo(hit));
+    return true;
+  }
+  // Клавиша над выделением: та же карточка на экране — закрыть, длиннее SEL_MAX — уведомление, иначе перевод.
+  // Клавиша — явное действие: бюджет «по действию пользователя», как у блока (toggle).
+  function selGo(snap) {
+    if (selCardKey() === snap.key) selClose();
+    else if (snap.text.length > SEL_MAX) selTooLong(snap);
+    else selShow(snap, HT_BY_USER);
+  }
+
+  // Режим задержки: курсор (x, y) над выделенным в блоке el (с запасом SEL_NEAR) — абзац не переводим. Проверяется на
+  // каждом движении над выделением, поэтому без снимка (toString всей страницы после Ctrl+A) — только строки
+  // выделения в пределах el.
+  function selOver(el, x, y) {
+    const sel = document.getSelection();
+    if (!el || !sel || sel.isCollapsed || !sel.rangeCount) return false;
+    const r = sel.getRangeAt(0), sub = document.createRange();
+    try {
+      if (!r.intersectsNode(el)) return false;
+      sub.selectNodeContents(el);
+      if (r.compareBoundaryPoints(Range.START_TO_START, sub) > 0) sub.setStart(r.startContainer, r.startOffset);
+      if (r.compareBoundaryPoints(Range.END_TO_END, sub) < 0) sub.setEnd(r.endContainer, r.endOffset);
+    } catch (e) { return false; }
+    return selLines(sub).some((q) => selNear(q, x, y));
+  }
+
+  // Язык выделенного для встроенного переводчика: обещание detectLang для всех кусков сразу (localResults, opts.lang);
+  // не определился ({}) — каждый кусок сам (chromeTranslate).
+  // Язык — по самому выделенному; короткий отрывок (shortText: на таком детектор Chrome уверенно ошибается) — по его
+  // абзацу (snap.owner), как блок под курсором: короткий абзац — язык страницы (langOf). Отрывок на другой
+  // письменности, чем абзац (русская цитата в английском тексте, японское слово в пояснении), — по нему самому:
+  // язык абзаца и страницы для него заведомо не тот, а письменность сужает выбор детектору.
+  // Обещание ленивое: DeepL и ИИ определяют язык сами, и детектор (а то и его загрузка) нужен, только если перевод
+  // дойдёт до встроенного переводчика (выбран он или DeepL уступил ему при сбое).
+  function selLangOf(snap) {
+    let p = null;
+    const run = () => {
+      const src = selLangSrc(snap);
+      return src.own ? langOf(src.text) : detectLang(src.text, true);
+    };
+    return { then: (ok, bad) => (p || (p = run())).then(ok, bad) };
+  }
+  // По какому тексту судить о языке выделенного: { text, own } — own: текст абзаца вместо короткого отрывка.
+  // Язык, выбранный в настройках, — сам по себе (detectLang, isAlreadyTarget).
+  function selLangSrc(snap) {
+    if (!snap.owner || !shortText(snap.text)) return { text: snap.text, own: false };
+    const own = ownerText(snap.owner).replace(/\s+/g, " ").trim();
+    return own && scriptOf(own) === scriptOf(snap.text) ? { text: own, own: true } : { text: snap.text, own: false };
+  }
+  // Письменность текста — та, чьих букв в нём больше всего (номер в SCRIPTS; −1 — ни одной из них). Иероглифы и
+  // японские азбуки — одна: японский текст пишется ими вперемешку.
+  const SCRIPTS = [/\p{sc=Latin}/u, /\p{sc=Cyrillic}/u, /\p{sc=Greek}/u, /\p{sc=Arabic}/u, /\p{sc=Hebrew}/u,
+    /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Bopomofo}]/u, /\p{sc=Hangul}/u, /\p{sc=Thai}/u,
+    /\p{sc=Devanagari}/u, /\p{sc=Armenian}/u, /\p{sc=Georgian}/u];
+  function scriptOf(s) {
+    const n = SCRIPTS.map(() => 0);
+    for (const c of String(s).match(/\p{L}/gu) || []) {
+      const i = SCRIPTS.findIndex((re) => re.test(c));
+      if (i >= 0) n[i]++;
+    }
+    const max = Math.max(...n);
+    return max ? n.indexOf(max) : -1;
+  }
+
+  // До перевода: выделенное уже на языке перевода — уведомление и true (переводить не нужно). О языке судим так же,
+  // как selLangOf, но только уже скачанным детектором (isAlreadyTarget): не уверен — переводим, а там, если
+  // переводчик скажет то же, уведомит selShow.
+  async function selSkip(snap) {
+    if (!(await isAlreadyTarget(selLangSrc(snap).text))) return false;
+    selSame(null);
+    return true;
+  }
+
+  // Длиннее SEL_MAX — уведомление с числом знаков.
+  function selTooLong(snap) {
+    notice(HT_plural("csSelLongText", snap.text.length, [HT_num(SEL_MAX)]), 9000, { title: HT_t("csSelLongTitle"), icon: "info" });
+  }
+  // Выделенное (или ответ переводчика о нём) уже на языке перевода.
+  function selSame(lang) {
+    notice(HT_t("csSelSameText", HT_langLabel(HT_langBase(lang || settings.targetLang))), 6000, { title: HT_t("csNothingTitle"), icon: "ok" });
+  }
+
+  // Перевести снимок и показать карточку у выделения. by — HT_BY_USER (клавиша, меню, кнопка уведомления).
+  // Порядок: selBlocked → selSkip → selPulse (подсветка, пока идёт перевод) → перевод кусков (язык — selLangOf) →
+  // неудача: selFail, иначе showFail → всё уже на языке перевода: selSame → карточка (selCardShow).
+  async function selShow(snap, by) {
+    if (selBlocked()) return;
+    const gen = liveGen;
+    if (await selSkip(snap)) return;
+    if (gen !== liveGen || !active()) return;
+    // Одна карточка за раз: новая закрывает прежние — и абзаца, и выделенного (и те, что ещё ждут перевода). Запись
+    // ставим сразу, как у абзаца: пока идёт перевод, та же клавиша над тем же выделением (selCardKey), Esc, щелчок
+    // мимо и новое выделение снимают и ожидание — пришедший перевод тогда не показывается.
+    for (const o of Array.from(popovers.keys())) removePopover(o);
+    const st = { node: null, snap, key: snap.key };
+    popovers.set(SEL_POP, st);
+    try {
+      selPulse(snap, true);
+      let out;
+      try { out = await translateItems(snap.parts, by, null, { lang: selLangOf(snap) }); } finally { selPulse(snap, false); }
+      if (gen !== liveGen || !active() || popovers.get(SEL_POP) !== st) return;
+      if (!out.results) { removePopover(SEL_POP); if (!(await selFail(snap, out, by))) showFail(null, out); return; }
+      const res = out.results;
+      if (res.every((r) => r && r.ok && (!r.value || (r.src && isTargetLang(r.src))))) { removePopover(SEL_POP); selSame(res[0] && res[0].src); return; }
+      const src = (res.find((r) => r && r.src) || {}).src || null;
+      noteSrc(src);
+      const texts = res.map((r) => (r && r.ok && r.value ? r.value.trim() : "")).filter(Boolean);
+      if (texts.length && snap.el.isConnected) selCardShow(st, texts, src);
+    } finally {
+      // Не дождались (отмена, сбой, переводить нечего): ожидание без карточки не должно висеть.
+      if (!st.node && popovers.get(SEL_POP) === st) removePopover(SEL_POP);
+    }
+  }
+
+  // Карточка выделенного с готовым переводом — та же, что у абзаца (tcard: хвостик, язык, «Копировать», «Закрыть»,
+  // шрифт — как у выделенного текста, cardFont) и с тем же размещением (positionPopover), но якорь — строка
+  // выделения (selAnchor), а ширина — по переводу, от 280 до 480 px: слово — в узкой карточке, несколько фраз — в
+  // широкой. Уход курсора её не закрывает и в режиме задержки: перевод выделенного читают, отведя мышь.
+  // texts — куски перевода по абзацам выделенного.
+  function selCardShow(st, texts, src) {
+    const snap = st.snap;
+    // Range снимка — копия: выделение страницы потом меняется (выделили текст в самой карточке), а карточка остаётся
+    // у переведённого. Строка-якорь — под курсором, а без него (меню без точки) — последняя.
+    const range = snap.range && typeof snap.range.cloneRange === "function" ? snap.range.cloneRange() : null;
+    const line = snap.line >= 0 && snap.line < snap.rects.length ? snap.line : snap.rects.length - 1;
+    Object.assign(st, { range, line, rect: snap.rects[line], layer: topLayerOf(snap.el) });
+    const at = selAnchor(st);
+    if (!at) return;
+    const { host, root } = makeUiHost(Z_POPOVER);
+    const vw = document.documentElement.clientWidth || innerWidth;
+    host.style.setProperty("min-width", Math.min(280, vw - 16) + "px", "important");
+    host.style.setProperty("max-width", Math.min(480, vw - 16) + "px", "important");
+    const dark = bgOf(snap.el).dark;
+    const value = texts.join("\n\n");
+    const caret = h("span", { class: "caret", "aria-hidden": "true" });
+    const lang = settings.showLangBadge && src && !isTargetLang(src) ? pairText(src, settings.targetLang) : "";
+    const copyBtn = uiButton("c-btn", { title: HT_t("csCopy"), "aria-label": HT_t("csCopy") }, [icon("copy", 16)], () => copyText(value, copyBtn));
+    const closeBtn = uiButton("c-btn", { title: HT_t("csCloseTip"), "aria-label": HT_t("cardCloseAria") }, [icon("x", 16)], () => removePopover(SEL_POP, host));
+    // Экранному диктору перевод отдаёт живая область (.sr). Текст в неё — чуть позже, когда она уже в дереве
+    // доступности: появление области вместе с текстом диктор не зачитывает. Видимый текст от диктора скрыт — не
+    // читать дважды.
+    const text = h("div", { class: "c-text", "aria-hidden": "true" }, ...texts.map((t) => h("p", null, t)));
+    const say = h("p", { class: "sr", role: "status" });
+    cardFont(snap.el, text);
+    const card = h("div", { class: "ui tcard c-sel" + (dark ? " dk" : ""), role: "dialog", "aria-label": selCardLabel() },
+      caret, h("div", { class: "c-top" }, h("span", { class: "c-lang" }, lang), copyBtn, closeBtn), text, say);
+    root.appendChild(card);
+    mountUi(host, snap.el);
+    Object.assign(st, { node: host, card, caret, anchor: { top: at.r.top, left: at.r.left, sx: scrollX, sy: scrollY } });
+    ensurePopScroll();
+    positionPopover(st, at.r, at.ru);
+    setTimeout(() => { say.textContent = texts.join("\n"); }, 100);
+  }
+
+  // Где карточка выделенного, в координатах окна: { r — строка-якорь, ru — над чем встать, если под якорем места
+  // нет: верхняя видимая строка выделения до якоря } или null — якоря больше нет (текст убрали, окно сайта, где
+  // выделяли, закрылось). Прямоугольники берём заново из Range: они сдвигаются при прокрутке. Без Range (снимок из
+  // пункта меню, когда выделение уже сняли) якорь неподвижен — прямоугольник из снимка.
+  function selAnchor(st) {
+    if (!st.snap.el.isConnected) return null;
+    if (st.layer && !(st.layer.isConnected && st.layer.matches(TOP_LAYER))) return null;
+    if (!st.range) return { r: st.rect, ru: st.rect };
+    const lines = selLines(st.range);
+    if (!lines.length) return null;
+    const i = Math.min(st.line, lines.length - 1);
+    let k = i;
+    while (k > 0 && lines[k - 1].top >= 0) k--;
+    return { r: lines[i], ru: lines[k] };
+  }
+  // Прокрутка: как у карточки абзаца — строка сдвинулась больше чем на popScrollLimit, закрываем, иначе карточка едет
+  // за ней. Без Range сдвиг меряем прокруткой окна.
+  function selReposition(st) {
+    const at = selAnchor(st);
+    const dx = at && st.range ? at.r.left - st.anchor.left : st.anchor.sx - scrollX;
+    const dy = at && st.range ? at.r.top - st.anchor.top : st.anchor.sy - scrollY;
+    if (!at || Math.abs(dx) > popScrollLimit() || Math.abs(dy) > popScrollLimit()) { removePopover(SEL_POP, st.node); return; }
+    positionPopover(st, at.r, at.ru);
+  }
+
+  // Нажатие кнопки мыши (pointerdown): в карточке выделенного ли (выделяют её текст, жмут её кнопки).
+  function selPress(target) {
+    const st = popovers.get(SEL_POP);
+    selPressIn = !!st && !!st.node && st.node === target;
+  }
+  // Выделение сменилось не щелчком (Shift+стрелки, Ctrl+A, страница) — карточка прежнего выделения ни к чему:
+  // закрываем, как щелчок мимо. Не в счёт: выделение в самой карточке (последнее нажатие мыши было в ней — тогда и
+  // выделение страницы снято) и снятое выделение без нового.
+  on(document, "selectionchange", (e) => {
+    if (!e.isTrusted || selPressIn || !popovers.has(SEL_POP)) return;
+    const snap = selNow();
+    if (snap && snap.key !== selCardKey()) selClose();
+  });
+
+  // Цвета карточки выделенного — по фону под выделенным, сейчас (сайт сменил тему).
+  function selRetheme() {
+    const st = popovers.get(SEL_POP);
+    if (st && st.card) st.card.classList.toggle("dk", bgOf(st.snap.el).dark);
+  }
+
+  // Подсветка выделенного, пока идёт перевод (CSS Custom Highlight API, страница не меняется): on — пульс по
+  // snap.range (null — подсвечивать нечего), off — снять подсветку этого снимка (snap null — любую).
+  // Правила ::highlight(ht-sel-*) — в content.css (почему полосой, а не фоном — там). Анимацию подсветки Chrome не
+  // проигрывает (проверено в Chrome 157), поэтому пульс — сменой имени по таймеру: ступени 0 → 1 → 2 → 1 по
+  // SEL_PULSE_MS дают те же 1,2 с, что у абзаца; при prefers-reduced-motion — ровная ступень 0. Начинается, как у
+  // абзаца, через 0,15 с: перевод из сохранённых приходит сразу и мигать не должен. Реестр CSS.highlights у документа
+  // один на все миры: подсветка из мира расширения рисуется, а страница видит её в своём CSS.highlights, — имена с
+  // приставкой ht-, чужие не трогаем.
+  // Off только для своего снимка: перевод прежнего выделения, пришедший после нового, чужой пульс не снимает.
+  const SEL_PULSE_MS = 300;
+  const SEL_STEPS = [0, 1, 2, 1];
+  let selHl = null;                   // { snap, hl, name, timer } — подсветка, которая сейчас идёт
+  function selPulse(snap, on) {
+    if (!on) {
+      if (!selHl || (snap && selHl.snap !== snap)) return;
+      clearTimeout(selHl.timer);
+      if (selHl.name && CSS.highlights.get(selHl.name) === selHl.hl) CSS.highlights.delete(selHl.name);
+      selHl = null;
+      return;
+    }
+    selPulse(null, false);
+    const range = snap && snap.range;
+    if (!range || typeof Highlight !== "function" || !window.CSS || !CSS.highlights) return;
+    // Выделение в открытом shadow root: правила документа на элементы root не действуют (в Chrome 157 подсветка там
+    // бывает видна по наследованию от хоста, но на это не полагаемся) — лист с ними подключаем к root, как для
+    // подложки абзаца.
+    for (const n of [range.startContainer, range.endContainer]) {
+      const el = n.nodeType === 1 ? n : n.parentElement;
+      if (el) styleRootOf(el);
+    }
+    const base = snap.el && bgOf(snap.el).dark ? "ht-sel-dark-" : "ht-sel-";
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const st = { snap, hl: new Highlight(range), name: "", timer: 0 };
+    let i = 0;
+    const step = () => {
+      if (selHl !== st) return;
+      const name = base + SEL_STEPS[i++ % SEL_STEPS.length];
+      if (st.name) CSS.highlights.delete(st.name);
+      CSS.highlights.set(name, st.hl);
+      st.name = name;
+      if (!still) st.timer = setTimeout(step, SEL_PULSE_MS);
+    };
+    st.timer = setTimeout(step, 150);
+    selHl = st;
+  }
+
+  // Отпечаток выделения, чья карточка сейчас на экране (или ждёт перевода), "" — её нет.
+  function selCardKey() {
+    const st = popovers.get(SEL_POP);
+    return st ? st.key : "";
+  }
+
+  // Закрыть карточку выделенного и снять подсветку, если они есть (подсветку снимает removePopover).
+  function selClose() { if (popovers.has(SEL_POP)) removePopover(SEL_POP); }
+
+  // Прямоугольник карточки выделенного в координатах окна или null — её нет.
+  function selCardRect() {
+    const st = popovers.get(SEL_POP);
+    return st && st.node && st.node.isConnected ? st.node.getBoundingClientRect() : null;
+  }
+  // Подпись карточки выделенного для экранного диктора.
+  function selCardLabel() { return HT_t("cardSelLabel"); }
+
+  // Перевод выделенного не вышел: нужна загрузка встроенного переводчика (out.kind === "download") — отрывок
+  // запоминается, а уведомление с кнопкой переводит его по щелчку (selDlNote). true — разобрано здесь; иначе
+  // вызывающий показывает обычную ошибку (showFail).
+  // У абзаца в таком случае просим щёлкнуть по тексту и повторяем перевод после щелчка (showFail, retryOnClick),
+  // но щелчок по тексту снял бы выделение, а следующий щелчок по странице перевёл бы абзац под курсором, а не
+  // выделенное. Одиночный Shift действием пользователя Chrome не считает — поэтому кнопка: у щелчка по ней это
+  // действие есть, и загрузка пойдёт с ходом в уведомлении (downloadNotice). retryOnClick не трогаем, а
+  // downloadTold не глушит: выделенное просят перевести явно — уведомление на каждую просьбу.
+  async function selFail(snap, out, by) {
+    const need = out.need;
+    if (out.kind !== "download" || !need) return false;
+    const anchor = snap.owner || snap.el;
+    // Модель уже качается (её начала другая вкладка или окно расширения): кнопке нечего запускать — прежнее
+    // уведомление «Переводчик ещё скачивается».
+    if (need.state === "downloading") {
+      const n = out.note || { text: out.error };
+      notice(n.text, 15000, Object.assign({ anchor }, n));
+      return true;
+    }
+    const kind = !need.src ? "detector" : need.hidden ? "ask" : "pair";
+    const what = kind === "ask" ? HT_langLabel(need.hidden) : kind === "pair" ? pairText(need.src, need.tgt) : "";
+    // Кнопка переводит запомненный снимок: выделение к щелчку могло смениться или пропасть, а Range снимка живой.
+    const run = () => { if (active() && alive()) selShow(snap, HT_BY_USER); };
+    const n = selDlNote(kind, what, run);
+    notice(n.text, 15000, Object.assign({ anchor }, n));
+    return true;
+  }
+  // Уведомление о загрузке для выделенного. kind: "pair" — модели нет, "ask" — язык не из языков Chrome (разрешение
+  // на каждом сайте), "detector" — определение языка. what — пара языков («Испанский → русский») или название языка.
+  // run — что сделать по кнопке (у щелчка есть действие пользователя). Без значка-курсора у заголовка: он значит
+  // «щёлкните по тексту», а здесь щёлкают по кнопке.
+  function selDlNote(kind, what, run) {
+    const act = (label) => [{ label, run, primary: true }];
+    if (kind === "ask") return { title: HT_t("csSelAskTitle"), text: HT_t("csSelAskText", what), actions: act(HT_t("csSelAskBtn")) };
+    if (kind === "detector") return { title: HT_t("csSelDetTitle"), text: HT_t("csSelDetText"), actions: act(HT_t("csSelDlBtn")) };
+    return { title: HT_t("csSelDlTitle"), text: HT_t("csSelDlText", what), actions: act(HT_t("csSelDlBtn")) };
+  }
+  // Можно ли переводить выделенное сейчас (как blocked для явного действия). Во встроенном окне чужого сайта, где
+  // встроенный переводчик запрещён, — не молчание, а уведомление (selFrameNote).
+  // blocked() там молчит: при наведении это не поломка, о которой стоит рассказывать, а выделенное просят перевести
+  // явно — без объяснения кажется, что клавиша не работает.
+  function selBlocked() {
+    if (BUILTIN === "frame" && problem() && !HT_engineProblem(settings.engine, netState(), true)) { selFrameNote(); return true; }
+    return blocked(false);
+  }
+  function selFrameNote() {
+    notice(HT_t("csSelFrameText"), 12000, { title: HT_t("csSelFrameTitle"), icon: "err", kind: "err", actions: [settingsAct("translator", true)] });
+  }
+
+  // Пункт контекстного меню (сообщение translateSelection от background тому фрейму, где выделено): перевести
+  // выделенное здесь в любом режиме (клавиша или «Без клавиши», замена или карточка) — всегда карточкой у места
+  // правого щелчка. msg.text — выделенный текст, как его видит Chrome: пока открыто меню, страница могла снять
+  // выделение (своим обработчиком) — тогда переводим его, без подсветки, карточка — там же. Выделено в поле ввода или
+  // редакторе — такое пока не переводится (selFieldNote); сайт выключен — уведомление с кнопкой «Включить на этом
+  // сайте» (selSiteOffNote), по ней перевод показывается сразу. Перевод выключен везде — пункта в меню нет.
+  let selMenuAt = null;              // последний правый щелчок здесь: { x, y } в координатах окна, ours — по нашему окну
+  on(window, "contextmenu", (e) => {
+    if (e.isTrusted) selMenuAt = { x: e.clientX, y: e.clientY, ours: isOurUi(e.target) };
+  }, true);
+  function selMenu(msg) {
+    if (!alive() || !loaded || !settings.enabled) return;
+    if (selInInput()) { selFieldNote(); return; }
+    const at = selMenuAt;
+    let snap = at ? selNow(at.x, at.y) : selNow();
+    if (!snap) {
+      // Выделение на странице есть, но не в счёт: в редакторе — уведомление, иначе (нет буквы, в наших окнах) — молчим.
+      const sel = document.getSelection();
+      if (sel && !sel.isCollapsed) {
+        const n = sel.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+        if (el && el.isContentEditable) selFieldNote();
+        return;
+      }
+      if (at && at.ours) return;             // выделили в нашей карточке или уведомлении — это уже перевод
+      snap = selFromText(msg && msg.text, at);
+      if (!snap) return;
+    }
+    if (!siteOff) { selMenuGo(snap); return; }
+    // Кнопка уведомления включает сайт сразу, не дожидаясь ответа хранилища (перевод проверяет active()), и
+    // переводит тот же снимок.
+    selSiteOffNote(() => {
+      if (!alive() || !settings.enabled) return;
+      if (siteOff) { siteOff = false; siteChanged(); setSiteOff(false).catch(() => {}); }
+      selMenuGo(snap);
+    });
+  }
+  function selMenuGo(snap) {
+    if (snap.text.length > SEL_MAX) selTooLong(snap);
+    else selShow(snap, HT_BY_USER);
+  }
+  // Выделено в поле ввода: его выделение в document.getSelection не видно, а поле — в фокусе с выделенным внутри
+  // (у полей без selectionStart, как email, выделения не узнать — раз пункт выбран, оно там).
+  function selInInput() {
+    let a = document.activeElement;
+    while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+    if (!a || (a.localName !== "input" && a.localName !== "textarea")) return false;
+    let from = null, to = null;
+    try { from = a.selectionStart; to = a.selectionEnd; } catch (e) { /* у поля нет выделения текста */ }
+    return from == null || from !== to;
+  }
+  // Снимок из текста, присланного Chrome (выделения на странице уже нет): range — null, строка — высотой со строку
+  // текста под местом щелчка (без него — середина окна), элемент — под этим местом (шрифт карточки, тёмный ли фон).
+  function selFromText(text, at) {
+    const parts = String(text || "").split(/\n+/).map((t) => t.trim()).filter(Boolean);
+    const joined = parts.join("\n");
+    if (!hasLetter(joined)) return null;
+    const x = at ? at.x : innerWidth / 2, y = at ? at.y : innerHeight / 2;
+    const under = document.elementFromPoint(x, y);
+    const el = under && under !== document.documentElement && !isOurUi(under) ? under : document.body;
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 16) * 1.25;
+    const rect = new DOMRect(x, y - lh / 2, 1, lh);
+    const key = joined + "|" + Math.round(rect.left + scrollX) + "," + Math.round(rect.top + scrollY);
+    return { range: null, parts, text: joined, rects: [rect], line: 0, el, owner: pickTarget(el), key };
+  }
+  // Сайт выключен — уведомление с кнопкой «Включить на этом сайте» (run — включить и перевести).
+  function selSiteOffNote(run) {
+    notice(HT_t("csSelSiteOffText"), 12000, { title: HT_t("csSiteOffTitle"), actions: [{ label: HT_t("csSelSiteOn"), run, primary: true }] });
+  }
+  // Выделено в поле ввода — такое пока не переводится.
+  function selFieldNote() { notice(HT_t("csSelField"), 5000); }
+
   // ---- события ----
   // Везде проверяем e.isTrusted: страница может сама разослать mouseover/keydown/wheel через
   // dispatchEvent и так запускать платные переводы за счёт ключа пользователя.
@@ -3729,8 +4539,11 @@
   const DRIFT_PX = 16;
   let hoverLost = false;              // элемент под курсором сброшен: окно потеряло фокус или курсор ушёл в другой фрейм
   on(document, "mousemove", (e) => {
-    if (!e.isTrusted || !pointerMoved(e)) return;
+    if (!e.isTrusted) return;
+    mouseHeld = !!e.buttons;              // отпустили за окном — mouseup мог не дойти
+    if (!pointerMoved(e)) return;
     lastXY = { x: e.clientX, y: e.clientY };
+    keyLast = false; selByKeys = false;   // мышь двигалась: выделенное — снова только под курсором (selHit)
     moveAt = Date.now(); if (!cursorIn && !frameEl(evTarget(e))) cursorBack();
     // Окно теряло фокус (открыли окно расширения, Alt+Tab): «элемент под курсором» тогда сброшен, а
     // mouseover после возврата не приходит, если курсор остался на том же элементе. Без этого клавиша
@@ -3746,10 +4559,19 @@
     if (drift && !settleDrift(e)) return;
     const el = hoverEl;
     if (!el || dwellFor === el || el === edgeOwner || isBusy(el)) return;
+    // Кнопка мыши зажата (выделяют текст, тащат) или курсор над выделенным — абзац по задержке не переводим: выделенное
+    // в этом режиме переводит пункт меню, а замена текста сняла бы выделение. Таймер взведёт следующее движение —
+    // когда кнопку отпустят или курсор уйдёт с выделения (dwellFor не ставим).
+    if (e.buttons || selOver(el, e.clientX, e.clientY)) return;
     dwellFor = el;
     clearTimeout(dwellTimer);
     if (dwellSkip(el, evTarget(e))) return;
-    dwellTimer = setTimeout(() => { if (hoverEl === el && dwellFor === el) startHover(el, HT_BY_PAGE); }, HT_clampDwell(settings.dwellMs));
+    dwellTimer = setTimeout(() => {
+      if (hoverEl !== el || dwellFor !== el) return;
+      // за время задержки зажали кнопку или выделили под курсором (с клавиатуры, двойным щелчком) — ждём движения
+      if (mouseHeld || (lastXY && selOver(el, lastXY.x, lastXY.y))) { dwellFor = null; return; }
+      startHover(el, HT_BY_PAGE);
+    }, HT_clampDwell(settings.dwellMs));
   }, { capture: true, passive: true });
 
   // Курсор оказался вне переведённого абзаца без движения мыши: страница прокрутилась или абзац сам
@@ -3822,6 +4644,10 @@
   // от сочетания, набранного чуть медленнее таймера. Пока клавишу держат, ничего не переводится.
   on(document, "keydown", (e) => {
     if (!e.isTrusted) return;
+    keyLast = true;                       // выделение, сменившееся после этого, — с клавиатуры (selByKeys)
+    // Ctrl+A при уже выделенной странице выделения не меняет, и selectionchange нет — а выделили всё равно с клавиатуры
+    // (если сайт не забрал сочетание себе).
+    if (e.code === "KeyA" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) setTimeout(() => { if (!e.defaultPrevented) selByKeys = true; });
     if (e.repeat) return;                 // автоповтор зажатой клавиши — не новое нажатие
     modPress = null;                      // любая клавиша обрывает ожидаемое нажатие…
     if (e.key === "Escape") { escRestore(); return; }
@@ -3836,9 +4662,12 @@
     if (modBusy() || typingFocus()) return;
     const away = !cursorIn && otherFrames();
     const field = away ? null : attrShiftEl(lastOverTarget);   // поле или кнопка-<input>: их подсказка или надпись
-    if (!away && !hoverEl && !field) return;
+    // Выделение, которое переведёт клавиша (курсор над ним — и между абзацами, где блока под курсором нет, — или
+    // выделили с клавиатуры): при отпускании оно должно быть тем же (selKey), как элемент у блока.
+    const sel = selHit();
+    if (!away && !hoverEl && !field && !sel) return;
     // …а одиночный модификатор над текстом (здесь или в другом фрейме вкладки) начинает новое
-    modPress = { key: e.key, el: away ? null : hoverEl, field, at: Date.now() };
+    modPress = { key: e.key, el: away ? null : hoverEl, field, sel: sel ? sel.key : "", at: Date.now() };
   }, true);
 
   on(document, "keyup", (e) => {
@@ -3849,13 +4678,16 @@
     // hoverEl === p.el отсекает случай, когда за время нажатия курсор ушёл с элемента (в том числе
     // из окна) или под него при прокрутке приехал другой.
     if (!active() || settings.trigger === "dwell" || modBusy()) return;
+    // Курсор над выделенным или выделили с клавиатуры (тогда и с курсором в другом фрейме) — переводится оно, см.
+    // «перевод выделенного».
+    if (selKey(p)) return;
     // Курсор в другом фрейме вкладки — нажатие для него. И когда при нажатии курсор считался здесь, а hoverFrame пришло
     // до отпускания: курсор ушёл в окно раньше, чем нажали (сообщение опоздало), или пока держали — тогда «чистым»
     // нажатие не признает фрейм под курсором.
     if (!cursorIn) { if (otherFrames()) send({ type: "frameKey", at: p.at }).catch(() => {}); return; }
     if (p.field) { attrShiftUp(p.field); return; }
     if (!p.el || hoverEl !== p.el) return;
-    upHere(p);
+    upHere(p, () => toggle(p.el));
   }, true);
 
   // У сайта сейчас что-то открыто: модальное окно (<dialog> через showModal), поповер, видимое окно с role=dialog
@@ -3984,6 +4816,9 @@
     // Показаны кнопки кружка — Esc скрывает только их; фокус был у нас — возвращается на кружок (кнопки,
     // показанные наведением, фокус со страницы не забирают).
     if (menuOpen()) { closeMenu(focusInFab()); return; }
+    // Открыта карточка выделенного (или её перевод ещё идёт) — Esc закрывает только её, как панель у кружка: переводы
+    // на странице остаются. Сам Esc сайт тоже слышит: окно, в котором выделяли, закроет он.
+    if (popovers.has(SEL_POP)) { selClose(); return; }
     if (typingFocus()) return;
     // Esc закрывает и уведомление расширения на странице (раньше оно висело до таймера или ✕).
     if (currentToast) currentToast.close();
@@ -4004,13 +4839,20 @@
     if (!TOP || document.querySelector("iframe, frame")) send({ type: "restoreTab" }).catch(() => {});
   }
 
-  on(window, "mousedown", (e) => { if (e.isTrusted) modPress = null; }, true);
+  // Кнопка мыши: обрывает ожидаемое нажатие клавиши (Shift+щелчок), выделение после неё — не с клавиатуры, а режим
+  // задержки ждёт отпускания (см. «перевод выделенного»).
+  on(window, "mousedown", (e) => {
+    if (!e.isTrusted) return;
+    modPress = null; keyLast = false; selByKeys = false; mouseHeld = true;
+  }, true);
+  on(window, "mouseup", (e) => { if (e.isTrusted) mouseHeld = !!e.buttons; }, true);
 
   // Щелчок мимо карточки закрывает её, мимо плавающей кнопки — её кнопки и панели. Щелчок внутри приходит с хостом в
   // target (закрытый shadow root наружу показывает только хост).
   on(window, "pointerdown", (e) => {
     if (!e.isTrusted) return;
     if (menuOpen() && e.target !== fab.host) closeMenu(false);
+    selPress(e.target);
     if (!popovers.size) return;
     for (const st of popovers.values()) if (st.node === e.target) return;
     for (const owner of Array.from(popovers.keys())) removePopover(owner);
@@ -4101,6 +4943,7 @@
       else if (msg.type === "say") { say(msg); sendResponse(true); }
       else if (msg.type === "hoverFrame") { cursorAway(msg.from, msg.at); sendResponse(true); }
       else if (msg.type === "frameKey") { frameKey(msg.at); sendResponse(true); }
+      else if (msg.type === "translateSelection") { selMenu(msg); sendResponse(true); }
       else sendResponse(true); // подтверждаем получение
     });
   }
@@ -4867,15 +5710,18 @@
     if (dead) return;
     themeFab();
     if (currentToast) currentToast.retheme();
+    selRetheme();
     if (late) {
       clearTimeout(themeLate);
-      themeLate = setTimeout(() => { if (fab || currentToast) rethemeUi(false); }, 600);
+      themeLate = setTimeout(() => { if (themedUi()) rethemeUi(false); }, 600);
     }
   }
+  // Что из нашего на экране перекрашивается вслед за сайтом: кружок, уведомление, карточка выделенного.
+  function themedUi() { return !!(fab || currentToast || popovers.has(SEL_POP)); }
   // Переход дольше 600 мс — ещё раз, когда фон <html> или <body> доехал.
   on(document, "transitionend", (e) => {
     if (e.propertyName === "background-color" && (e.target === document.body || e.target === document.documentElement)
-      && (fab || currentToast)) rethemeUi(false);
+      && themedUi()) rethemeUi(false);
   });
   // Сайт следует теме системы — свои цвета вслед за ним.
   try {
@@ -4887,7 +5733,7 @@
   let themeTimer = 0;
   const themeObs = new MutationObserver(() => {
     if (dead) { themeObs.disconnect(); return; }
-    if (themeTimer || !(fab || currentToast)) return;
+    if (themeTimer || !themedUi()) return;
     themeTimer = setTimeout(() => {
       themeTimer = 0;
       rethemeUi(true);
@@ -4931,7 +5777,7 @@
     if (fab && !fab.host.isConnected) { mountUi(fab.host); themeFab(); placeFab(); }
     if (currentToast && currentToast.alive() && !currentToast.host.isConnected) { mountUi(currentToast.host); placeToast(); }
     for (const [owner, st] of Array.from(popovers)) {
-      if (st.node && !st.node.isConnected) { if (owner.isConnected) mountUi(st.node); else removePopover(owner); }
+      if (st.node && !st.node.isConnected) { if (popAlive(owner, st)) mountUi(st.node, st.snap && st.snap.el); else removePopover(owner); }
     }
   });
   bodyWatch.observe(document.documentElement, { childList: true });
@@ -5004,7 +5850,7 @@
     s.setProperty("right", TOAST_EDGE + "px", "important");
     // Вверху справа (кружок утащили наверх — под ним).
     const atTop = () => {
-      s.removeProperty("bottom");
+      s.setProperty("bottom", "auto", "important");   // не removeProperty: у хоста в верхнем слое умолчание [popover] — inset: 0
       s.setProperty("top", TOAST_EDGE + "px", "important");
       let r = t.host.getBoundingClientRect();
       if (hr && cross(r, hr)) { s.setProperty("top", Math.round(hr.bottom + TOAST_GAP) + "px", "important"); r = t.host.getBoundingClientRect(); }
@@ -5013,7 +5859,7 @@
     // Внизу справа, над кружком, если он там. Нижний край окна — от самого уведомления: innerHeight
     // включает горизонтальную полосу прокрутки, а bottom у fixed отсчитывается от края без неё.
     const atLow = () => {
-      s.removeProperty("top");
+      s.setProperty("top", "auto", "important");
       s.setProperty("bottom", TOAST_EDGE + "px", "important");
       let r = t.host.getBoundingClientRect();
       if (hr && cross(r, hr)) {
@@ -5031,7 +5877,7 @@
     t.card.classList.toggle("low", low);
   }
 
-  // Показать уведомление. o: { title (жирная строка), icon: "ok" | "err" | "pointer", text (под заголовком —
+  // Показать уведомление. o: { title (жирная строка), icon: "ok" | "err" | "pointer" | "info", text (под заголовком —
   // мельче и серым; без заголовка — основная строка), detail (ещё мельче: код ответа, текст сервиса),
   // progress: "empty" | "indet" | 0–100 (полоса 4 px), actions: [{ label, run, primary }], esc (подсказка
   // «или Esc» после кнопок), ms (0 — пока не закроют), kind: "err" (role=alert), anchor (элемент, который
@@ -5074,7 +5920,7 @@
       if (p.title) {
         const ic = p.icon === "ok" ? h("span", { class: "ok" }, icon("checkCircle", 16))
           : p.icon === "err" ? h("span", { class: "err" }, icon("alert", 16))
-            : p.icon === "pointer" ? icon("pointer", 16) : null;
+            : p.icon === "pointer" ? icon("pointer", 16) : p.icon === "info" ? icon("info", 16) : null;
         kids.push(h("p", { class: "t-t" }, ic, h("span", {}, p.title)));
         if (p.text) kids.push(h("p", { class: "t-d" }, p.text));
       } else if (p.text) kids.push(h("p", { class: "t-m" }, p.text));
@@ -5099,7 +5945,10 @@
     // Курсор на уведомлении — человек читает или тянется к кнопке: не убираем, пока он там.
     host.addEventListener("mouseenter", (ev) => { if (ev.isTrusted) { hovered = true; clearTimeout(timer); } });
     host.addEventListener("mouseleave", (ev) => { if (ev.isTrusted) { hovered = false; if (ms) arm(Math.min(ms, 3000)); } });
-    mountUi(host);
+    // Открыто модальное окно сайта — всё вне его inert и под ним: уведомление (и его кнопки — «Скачать», «Включить на
+    // этом сайте») кладём туда же, где карточка, — в верхний слой у окна (см. mountUi).
+    const near = o.anchor && o.anchor.nodeType === 1 && topLayerOf(o.anchor) ? o.anchor : siteModal();
+    mountUi(host, near);
     currentToast = t;
     placeToast();
     // Прозрачность анимируем на карточке, а не на хосте: у хоста opacity выставлен с !important,

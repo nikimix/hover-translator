@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>stub: sel-card</title>
+<link rel="stylesheet" href="/src/content.css">
+<style>
+  body { font: 16px/1.5 sans-serif; margin: 0; padding: 24px 0 0 120px; }
+  /* колонка текста — как на макете: Georgia 18/29 */
+  .art p { margin: 0 0 16px; width: 640px; font: 18px/29px Georgia, "Times New Roman", serif; }
+  .art h2 { margin: 24px 0 12px; width: 640px; font: 600 22px/30px system-ui, sans-serif; }
+  #box { width: 640px; height: 160px; overflow: auto; border: 1px solid #ccc; margin: 0 0 16px; }
+  #box p { margin: 8px; width: auto; }
+  #tall { height: 1800px; }
+  dialog { width: 520px; padding: 24px 28px; border: 1px solid #999; border-radius: 12px; font: 16px/24px system-ui, sans-serif; }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+</style>
+<script>
+  // Заглушка chrome.* для content.js — как в stub.html, только нужное проверкам карточки выделенного
+  // (page/sel-card.test.js). background отвечает «[RU] текст»; __bgDelay — задержка ответа (перевод в пути),
+  // __bgReply(msg) — свой ответ (ошибка сервиса). ?dark=1 — тёмный сайт (фон у <html>).
+  const q = new URLSearchParams(location.search);
+  if (q.get("dark")) document.documentElement.style.cssText = "background: #121316; color: #d7dade;";
+  window.__calls = [];
+  window.__store = Object.assign({ enabled: true, trigger: "shift", engine: "deepl", displayMode: "replace", targetLang: "RU", apiKey: "k:fx",
+    consent: { deepl: true, openai: true, anthropic: true } }, JSON.parse(q.get("store") || "{}"));
+  window.__onChanged = [];
+  window.__onMessage = [];
+  window.__bgDelay = 0;
+  window.__bgReply = null;
+  window.chrome = {
+    storage: {
+      local: {
+        get(defs, cb) {
+          const out = Object.assign({}, typeof defs === "object" && !Array.isArray(defs) ? defs : {}, JSON.parse(JSON.stringify(window.__store)));
+          if (cb) { setTimeout(() => cb(out), 0); return undefined; }
+          return Promise.resolve(out);
+        },
+        set(obj) { setStore(obj); return Promise.resolve(); },
+      },
+      onChanged: { addListener(fn) { window.__onChanged.push(fn); } },
+    },
+    runtime: {
+      id: "test-extension-id",
+      getURL: (p) => "chrome-extension://test-extension-id/" + p,
+      getManifest: () => ({ name: "Cursor Translate" }),
+      sendMessage(msg) {
+        window.__calls.push(JSON.parse(JSON.stringify(msg)));
+        if (msg.type === "noticeOnce") return Promise.resolve({ ok: true, show: true });
+        if (msg.type === "shortcut") return Promise.resolve("");
+        if (msg.type !== "translateBatch") return Promise.resolve({ ok: true });
+        const reply = window.__bgReply ? window.__bgReply(msg)
+          : { ok: true, texts: msg.items.map((t) => "[" + msg.targetLang + "] " + t), srcLangs: msg.items.map(() => "es") };
+        return window.__bgDelay ? new Promise((r) => setTimeout(() => r(reply), window.__bgDelay)) : Promise.resolve(reply);
+      },
+      onMessage: { addListener(fn) { window.__onMessage.push(fn); } },
+    },
+  };
+  function setStore(obj) {
+    const changes = {};
+    for (const k in obj) { changes[k] = { oldValue: window.__store[k], newValue: JSON.parse(JSON.stringify(obj[k])) }; window.__store[k] = JSON.parse(JSON.stringify(obj[k])); }
+    for (const fn of window.__onChanged) fn(changes, "local");
+  }
+  function sendCmd(msg) { if (typeof msg === "string") msg = { type: msg }; let r; for (const fn of window.__onMessage) fn(msg, {}, (x) => { r = x; }); return r; }
+  window.trCalls = () => window.__calls.filter((c) => c.type === "translateBatch");
+  window.Translator = { async availability() { return "available"; }, async create() { return { translate: async (t) => "[ru] " + t }; } };
+  window.LanguageDetector = { async availability() { return "available"; }, async create() { return { detect: async (t) => [{ detectedLanguage: /[а-я]/i.test(t) ? "ru" : "es", confidence: 0.99 }] }; } };
+  // Наши карточки и уведомления живут в закрытых shadow root — запоминаем root при создании.
+  window.__roots = [];
+  const origAttach = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (o) { const r = origAttach.call(this, o); window.__roots.push(r); return r; };
+  window.cards = () => window.__roots.filter((r) => r.host.isConnected && r.querySelector(".tcard"));
+  window.toasts = () => window.__roots.filter((r) => r.host.isConnected).map((r) => { const c = r.querySelector(".toast"); return c ? (c.getAttribute("role") === "alert" ? "err" : "info") + ":" + c.querySelector(".t-b").textContent : null; }).filter(Boolean);
+  (function tick() { requestAnimationFrame(tick); })();
+</script>
+</head>
+<body>
+  <main class="art">
+    <h2 id="h1">Riego y luz</h2>
+    <p id="p1">Riega por la mañana, directamente sobre la tierra y no sobre las hojas. En los días de calor, comprueba la humedad cada tarde: si los dos primeros centímetros están secos, es hora de regar.</p>
+    <p id="p2">Los tomates necesitan al menos seis horas de sol al día. Si tu balcón da al norte, elige plantas de hoja como la lechuga o las hierbas aromáticas.</p>
+    <p id="p3">Cuando aparezcan las primeras flores, abona cada dos semanas con un fertilizante rico en potasio.</p>
+    <div id="box">
+      <p id="b1">Dentro de una caja con su propia barra de desplazamiento también se puede leer.</p>
+      <p id="b2">Retira los brotes que salen entre el tallo y las hojas para que la planta crezca fuerte.</p>
+      <p id="b3">Así la planta dedica su energía a los frutos y no a las hojas nuevas.</p>
+      <p id="b4">Riega siempre al pie de la planta para que las hojas se mantengan secas.</p>
+    </div>
+    <h2 id="h2">Abono</h2>
+    <p id="p4">Retira los brotes que salen entre el tallo y las hojas. Así la planta dedica su energía a los frutos.</p>
+    <p id="p5">Evita el exceso de nitrógeno: la planta crecerá mucho, pero dará pocos frutos.</p>
+    <p id="p6">En otoño, recoge las últimas hojas secas y cubre la tierra con una capa de compost.</p>
+    <div id="tall"></div>
+  </main>
+  <dialog id="dlg">
+    <p id="d1">Confirma tu pedido: las semillas llegarán en tres días hábiles a la dirección indicada.</p>
+    <p><button id="dclose" type="button">Cerrar</button></p>
+  </dialog>
+  <script>
+    document.getElementById("dclose").addEventListener("click", () => document.getElementById("dlg").close());
+    for (const src of ["/i18n-ru.js", "/src/shared.js", "/src/content.js"]) { const s = document.createElement("script"); s.src = src; s.async = false; document.body.appendChild(s); }
+  </script>
+</body>
+</html>
