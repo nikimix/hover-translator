@@ -32,7 +32,7 @@ with your own key.
 
 ## Install
 
-**From the Chrome Web Store:** coming soon (under review).
+**From the Chrome Web Store:** [install Hover Translator](https://chromewebstore.google.com/detail/hieognjnpfkndaedjclkdcclmekhmfoa).
 
 **From source:**
 

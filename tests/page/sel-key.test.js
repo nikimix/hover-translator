@@ -309,7 +309,18 @@ const RU = (s) => "[RU] " + s;
       await tapCtrl();
       await sentSel(0, "river", "чистый Ctrl над выделением");
       assert.strictEqual(await text("#p1"), P1);
-      ok("клавиша Ctrl: Ctrl+C над выделением не переводит, чистое нажатие Ctrl — переводит выделенное");
+      // Ctrl+A — выделение, а не перевод: ни над абзацем, ни над пустым местом (там нет и «слишком длинного»)
+      await esc();
+      const n1 = await nCalls();
+      await moveTo(await box("#p2"));
+      await ctrlA(); await sleep(300);
+      assert.ok((await ev("String(document.getSelection()).length")) > 2000, "Ctrl+A выделил всю страницу");
+      await moveTo({ x: 900, y: (await box("#p2")).y });
+      await ctrlA(); await sleep(300);
+      assert.strictEqual(await nCalls(), n1, "Ctrl+A не переводит");
+      assert.deepStrictEqual(await ev("toasts()"), [], "Ctrl+A без уведомлений");
+      assert.strictEqual(await text("#p2"), P2);
+      ok("клавиша Ctrl: Ctrl+C над выделением не переводит, чистое нажатие Ctrl — переводит выделенное; Ctrl+A ничего не переводит");
     });
 
     // ---- 8. Способ показа «карточка» ----

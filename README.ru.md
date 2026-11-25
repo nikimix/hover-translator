@@ -32,7 +32,7 @@
 
 ## Установка
 
-**Из магазина Chrome:** скоро (расширение на проверке).
+**Из магазина Chrome:** [установить Hover Translator](https://chromewebstore.google.com/detail/hieognjnpfkndaedjclkdcclmekhmfoa).
 
 **Из исходного кода:**
 
