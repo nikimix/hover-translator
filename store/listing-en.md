@@ -78,10 +78,10 @@ LIMITATIONS
 Google Chrome is a trademark of Google LLC. DeepL, OpenAI and Anthropic are trademarks of their respective owners. This extension is not affiliated with or endorsed by them.
 ```
 
-3573 characters. Checked against the store rules:
+3794 characters. Checked against the store rules:
 
 - no word other than “the/and/to…” appears more than 5 times (Shift, Alt, page, key, Chrome, text, translate,
-  translator, original, own, press — 5 each);
+  translator, translation, original, own, press — 5 each);
 - the keywords appear naturally, once or twice: hover, translator, in place, inline, page translator, free, private;
 - third-party names are used only as compatibility (“uses your own OpenAI or Anthropic API key”), at most 4 brands
   (Google Chrome, DeepL, OpenAI, Anthropic), with the trademark notice at the end and “Google Chrome™” on first use;
