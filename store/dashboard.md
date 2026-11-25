@@ -1,7 +1,7 @@
 # Developer Dashboard answers — Privacy practices and test instructions
 
 What to type into the Chrome Web Store Developer Dashboard for version 1.1.0. Text in blocks is meant to be
-pasted as is (English; justification blocks are under 1,000 characters, test instructions about 2,400). Checked against `hover-translate/manifest.json`,
+pasted as is (English; justification blocks are under 1,000 characters, test instructions under 500 — the field’s limit). Checked against `hover-translate/manifest.json`,
 `background.js`, `content.js` and `popup.js` on 18.11.2026; `contextMenus` (new in 1.1.0) — on 24.11.2026.
 
 What the manifest actually declares:
@@ -122,17 +122,12 @@ settings if the dashboard asks for it there.
 No login is needed — leave the username and password fields empty. Paste into “Additional instructions”:
 
 ```text
-No account, sign-up or API key is needed. By default the extension uses Chrome's built-in Translator API (Chrome 138+ on desktop), which runs on-device.
-
-1. After installing, a welcome tab opens. In step 1, pick a translation language different from the pages you will test on (for example "Deutsch" or "Español" if you test on English pages). In step 2, click "Download translator": Chrome downloads it once (usually under a minute, with a progress bar). Chrome allows this download only after a click, so please use the button.
-2. Point at the sample text on the welcome page and press and release Shift: the text is replaced with its translation. Press Shift again to get the original back.
-3. On a regular website (for example https://en.wikipedia.org/wiki/Translation; reload tabs opened before installing), point at a paragraph and press Shift. Esc restores the whole page. Click the toolbar icon and then "Translate page" (or press Alt+Shift+G, Ctrl+Shift+G on Mac) to translate the visible part of the page; the popup shows the progress and a Stop button, and the rest is translated while scrolling. Then "Original | Translation" in the popup switches between the two.
-4. Select a few words on a page and press Shift with the cursor over the selection, or right-click it and choose Translate "...": the translation appears in a card next to the selection, and the page stays as it is.
-5. In the popup you can also turn translation off for the current site. The gear icon in the popup (or right-click the toolbar icon > Options) opens the settings page: there you can choose "No key" (translate after resting the cursor) or show the result in a card next to the text.
-
-Optional: DeepL and AI (OpenAI/Anthropic) need the tester's own API key and are not required to review the main functionality. On the settings page, under "Translator", choose DeepL: it is connected in three steps (Consent, Key, Done). Nothing is sent until "Allow sending" is clicked and a working key is pasted (a free key is available at https://www.deepl.com/pro-api); the extension switches to DeepL only at "Done".
-
-Note: extensions don't run on chrome:// pages or the Chrome Web Store; on such a tab the popup says that translation doesn't work there. If the built-in translator is unavailable in the test browser, the toolbar icon shows "!" and the popup explains why.
+No account or key needed; uses Chrome's built-in on-device translator (Chrome 138+).
+1. In the welcome tab, pick a language unlike the test page's and click "Download translator".
+2. On a site (reload tabs opened earlier), point at a paragraph, press and release Shift: it's translated in place. Shift again or Esc restores it.
+3. Select words, press Shift over them or right-click > Translate "...": a card appears.
+4. Toolbar icon > "Translate page".
+DeepL/AI: optional, own API key.
 ```
 
 ---
